@@ -1,0 +1,6 @@
+198.51.100.14 - - [11/Aug/2026:10:19:47 +0000] "GET /portal/login HTTP/1.1" 200 5182 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+203.0.113.45 - - [11/Aug/2026:10:20:58 +0000] "GET /portal/ HTTP/1.1" 200 5182 "-" "curl/8.5.0"
+203.0.113.45 - - [11/Aug/2026:10:21:01 +0000] "GET /portal/index.php?page=about HTTP/1.1" 200 3311 "-" "curl/8.5.0"
+203.0.113.45 - - [11/Aug/2026:10:21:03 +0000] "GET /../../../../etc/passwd HTTP/1.1" 200 421 "-" "curl/8.5.0"
+203.0.113.45 - - [11/Aug/2026:10:21:07 +0000] "GET /portal/index.php?page=../../../../var/log/auth.log HTTP/1.1" 404 162 "-" "curl/8.5.0"
+198.51.100.14 - - [11/Aug/2026:10:22:34 +0000] "POST /portal/api/session HTTP/1.1" 201 118 "https://portal.example.local/portal/login" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"

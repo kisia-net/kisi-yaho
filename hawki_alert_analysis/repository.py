@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .adapters import ECSAdapter, NginxAdapter, SuricataAdapter, WazuhAdapter
+from .assets import AssetInventory, NullAssetInventory, match_assets
 from .correlate import build_case
 from .models import AlertCase, CanonicalEvent
+from .threat_intel import NullThreatIntelFeed, ThreatIntelFeed, match_indicators
 
 
 class AlertNotFound(KeyError):
@@ -41,8 +43,16 @@ class FixtureEventRepository:
     against canonical events/cases, so a live repository can replace it later.
     """
 
-    def __init__(self, root: Path):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        asset_inventory: AssetInventory | None = None,
+        threat_intel_feed: ThreatIntelFeed | None = None,
+    ):
         self.root = Path(root)
+        self.asset_inventory: AssetInventory = asset_inventory or NullAssetInventory()
+        self.threat_intel_feed: ThreatIntelFeed = threat_intel_feed or NullThreatIntelFeed()
         self._scenarios: list[LoadedScenario] | None = None
 
     def _load_jsonl(self, path: Path) -> list[dict[str, Any]]:
@@ -93,6 +103,26 @@ class FixtureEventRepository:
 
     def reload(self) -> None:
         self._scenarios = None
+        for collection in (self.asset_inventory, self.threat_intel_feed):
+            reload_collection = getattr(collection, "reload", None)
+            if callable(reload_collection):
+                reload_collection()
+
+    def enrich_case(self, case: AlertCase) -> AlertCase:
+        """Attach the asset and threat-intelligence metadata blocks.
+
+        Enrichment runs over the whole case (trigger plus correlated events) so
+        an indicator hit on a supporting event is not lost, and records where
+        each match was observed.
+        """
+        events = [case.trigger, *case.related_events]
+        case.asset_matches, case.unresolved_assets = match_assets(
+            self.asset_inventory, events, trigger_id=case.trigger.id
+        )
+        case.intel_matches, case.intel_stats = match_indicators(
+            self.threat_intel_feed, events, trigger_id=case.trigger.id
+        )
+        return case
 
     def _trigger_for_scenario(self, scenario: LoadedScenario) -> CanonicalEvent:
         selector = scenario.manifest.get("trigger") if isinstance(scenario.manifest.get("trigger"), dict) else {}
@@ -114,6 +144,15 @@ class FixtureEventRepository:
                     continue
                 mitre = event.rule.get("mitre", {}) if isinstance(event.rule.get("mitre"), dict) else {}
                 mitre_ids = mitre.get("id", []) if isinstance(mitre.get("id"), list) else []
+                asset = self.asset_inventory.lookup(event.host_name) or self.asset_inventory.lookup(
+                    event.destination_ip
+                )
+                verdicts = [
+                    indicator.verdict
+                    for value in (event.source_ip, event.destination_ip)
+                    for indicator in self.threat_intel_feed.lookup(value)
+                    if not indicator.is_expired()
+                ]
                 alerts.append(
                     {
                         "id": event.id,
@@ -127,6 +166,14 @@ class FixtureEventRepository:
                         "status": "New",
                         "risk": {"critical": 90, "high": 78, "medium": 58, "low": 35}.get(event.severity, 45),
                         "summary": event.message,
+                        # Enrichment previews for the triage queue. The full
+                        # metadata blocks live on the alert case.
+                        "asset_criticality": asset.criticality if asset else "",
+                        "asset_business_service": asset.business_service if asset else "",
+                        "threat_verdict": next(
+                            (value for value in ("malicious", "suspicious") if value in verdicts),
+                            "",
+                        ),
                     }
                 )
         alerts.sort(key=lambda item: item["time"], reverse=True)
@@ -145,7 +192,7 @@ class FixtureEventRepository:
             if trigger is None:
                 continue
             manifest = scenario.manifest
-            return build_case(
+            case = build_case(
                 case_id=f"case-{alert_id.removeprefix('evt-')}",
                 scenario_id=str(manifest.get("id", "")),
                 title=str(manifest.get("name") or trigger.message),
@@ -154,4 +201,5 @@ class FixtureEventRepository:
                 window_seconds=int(manifest.get("correlation_window_seconds", 300)),
                 minimum_score=int(manifest.get("minimum_correlation_score", 2)),
             )
+            return self.enrich_case(case)
         raise AlertNotFound(alert_id)

@@ -1714,7 +1714,15 @@ async function loadAlerts() {
     const sev = encodeURIComponent(byId("alert-severity").value); const status = encodeURIComponent(byId("alert-status").value);
     const data = await api(`/api/alerts?q=${q}&severity=${sev}&status=${status}`);
     byId("alert-count").textContent = `${data.total} alerts`;
-    byId("alerts-table").innerHTML = data.alerts.map((a) => `<div class="alert-row"><strong>${escapeHtml(a.id)}</strong><span class="severity ${escapeHtml(a.severity)}">${escapeHtml(a.severity)}</span><div><strong>${escapeHtml(a.title)}</strong><p class="muted">${escapeHtml(a.summary)}</p></div><span>${escapeHtml(a.host)}</span><span>${escapeHtml(a.mitre)}</span><span>${escapeHtml(a.status)}</span><a class="button secondary small" href="/agent?mode=alert_summary&host=${encodeURIComponent(a.host)}&incident=${encodeURIComponent(a.id)}">Explain</a></div>`).join("") || `<div class="empty-state">No alerts match the filters.</div>`;
+    byId("alerts-table").innerHTML = data.alerts.map((a) => {
+        // Enrichment previews: inventory criticality and intelligence verdict
+        // for the alert host, so triage order reflects more than severity.
+        const enrichment = [
+            a.asset_criticality ? `<span class="tag">asset: ${escapeHtml(a.asset_criticality)}</span>` : "",
+            a.threat_verdict ? `<span class="tag">intel: ${escapeHtml(a.threat_verdict)}</span>` : "",
+        ].join("");
+        return `<div class="alert-row"><strong>${escapeHtml(a.id)}</strong><span class="severity ${escapeHtml(a.severity)}">${escapeHtml(a.severity)}</span><div><strong>${escapeHtml(a.title)}</strong><p class="muted">${escapeHtml(a.summary)}</p>${enrichment ? `<div class="action-meta">${enrichment}</div>` : ""}</div><span>${escapeHtml(a.host)}</span><span>${escapeHtml(a.mitre)}</span><span>${escapeHtml(a.status)}</span><a class="button secondary small" href="/agent?mode=alert_summary&host=${encodeURIComponent(a.host)}&incident=${encodeURIComponent(a.id)}">Explain</a></div>`;
+    }).join("") || `<div class="empty-state">No alerts match the filters.</div>`;
 }
 function initAlerts() { byId("alert-filter-form").addEventListener("submit", (e) => {e.preventDefault(); loadAlerts();}); loadAlerts(); }
 

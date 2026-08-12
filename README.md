@@ -4,6 +4,10 @@ A minimal Flask-based front end that represents the intended LLM-assisted SOAR a
 
 ## Included features
 
+- Multi-source log collection normalized into a canonical event model
+- Deterministic correlation into alert cases
+- Asset inventory and threat-intelligence enrichment
+- A four-block evidence bundle delivered to the local LLM/SLM
 - Local LLM chat through an OpenAI-compatible endpoint
 - Fixed security-analyst system prompt
 - Operational metrics and alert-volume visualization
@@ -14,6 +18,68 @@ A minimal Flask-based front end that represents the intended LLM-assisted SOAR a
 - No Elasticsearch credentials exposed to the browser
 - Architecture overview dialog
 
+## Log collection and the evidence bundle
+
+Telemetry is collected in native producer formats, normalized to a canonical
+event model, correlated deterministically, and enriched before anything reaches
+the model. One alert case is delivered to the LLM/SLM as a single bundle
+(`hawki.siem.evidence-bundle/v1`) holding four metadata blocks:
+
+| Block | | Contents |
+| --- | --- | --- |
+| `security_alerts` | 보안경보 | The triggering detection (`role: "trigger"`) plus correlated detections |
+| `security_events` | 보안이벤트 | Correlated raw telemetry, normalized, with the untouched producer record under `event.original` |
+| `assets` | 자산정보 | Inventory records for hosts and addresses seen in the evidence |
+| `threat_intelligence` | 위협 인텔리전스 | Indicator matches for observables found in the evidence |
+
+Blocks are cross-referenced: every alert and event carries a `links` field
+naming the asset and indicator ids it touches, so the model does not have to
+re-join four independent lists.
+
+Each block states its own evidential weight. A detection is a producer's
+opinion, asset criticality informs impact rather than likelihood, and an
+indicator match raises suspicion without proving compromise. Hosts with no
+inventory record and observables with no intelligence coverage are reported
+explicitly, because absence of data is not evidence of safety.
+
+```text
+Suricata ─┐
+Nginx ────┼─► adapters ─► canonical events ─► correlation ─► AlertCase
+Wazuh ────┘                                                     │
+                                    asset inventory ────────────┤
+                                    threat intel feed ──────────┤
+                                                                ▼
+                                                       evidence bundle ─► LLM/SLM
+```
+
+Collection sources are swappable behind their interfaces: `FixtureEventRepository`,
+`FileAssetInventory`, and `FileThreatIntelFeed` can be replaced by Elasticsearch,
+a CMDB, and MISP/OpenCTI without changing correlation, bundling, or the agent.
+
+Relevant endpoints:
+
+```text
+GET  /api/alerts                    triage queue with asset/intel previews
+GET  /api/alerts/{id}               full case
+GET  /api/alerts/{id}/context       the exact bundle sent to the model
+GET  /api/alerts/{id}/evidence      trigger and correlated evidence
+GET  /api/alerts/{id}/timeline      ordered sequence
+POST /api/alerts/{id}/analyze       run the local model over the bundle
+GET  /api/assets                    asset inventory
+GET  /api/threat-intel              indicator feed
+```
+
+Collection roots are configurable with `ALERT_FIXTURE_ROOT`,
+`ASSET_INVENTORY_ROOT`, and `THREAT_INTEL_ROOT`. Each falls back to the fixtures
+packaged in `hawki_alert_analysis/fixtures/` when the configured path is absent,
+which is what happens in the container, where a volume is mounted over `/app/data`.
+
+`AGENT_CONTEXT_MAX_CHARS` bounds the serialized context. When a bundle exceeds
+it, evidence is reduced in order of cheapest loss — repeated boilerplate, then
+original producer records, then correlated events, then a digest — and what was
+removed is stated in the payload. The four blocks survive every step, and the
+result is always valid JSON.
+
 ## Directory structure
 
 ```text
@@ -22,11 +88,26 @@ soar_frontend/
 ├── .env.example
 ├── requirements.txt
 ├── README.md
+├── hawki_alert_analysis/     collection, correlation, enrichment, bundling
+│   ├── adapters.py           native producer formats -> canonical events
+│   ├── correlate.py          deterministic time/entity correlation
+│   ├── assets.py             asset inventory collection and matching
+│   ├── threat_intel.py       indicator feed collection and matching
+│   ├── bundle.py             the four-block evidence bundle
+│   └── repository.py         source-agnostic event repository
+├── data/
+│   ├── scenarios/            native-format telemetry fixtures
+│   ├── assets/               asset inventory
+│   └── threat_intel/         indicator feed
+├── tests/
 ├── templates/
-│   └── index.html
 └── static/
-    ├── app.js
-    └── style.css
+```
+
+## Tests
+
+```bash
+python -m unittest discover -s tests
 ```
 
 ## Run
