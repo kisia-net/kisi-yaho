@@ -5,7 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from .adapters import ECSAdapter, NginxAdapter, SuricataAdapter, WazuhAdapter
+from .adapters import (
+    ApacheAdapter,
+    AuthLogAdapter,
+    ECSAdapter,
+    NginxAdapter,
+    SuricataAdapter,
+    SyslogAdapter,
+    WazuhAdapter,
+)
 from .assets import AssetInventory, NullAssetInventory, match_assets
 from .correlate import build_case
 from .models import AlertCase, CanonicalEvent
@@ -25,9 +33,15 @@ class EventRepository(Protocol):
 ADAPTERS = {
     "suricata": SuricataAdapter(),
     "nginx": NginxAdapter(),
+    "apache": ApacheAdapter(),
+    "syslog": SyslogAdapter(),
+    "authlog": AuthLogAdapter(),
     "wazuh": WazuhAdapter(),
     "ecs": ECSAdapter(),
 }
+# Adapters that read one plain-text line per event rather than JSON objects.
+TEXT_LINE_SOURCES = {"nginx", "apache", "syslog", "authlog"}
+MAX_REPORTED_SKIPS = 25
 
 
 @dataclass(slots=True)
@@ -53,6 +67,7 @@ class FixtureEventRepository:
         self.root = Path(root)
         self.asset_inventory: AssetInventory = asset_inventory or NullAssetInventory()
         self.threat_intel_feed: ThreatIntelFeed = threat_intel_feed or NullThreatIntelFeed()
+        self.skipped_lines: list[str] = []
         self._scenarios: list[LoadedScenario] | None = None
 
     def _load_jsonl(self, path: Path) -> list[dict[str, Any]]:
@@ -73,14 +88,24 @@ class FixtureEventRepository:
         defaults = source.get("defaults") if isinstance(source.get("defaults"), dict) else {}
         path = scenario_dir / str(source["path"])
 
-        if source_type == "nginx":
+        if source_type in TEXT_LINE_SOURCES:
             rows: list[Any] = [line.rstrip("\n") for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
         else:
             rows = self._load_jsonl(path)
 
         events: list[CanonicalEvent] = []
+        skipped: list[str] = []
         for row in rows:
-            events.append(adapter.normalize(row, scenario_id=scenario_id, defaults=defaults))
+            try:
+                events.append(adapter.normalize(row, scenario_id=scenario_id, defaults=defaults))
+            except (ValueError, KeyError, TypeError) as exc:
+                # Collected logs contain lines no adapter claims — rotation
+                # banners, multi-line stack traces, truncated writes. One
+                # unparsable line must not discard the rest of the source.
+                if len(skipped) < MAX_REPORTED_SKIPS:
+                    skipped.append(f"{path.name}: {exc}")
+        if skipped:
+            self.skipped_lines.extend(skipped)
         return events
 
     def _load(self) -> list[LoadedScenario]:
@@ -103,6 +128,7 @@ class FixtureEventRepository:
 
     def reload(self) -> None:
         self._scenarios = None
+        self.skipped_lines = []
         for collection in (self.asset_inventory, self.threat_intel_feed):
             reload_collection = getattr(collection, "reload", None)
             if callable(reload_collection):

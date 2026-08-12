@@ -67,6 +67,12 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+# Runtime state: the account database holds password hashes, and the queue and
+# audit trail are per-deployment records. None of it belongs in the repository.
+*.sqlite3
+*.sqlite3-journal
+data/action_queue.jsonl
+data/audit_log.jsonl
 
 # Flask stuff:
 instance/

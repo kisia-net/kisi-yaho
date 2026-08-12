@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from .models import CanonicalEvent, parse_timestamp
@@ -170,6 +170,132 @@ class NginxAdapter:
             raw=raw,
             scenario_id=scenario_id,
         )
+
+
+class ApacheAdapter(NginxAdapter):
+    """Apache combined access log.
+
+    Apache and Nginx share the combined log format, so the parsing is shared.
+    The source identity is kept distinct because provenance matters when an
+    analyst asks where a line came from.
+    """
+
+    source_type = "apache"
+
+    def normalize(self, raw: str, *, scenario_id: str = "", defaults: dict[str, Any] | None = None) -> CanonicalEvent:
+        event = super().normalize(raw, scenario_id=scenario_id, defaults=defaults)
+        event.source_type = self.source_type
+        event.source_dataset = "apache.access"
+        event.id = stable_event_id(self.source_type, raw, event.timestamp)
+        return event
+
+
+# RFC 3164 style: "Aug 11 10:21:09 web-01 sshd[3841]: message"
+SYSLOG_LINE = re.compile(
+    r"^(?P<month>[A-Z][a-z]{2})\s+(?P<day>\d{1,2})\s+(?P<time>\d{2}:\d{2}:\d{2})\s+"
+    r"(?P<host>\S+)\s+"
+    r"(?P<program>[^\s\[:]+)(?:\[(?P<pid>\d+)\])?:\s*"
+    r"(?P<message>.*)$"
+)
+
+# Structured details that appear verbatim in common auth messages. Only
+# unambiguous forms are read; nothing is guessed from surrounding prose.
+AUTH_SOURCE = re.compile(r"\bfrom\s+(?P<ip>\d{1,3}(?:\.\d{1,3}){3})(?:\s+port\s+(?P<port>\d{1,5}))?")
+AUTH_USER = re.compile(r"\bfor(?:\s+invalid\s+user)?\s+(?P<user>[A-Za-z0-9_.\-\\$]+)\s+from\b")
+SUDO_USER = re.compile(r"^\s*(?P<user>[A-Za-z0-9_.\-\\$]+)\s*:\s*TTY=")
+SUDO_COMMAND = re.compile(r"\bCOMMAND=(?P<command>.+)$")
+AUTH_FAILURE = re.compile(
+    r"\b(failed password|authentication failure|invalid user|failure|denied|refused)\b", re.I
+)
+AUTH_SUCCESS = re.compile(r"\b(accepted password|accepted publickey|session opened|new session)\b", re.I)
+
+
+class SyslogAdapter:
+    """Linux syslog / auth.log lines in RFC 3164 form.
+
+    Syslog carries no year, so the manifest supplies one through
+    `defaults.year`; without it the current year is assumed, which is stated
+    on the event rather than hidden.
+    """
+
+    source_type = "syslog"
+    dataset = "linux.syslog"
+
+    def normalize(self, raw: str, *, scenario_id: str = "", defaults: dict[str, Any] | None = None) -> CanonicalEvent:
+        defaults = defaults or {}
+        match = SYSLOG_LINE.match(raw.strip())
+        if not match:
+            raise ValueError(f"Unsupported syslog line: {raw[:120]}")
+        fields = match.groupdict()
+
+        year = int(defaults.get("year") or datetime.now(timezone.utc).year)
+        stamp = datetime.strptime(
+            f"{year} {fields['month']} {int(fields['day']):02d} {fields['time']}",
+            "%Y %b %d %H:%M:%S",
+        ).replace(tzinfo=timezone.utc)
+
+        program = fields["program"]
+        message = fields["message"].strip()
+        tags = [] if defaults.get("year") else ["assumed-year"]
+
+        process: dict[str, Any] = {"name": program}
+        if fields["pid"]:
+            process["pid"] = int(fields["pid"])
+
+        source_ip = ""
+        source_port: int | None = None
+        user = ""
+        outcome = ""
+        categories = ["host"]
+
+        if source_match := AUTH_SOURCE.search(message):
+            source_ip = source_match.group("ip")
+            if source_match.group("port"):
+                source_port = int(source_match.group("port"))
+        if user_match := AUTH_USER.search(message):
+            user = user_match.group("user")
+        elif sudo_match := SUDO_USER.match(message):
+            user = sudo_match.group("user")
+        if command_match := SUDO_COMMAND.search(message):
+            process["command_line"] = command_match.group("command").strip()
+
+        if program in {"sshd", "sudo", "su", "login", "systemd-logind", "polkitd"} or source_ip:
+            categories.append("authentication")
+            # Outcome is stated by the producer's own wording, not inferred
+            # from whether the activity looks suspicious.
+            if AUTH_FAILURE.search(message):
+                outcome = "failure"
+            elif AUTH_SUCCESS.search(message):
+                outcome = "success"
+        if "command_line" in process:
+            categories.append("process")
+
+        return CanonicalEvent(
+            id=stable_event_id(self.source_type, raw, stamp.isoformat()),
+            timestamp=stamp.isoformat(),
+            source_type=self.source_type,
+            source_dataset=str(defaults.get("dataset") or self.dataset),
+            kind="event",
+            category=list(dict.fromkeys(categories)),
+            severity="info",
+            outcome=outcome,
+            message=f"{program}: {message}" if message else program,
+            host_name=str(defaults.get("host_name") or fields["host"]),
+            source_ip=source_ip,
+            source_port=source_port,
+            user_name=user,
+            process=process,
+            tags=tags,
+            raw=raw,
+            scenario_id=scenario_id,
+        )
+
+
+class AuthLogAdapter(SyslogAdapter):
+    """auth.log: syslog structurally, authentication by dataset."""
+
+    source_type = "authlog"
+    dataset = "linux.auth"
 
 
 class WazuhAdapter:

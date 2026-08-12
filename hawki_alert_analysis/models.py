@@ -32,6 +32,9 @@ class CanonicalEvent:
     kind: str
     category: list[str] = field(default_factory=list)
     severity: str = "info"
+    # ECS event.outcome. Mapped from the producer when it states one; never
+    # inferred from what the event appears to mean.
+    outcome: str = ""
     message: str = ""
     host_name: str = ""
     source_ip: str = ""
@@ -133,9 +136,14 @@ class CanonicalEvent:
             "source_type": self.source_type,
             "source_dataset": self.source_dataset,
             "event": {
-                "kind": self.kind,
-                "category": self.category,
-                "severity": self.severity,
+                key: value
+                for key, value in {
+                    "kind": self.kind,
+                    "category": self.category,
+                    "severity": self.severity,
+                    "outcome": self.outcome,
+                }.items()
+                if value or key != "outcome"
             },
             "message": self.message,
             "host": {"name": self.host_name} if self.host_name else {},

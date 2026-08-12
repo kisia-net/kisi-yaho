@@ -80,6 +80,102 @@ original producer records, then correlated events, then a digest — and what wa
 removed is stated in the payload. The four blocks survive every step, and the
 result is always valid JSON.
 
+## Collecting real logs
+
+Adapters exist for Suricata EVE, Wazuh alerts, Nginx and Apache combined access
+logs, Linux syslog, and `auth.log`, plus a generic ECS reader. Anything those
+understand can be ingested without writing code.
+
+### From a directory of collected logs
+
+```bash
+python -m hawki_alert_analysis.ingest /path/to/logs \
+    --out data/scenarios/my_case --host web-01 --year 2026 --dry-run
+```
+
+Source types are identified by filename, then by content. Detection reports
+what it classified and what it could not — a file no adapter reads is named
+rather than skipped quietly, because a source silently missing from a case looks
+exactly like a source that had nothing in it. Individual unparsable lines
+(rotation banners, truncated writes) are counted in
+`FixtureEventRepository.skipped_lines` instead of discarding the whole file.
+
+Syslog carries no year, so pass `--year`; without it the current year is assumed
+and the events are tagged `assumed-year`. Ingest never writes into the log
+directory, so read-only corpora work as-is.
+
+### From a PCAP
+
+```bash
+python tools/collect_pcap.py capture.pcap --out data/scenarios/replay_case
+```
+
+Suricata reads the capture and writes its own `eve.json`; nothing about the
+resulting events is synthetic. Suricata is not bundled — if it is missing, the
+script prints installation instructions and exits rather than reporting a
+collection that did not happen.
+
+### Ground truth
+
+`--labels labels.json` attaches ground truth and names the trigger explicitly:
+
+```json
+{
+  "id": "COLLECTED-001",
+  "trigger": {"source_type": "suricata", "kind": "alert", "rule_id": "2100001"},
+  "correlation_window_seconds": 240,
+  "expected": {
+    "attack_techniques": ["T1190", "T1059.004"],
+    "affected_hosts": ["web-01"],
+    "indicators": ["203.0.113.45"],
+    "answers": [{"question": "Which account executed the shell?", "expect": ["www-data"]}]
+  }
+}
+```
+
+Scenarios remain necessary after switching to real logs, but their role changes:
+the manifest is the label layer, not the data. Evaluating whether a
+reconstruction is *correct* requires knowing the answer.
+
+### Datasets
+
+Flow-feature datasets — CIC-IDS2017, CSE-CIC-IDS2018, UNSW-NB15, KDD'99 — do not
+fit this system. They ship derived statistics per flow rather than raw producer
+records, and there is no incident to reconstruct from a feature vector.
+
+These do fit:
+
+| Dataset | Contents | Use |
+| --- | --- | --- |
+| AIT Log Data Set (AIT-LDS) | Apache, auth, syslog, audit, DNS, Suricata EVE, and Wazuh in v2; multi-host, labeled attack phases | Closest match to the existing adapters; primary evaluation corpus. Check the Zenodo record for the exact per-version source list |
+| OTRF Security-Datasets (ex-Mordor) | Per-ATT&CK-technique JSON, Sysmon and Windows Security | Technique-level evaluation; needs a Sysmon adapter |
+| Splunk `attack_data` | Per-technique raw logs across many producers | Pick individual datasets |
+| Splunk BOTS v1–v3 | A full incident with ground-truth Q&A | Feed the Q&A into `expected.answers` as an evaluation set |
+| malware-traffic-analysis.net | PCAP plus a published write-up | Replay through `collect_pcap.py`; the write-up is the ground truth |
+| EVTX-ATTACK-SAMPLES | Per-technique Windows EVTX | Windows coverage |
+
+Keep corpora outside the repository — size and licensing both argue against
+committing them — and point `ALERT_FIXTURE_ROOT` at them.
+
+## Evaluating the analysis
+
+```bash
+python tools/evaluate.py             # every scenario, deterministic demo path
+python tools/evaluate.py --live      # against the configured LLM
+python tools/evaluate.py --json report.json
+```
+
+Three things are measured, in decreasing order of how objectively they can be
+judged: schema coverage, citation grounding, and recovery of any declared ground
+truth. The first two need no labels, so this doubles as a regression check on
+the synthetic fixture. A `--live` run exits non-zero when an assessment is
+incomplete or cites an event id that is not in the bundle, so it can gate prompt
+and bundle changes.
+
+Ground-truth matching is deliberately shallow — it looks for expected strings in
+the assessment. That catches a missed technique or host. It does not judge
+whether the reasoning is sound, and no automatic check does.
+
 ## Structured assessment
 
 For `alert_summary`, the model must return an `assessment` object rather than
@@ -112,6 +208,7 @@ soar_frontend/
 ├── README.md
 ├── hawki_alert_analysis/     collection, correlation, enrichment, bundling
 │   ├── adapters.py           native producer formats -> canonical events
+│   ├── ingest.py             collected log directory -> scenario manifest
 │   ├── correlate.py          deterministic time/entity correlation
 │   ├── assets.py             asset inventory collection and matching
 │   ├── threat_intel.py       indicator feed collection and matching
@@ -122,6 +219,9 @@ soar_frontend/
 │   ├── scenarios/            native-format telemetry fixtures
 │   ├── assets/               asset inventory
 │   └── threat_intel/         indicator feed
+├── tools/
+│   ├── collect_pcap.py       PCAP -> Suricata -> scenario
+│   └── evaluate.py           schema, grounding, and ground-truth scoring
 ├── tests/
 ├── templates/
 └── static/
