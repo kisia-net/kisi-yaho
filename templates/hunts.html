@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block subtitle %}<p class="page-description">Track suspicious-file hunts and stage new Velociraptor collections through the agent.</p>{% endblock %}
+{% block content %}
+<section class="split-grid">
+    <article class="panel">
+        <div class="panel-header"><div><p class="panel-kicker">Velociraptor</p><h2>File-hunt activity</h2></div><a class="button secondary" href="{{ velociraptor_url }}" target="_blank" rel="noopener noreferrer">Open Velociraptor ↗</a></div>
+        <div id="hunt-list" class="hunt-list loading-block">Loading hunts…</div>
+    </article>
+    <article class="panel">
+        <div class="panel-header"><div><p class="panel-kicker">New hunt</p><h2>Agent-assisted scope</h2></div></div>
+        <form class="stack-form" id="hunt-agent-form">
+            <label>Target host or group<input id="hunt-target" placeholder="Finance segment"></label>
+            <label>Indicator or behavior<textarea id="hunt-indicator" rows="5" placeholder="Unsigned executable in AppData, known hash, suspicious filename, persistence path…"></textarea></label>
+            <label>Incident ID<input id="hunt-incident" placeholder="INC-2026-1042"></label>
+            <button class="button primary" type="submit">Open hunt plan in agent</button>
+        </form>
+        <div class="policy-note">The front end stages a Velociraptor hunt proposal. It does not run arbitrary VQL or shell commands.</div>
+    </article>
+</section>
+{% endblock %}

@@ -1,0 +1,33 @@
+{
+  "id": "WEB-TRAVERSAL-001",
+  "name": "HTTP path traversal followed by suspicious host execution",
+  "description": "Synthetic multi-source case for validating alert explanation, evidence correlation, and follow-up investigation.",
+  "correlation_window_seconds": 300,
+  "minimum_correlation_score": 2,
+  "trigger": {
+    "source_type": "suricata",
+    "kind": "alert",
+    "rule_id": "2100001"
+  },
+  "sources": [
+    {
+      "type": "suricata",
+      "path": "suricata_eve.jsonl",
+      "defaults": {"host_name": "web-01"}
+    },
+    {
+      "type": "nginx",
+      "path": "nginx_access.log",
+      "defaults": {
+        "host_name": "web-01",
+        "destination_ip": "192.168.50.20",
+        "destination_port": 80
+      }
+    },
+    {
+      "type": "wazuh",
+      "path": "wazuh_alerts.jsonl",
+      "defaults": {"host_name": "web-01"}
+    }
+  ]
+}

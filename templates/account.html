@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block subtitle %}<p class="page-description">Review your account and change your password.</p>{% endblock %}
+{% block content %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-list">
+    {% for category, message in messages %}
+    <div class="flash-message {{ category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<section class="account-grid">
+    <article class="panel">
+        <div class="panel-header">
+            <div><p class="panel-kicker">Identity</p><h2>Account details</h2></div>
+        </div>
+        <div class="account-summary">
+            <dl>
+                <dt>Username</dt><dd>{{ current_user.username }}</dd>
+                <dt>Role</dt><dd>{{ current_user.role }}</dd>
+                <dt>Created</dt><dd>{{ current_user.created_at }}</dd>
+                <dt>Last login</dt><dd>{{ current_user.last_login_at or "First session" }}</dd>
+            </dl>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="panel-header">
+            <div><p class="panel-kicker">Credential</p><h2>Change password</h2></div>
+        </div>
+        <form class="stack-form" method="post" action="{{ url_for('account_change_password') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label>Current password<input type="password" name="current_password" required autocomplete="current-password"></label>
+            <label>New password<input type="password" name="new_password" required minlength="12" maxlength="128" autocomplete="new-password"></label>
+            <label>Confirm new password<input type="password" name="confirm_password" required minlength="12" maxlength="128" autocomplete="new-password"></label>
+            <div class="button-row"><button class="button primary" type="submit">Change password</button></div>
+        </form>
+    </article>
+</section>
+{% endblock %}

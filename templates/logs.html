@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block subtitle %}<p class="page-description">Kibana remains the primary forensic interface; this page offers safe links and optional read-only searches.</p>{% endblock %}
+{% block content %}
+<section class="panel">
+    <form id="log-search-form" class="log-form">
+        <label>Index pattern<input id="log-index" value="logs-*"></label>
+        <label>Language<select id="log-language"><option value="kql">KQL · Kibana link</option><option value="query_string">Elasticsearch query string</option></select></label>
+        <label class="span-two">Query<input id="log-query" value="event.category:authentication and event.outcome:failure"></label>
+        <label>Start<input id="log-start" value="now-24h"></label>
+        <label>End<input id="log-end" value="now"></label>
+        <label>Limit<input id="log-size" type="number" min="1" max="200" value="50"></label>
+        <button class="button primary" type="submit">Run search</button>
+    </form>
+    <div class="policy-note" id="log-policy-note">Checking Elasticsearch search policy…</div>
+    <div class="table-header"><span id="log-count">No search executed</span><div><button class="button ghost" id="copy-log-query" type="button">Copy query</button><a class="button secondary" id="open-kibana-link" href="{{ kibana_url }}/app/discover" target="_blank" rel="noopener noreferrer">Open Kibana ↗</a></div></div>
+    <div class="log-results" id="log-results"><div class="empty-state">Search results will appear here.</div></div>
+</section>
+{% endblock %}

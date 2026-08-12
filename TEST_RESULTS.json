@@ -1,0 +1,123 @@
+{
+  "python_syntax": "passed",
+  "javascript_syntax": "passed",
+  "jinja_templates": "passed",
+  "route_static_check": "passed",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/",
+      "function": "dashboard_page"
+    },
+    {
+      "method": "GET",
+      "path": "/agent",
+      "function": "agent_page"
+    },
+    {
+      "method": "GET",
+      "path": "/alerts",
+      "function": "alerts_page"
+    },
+    {
+      "method": "GET",
+      "path": "/logs",
+      "function": "logs_page"
+    },
+    {
+      "method": "GET",
+      "path": "/hunts",
+      "function": "hunts_page"
+    },
+    {
+      "method": "GET",
+      "path": "/response",
+      "function": "response_page"
+    },
+    {
+      "method": "GET",
+      "path": "/rules",
+      "function": "rules_page"
+    },
+    {
+      "method": "GET",
+      "path": "/actions",
+      "function": "actions_page"
+    },
+    {
+      "method": "GET",
+      "path": "/audit",
+      "function": "audit_page"
+    },
+    {
+      "method": "GET",
+      "path": "/api/build",
+      "function": "api_build"
+    },
+    {
+      "method": "GET",
+      "path": "/api/status",
+      "function": "api_status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config",
+      "function": "api_config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboard",
+      "function": "api_dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/alerts",
+      "function": "api_alerts"
+    },
+    {
+      "method": "GET",
+      "path": "/api/hunts",
+      "function": "api_hunts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/log-search",
+      "function": "api_log_search"
+    },
+    {
+      "method": "POST",
+      "path": "/api/agent/chat",
+      "function": "api_agent_chat"
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat",
+      "function": "api_chat_compatibility"
+    },
+    {
+      "method": "GET",
+      "path": "/api/actions",
+      "function": "api_actions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/actions/queue",
+      "function": "api_queue_action"
+    },
+    {
+      "method": "POST",
+      "path": "/api/actions/<action_id>/decision",
+      "function": "api_action_decision"
+    },
+    {
+      "method": "POST",
+      "path": "/api/rules/validate",
+      "function": "api_validate_rule"
+    },
+    {
+      "method": "GET",
+      "path": "/api/audit",
+      "function": "api_audit"
+    }
+  ]
+}

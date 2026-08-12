@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HAW-KI · Sign in</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="auth-page" data-page="login">
+    <main class="auth-shell">
+        <section class="auth-card">
+            <div class="auth-brand">
+                <span class="brand-mark">H</span>
+                <div>
+                    <p class="eyebrow">HAW-KI SOAR</p>
+                    <h1>Sign in</h1>
+                </div>
+            </div>
+
+            <p>Authenticate to access alerts, agent workspaces, account chat history, and approval-controlled response actions.</p>
+
+            {% if error %}
+            <div class="auth-error">{{ error }}</div>
+            {% endif %}
+
+            <form class="auth-form" method="post" action="{{ url_for('login_page') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="next" value="{{ next_path }}">
+
+                <label>
+                    Username
+                    <input name="username" autocomplete="username" required autofocus maxlength="32">
+                </label>
+
+                <label>
+                    Password
+                    <input type="password" name="password" autocomplete="current-password" required maxlength="128">
+                </label>
+
+                <button class="button primary" type="submit">Sign in</button>
+            </form>
+        </section>
+        <p class="auth-footnote">No default account is created. The initial administrator is configured through environment variables.</p>
+    </main>
+</body>
+</html>

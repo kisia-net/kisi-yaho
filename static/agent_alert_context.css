@@ -1,0 +1,43 @@
+.agent-alert-selector {
+    display: grid;
+    gap: 4px;
+}
+
+.agent-alert-selector > span {
+    color: var(--muted);
+    font-size: .66rem;
+}
+
+.agent-alert-selector select[multiple] {
+    min-height: 138px;
+    margin-top: 2px;
+    padding: 5px;
+    line-height: 1.35;
+}
+
+.agent-alert-selector select[multiple] option {
+    padding: 7px 8px;
+    border-radius: 6px;
+    white-space: normal;
+}
+
+.agent-alert-selector select[multiple] option:checked {
+    background: var(--accent-soft);
+    color: var(--text);
+}
+
+.agent-alert-selector small {
+    color: var(--subtle);
+    font-size: .58rem;
+    line-height: 1.4;
+}
+
+.agent-alert-summary {
+    padding: 8px 9px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-2);
+    color: var(--muted);
+    font-size: .61rem;
+    line-height: 1.45;
+}

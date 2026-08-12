@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="rules-workspace">
+    <div class="rule-inventory-layout">
+        <article class="panel rules-editor-panel">
+            <div class="panel-header rules-panel-header">
+                <h2 class="approvals-title">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 5h14v14H5z"></path>
+                        <path d="M8 9h8M8 13h6M8 17h4"></path>
+                    </svg>
+                    <span>Suricata rule editor</span>
+                </h2>
+                <button id="new-rule-record" class="new-chat-button"
+                    type="button" aria-label="New rule" title="New rule">
+                    <span aria-hidden="true">+</span>
+                </button>
+            </div>
+
+            <form id="rule-form" class="stack-form rules-editor-form">
+                <input id="rule-record-id" type="hidden">
+
+                <div class="rule-target-grid">
+                    <label>
+                        <span>Rule name</span>
+                        <input id="rule-name" required
+                            placeholder="Block unauthorized SSH ingress">
+                    </label>
+                    <label>
+                        <span>Host</span>
+                        <input id="rule-host" list="rule-host-options" required
+                            placeholder="sensor-gateway-01">
+                    </label>
+                    <label>
+                        <span>Interface</span>
+                        <input id="rule-interface" list="rule-interface-options"
+                            required placeholder="ens33">
+                    </label>
+                    <label>
+                        <span>Tags</span>
+                        <input id="rule-tags"
+                            placeholder="ssh, perimeter, production">
+                    </label>
+                </div>
+
+                <label>
+                    <span>Description / detection intent</span>
+                    <textarea id="rule-intent" rows="3"
+                        placeholder="Describe why this rule exists and what traffic it handles."></textarea>
+                </label>
+
+                <label>
+                    <span>Rule</span>
+                    <textarea id="rule-text" class="code-input" rows="10">alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"HAW-KI staged suspicious outbound host"; flow:established,to_server; http.host; content:"example.invalid"; nocase; sid:9900001; rev:1;)</textarea>
+                </label>
+
+                <label class="rule-enabled-control">
+                    <input id="rule-enabled" type="checkbox" checked>
+                    <span>Target state: enabled</span>
+                </label>
+
+                <div class="button-row rules-editor-actions">
+                    <button class="button secondary" id="validate-rule"
+                        type="button">Validate structure</button>
+                    <button class="button primary" id="ask-rule-agent"
+                        type="button">Review with agent</button>
+                    <button class="button secondary" id="save-rule-record"
+                        type="submit">Save rule</button>
+                    <button class="button warning" id="stage-rule-record"
+                        type="button">Stage for approval</button>
+                </div>
+            </form>
+
+            <div id="rule-validation" class="validation-output empty-state">
+                Validation output will appear here.
+            </div>
+
+            <datalist id="rule-host-options"></datalist>
+            <datalist id="rule-interface-options"></datalist>
+        </article>
+
+        <article class="panel rules-inventory-panel">
+            <div class="panel-header rules-panel-header">
+                <h2 class="approvals-title">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <ellipse cx="12" cy="5" rx="7" ry="3"></ellipse>
+                        <path d="M5 5v7c0 1.7 3.1 3 7 3s7-1.3 7-3V5"></path>
+                        <path d="M5 12v7c0 1.7 3.1 3 7 3s7-1.3 7-3v-7"></path>
+                    </svg>
+                    <span>Suricata rule database</span>
+                </h2>
+                <div class="approvals-header-tools">
+                    <span id="rule-inventory-total"
+                        class="approval-total-label">0 rules</span>
+                    <button id="refresh-rule-inventory"
+                        class="approval-refresh-button" type="button"
+                        aria-label="Refresh rule database"
+                        title="Refresh rule database">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M20 11a8 8 0 1 0-2.34 5.66"></path>
+                            <path d="M20 4v7h-7"></path>
+                        </svg>
+                    </button>
+                    {% if suricata_ui_url %}
+                    <a class="approval-header-link"
+                        href="{{ suricata_ui_url }}">Suricata UI</a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div id="rule-inventory-summary"
+                class="approval-summary-strip"></div>
+
+            <form id="rule-inventory-filters"
+                class="rule-inventory-filterbar">
+                <label>
+                    <span>Search</span>
+                    <input id="rule-db-search" type="search"
+                        placeholder="Name, SID, host, interface, tag…">
+                </label>
+                <label>
+                    <span>Host</span>
+                    <select id="rule-db-host">
+                        <option value="">All hosts</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Interface</span>
+                    <select id="rule-db-interface">
+                        <option value="">All interfaces</option>
+                    </select>
+                </label>
+                <label>
+                    <span>State</span>
+                    <select id="rule-db-state">
+                        <option value="">All states</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Tag</span>
+                    <select id="rule-db-tag">
+                        <option value="">All tags</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Enabled</span>
+                    <select id="rule-db-enabled">
+                        <option value="">All</option>
+                        <option value="true">Enabled</option>
+                        <option value="false">Disabled</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Sort</span>
+                    <select id="rule-db-sort">
+                        <option value="updated_desc">Recently updated</option>
+                        <option value="updated_asc">Oldest updated</option>
+                        <option value="host">Host</option>
+                        <option value="interface">Interface</option>
+                        <option value="sid">SID</option>
+                        <option value="state">State</option>
+                    </select>
+                </label>
+                <button id="clear-rule-db-filters"
+                    class="button secondary small" type="button">Clear</button>
+            </form>
+
+            <div class="approval-results-bar">
+                <span id="rule-db-results">Loading rule database…</span>
+            </div>
+            <div id="rule-database-list"
+                class="rule-database-list loading-block">
+                Loading rules…
+            </div>
+        </article>
+    </div>
+</section>
+{% endblock %}

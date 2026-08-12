@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block subtitle %}<p class="page-description">Create accounts, assign roles, disable access, and reset passwords.</p>{% endblock %}
+{% block content %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-list">
+    {% for category, message in messages %}
+    <div class="flash-message {{ category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<section class="user-management-grid">
+    <article class="panel">
+        <div class="panel-header">
+            <div><p class="panel-kicker">Administrator</p><h2>Create user</h2></div>
+        </div>
+        <form class="stack-form" method="post" action="{{ url_for('admin_create_user') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label>Username<input name="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_.-]+"></label>
+            <label>Initial password<input type="password" name="password" required minlength="12" maxlength="128"></label>
+            <label>Role
+                <select name="role">
+                    {% for role in roles %}<option value="{{ role }}">{{ role }}</option>{% endfor %}
+                </select>
+            </label>
+            <button class="button primary" type="submit">Create account</button>
+        </form>
+    </article>
+
+    <article class="panel">
+        <div class="panel-header">
+            <div><p class="panel-kicker">Accounts</p><h2>Existing users</h2></div>
+        </div>
+        <div class="user-list">
+            {% for user in users %}
+            <div class="user-row">
+                <div>
+                    <strong>{{ user.username }}</strong>
+                    <small>{{ user.created_at }}</small>
+                </div>
+
+                <form method="post" action="{{ url_for('admin_set_user_role', user_id=user.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <select name="role" {% if user.id == current_user.id %}disabled{% endif %}>
+                        {% for role in roles %}
+                        <option value="{{ role }}" {% if role == user.role %}selected{% endif %}>{{ role }}</option>
+                        {% endfor %}
+                    </select>
+                    <button class="button secondary small" type="submit" {% if user.id == current_user.id %}disabled{% endif %}>Set</button>
+                </form>
+
+                <form method="post" action="{{ url_for('admin_set_user_status', user_id=user.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="active" value="{{ 0 if user.is_active else 1 }}">
+                    <button class="button {{ 'danger' if user.is_active else 'primary' }} small" type="submit" {% if user.id == current_user.id %}disabled{% endif %}>
+                        {{ "Disable" if user.is_active else "Enable" }}
+                    </button>
+                </form>
+
+                <form method="post" action="{{ url_for('admin_reset_user_password', user_id=user.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="password" name="password" required minlength="12" maxlength="128" placeholder="New password">
+                    <button class="button secondary small" type="submit">Reset</button>
+                </form>
+
+                <div>
+                    <span class="{{ 'user-status-active' if user.is_active else 'user-status-disabled' }}">
+                        {{ "Active" if user.is_active else "Disabled" }}
+                    </span>
+                    <small>Last login: {{ user.last_login_at or "never" }}</small>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+{% endblock %}

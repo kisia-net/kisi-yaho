@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block subtitle %}<p class="page-description">Important notices, approval pressure, and connectivity. Detailed operations are intentionally separated into dedicated pages.</p>{% endblock %}
+{% block content %}
+<section class="metric-grid compact" id="dashboard-metrics">
+    <article class="metric-card"><span>Critical alerts</span><strong id="metric-critical">—</strong><small>Require triage</small></article>
+    <article class="metric-card"><span>Open incidents</span><strong id="metric-incidents">—</strong><small>Across active cases</small></article>
+    <article class="metric-card"><span>Pending approvals</span><strong id="metric-actions">—</strong><small>Write-capable proposals</small></article>
+    <article class="metric-card"><span>Active hunts</span><strong id="metric-hunts">—</strong><small>Endpoint collections</small></article>
+</section>
+
+<section class="dashboard-grid">
+    <article class="panel notices-panel">
+        <div class="panel-header"><div><p class="panel-kicker">Attention required</p><h2>Important notices</h2></div></div>
+        <div id="notice-list" class="notice-list loading-block">Loading notices…</div>
+    </article>
+
+    <article class="panel">
+        <div class="panel-header"><div><p class="panel-kicker">Connectivity</p><h2>Service reachability</h2></div><span id="status-checked-at" class="muted">Not checked</span></div>
+        <div class="service-grid" id="dashboard-services">
+            {% for name in ['llm', 'elasticsearch', 'kibana', 'velociraptor', 'suricata'] %}
+            <div class="service-card" data-service-card="{{ name }}">
+                <span class="status-dot unknown" data-service-dot="{{ name }}"></span>
+                <div><strong>{{ name|replace('_', ' ')|title }}</strong><small data-service-label="{{ name }}">Checking</small></div>
+                <span class="latency" data-service-latency="{{ name }}">—</span>
+            </div>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<section class="panel">
+    <div class="panel-header"><div><p class="panel-kicker">Operational shortcuts</p><h2>Investigation workspaces</h2></div></div>
+    <div class="feature-grid">
+        <a class="feature-card" href="/agent?mode=alert_summary"><span>01</span><strong>Explain alerts</strong><p>Translate alerts into evidence, interpretation, and next checks.</p></a>
+        <a class="feature-card" href="/logs"><span>02</span><strong>Search logs</strong><p>Use KQL links or restricted Elasticsearch searches.</p></a>
+        <a class="feature-card" href="/hunts"><span>03</span><strong>Hunt files</strong><p>Plan and stage suspicious-file collections through Velociraptor.</p></a>
+        <a class="feature-card" href="/response"><span>04</span><strong>Respond to hosts</strong><p>Stage evidence collection, isolation, and remediation proposals.</p></a>
+        <a class="feature-card" href="/rules"><span>05</span><strong>Manage rules</strong><p>Draft, validate, stage, and approve Suricata rules.</p></a>
+        <a class="feature-card" href="/actions"><span>06</span><strong>Approve actions</strong><p>Review every write-capable proposal before submission.</p></a>
+    </div>
+</section>
+{% endblock %}

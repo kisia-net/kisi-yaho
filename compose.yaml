@@ -1,0 +1,104 @@
+name: hawki
+
+services:
+  hawki-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: hawki-web
+    restart: unless-stopped
+
+    depends_on:
+      - vllm
+
+    env_file:
+      - .env
+
+    environment:
+      # Inside Docker, use the Compose service name rather than localhost.
+      LLM_API_URL: "http://vllm:8000/v1/chat/completions"
+      LLM_MODEL: "${VLLM_SERVED_MODEL:-hawki-local}"
+      LLM_API_KEY: "${VLLM_API_KEY}"
+
+    ports:
+      - "5000:5000"
+
+    volumes:
+      - hawki-data:/app/data
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    networks:
+      - hawki
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: hawki-vllm
+    restart: unless-stopped
+
+    gpus: all
+    ipc: host
+
+    environment:
+      CUDA_VISIBLE_DEVICES: "${CUDA_VISIBLE_DEVICES:-0}"
+
+    volumes:
+      - hawki-hf-cache:/root/.cache/huggingface
+      - hawki-vllm-cache:/root/.cache/vllm
+
+    # Allows hawki-web to reach port 8000 over the Docker network.
+    expose:
+      - "8000"
+
+    # Optional: allows direct testing from the workstation.
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    command:
+      - --model
+      - "${VLLM_MODEL:-openai/gpt-oss-20b}"
+
+      - --served-model-name
+      - "${VLLM_SERVED_MODEL:-hawki-local}"
+
+      - --host
+      - "0.0.0.0"
+
+      - --port
+      - "8000"
+
+      - --api-key
+      - "${VLLM_API_KEY}"
+
+      - --gpu-memory-utilization
+      - "${VLLM_GPU_MEMORY_UTILIZATION:-0.88}"
+
+      - --max-model-len
+      - "${VLLM_MAX_MODEL_LEN:-32768}"
+
+      - --max-num-seqs
+      - "${VLLM_MAX_NUM_SEQS:-4}"
+
+      - --enable-auto-tool-choice
+
+      - --tool-call-parser
+      - openai
+
+      - --reasoning-parser
+      - openai_gptoss
+
+      - --enable-prefix-caching
+
+    networks:
+      - hawki
+
+networks:
+  hawki:
+    name: hawki-network
+
+volumes:
+  hawki-data:
+  hawki-hf-cache:
+  hawki-vllm-cache:

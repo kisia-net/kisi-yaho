@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block subtitle %}<p class="page-description">Correlated multi-source evidence for one alert. The test case uses native-format Suricata, Nginx, and Wazuh telemetry.</p>{% endblock %}
+{% block content %}
+<div id="alert-analysis-root" data-alert-id="{{ alert_id }}" data-csrf="{{ csrf_token() }}">
+    <section class="panel">
+        <div class="panel-header">
+            <div><p class="panel-kicker">Alert case</p><h2 data-case-title>Loading alert…</h2><p class="muted" data-case-id></p></div>
+            <div class="button-row">
+                <button class="button primary" type="button" data-analyze>Analyze with LLM</button>
+                <a class="button secondary" href="/agent?mode=alert_summary" data-continue-agent>Continue in Agent</a>
+            </div>
+        </div>
+    </section>
+
+    <section class="split-grid">
+        <article class="panel">
+            <div class="panel-header"><div><p class="panel-kicker">Trigger</p><h2>Alert evidence</h2></div></div>
+            <div class="structured-output" data-trigger></div>
+        </article>
+        <article class="panel">
+            <div class="panel-header"><div><p class="panel-kicker">Correlation</p><h2>Entities</h2></div></div>
+            <div class="structured-output" data-entities></div>
+        </article>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header"><div><p class="panel-kicker">Local LLM</p><h2>Case assessment</h2></div><span class="muted" data-analysis-meta>Not analyzed</span></div>
+        <div class="structured-output empty-state" data-analysis-output>Run analysis to evaluate the trigger together with related network, application, and host evidence.</div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header"><div><p class="panel-kicker">Evidence sequence</p><h2>Timeline</h2></div></div>
+        <div class="structured-output" data-timeline></div>
+    </section>
+</div>
+<script src="{{ url_for('static', filename='alert_analysis.js', v=asset_version) }}"></script>
+{% endblock %}

@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block subtitle %}<p class="page-description">Append-only local audit view for searches, agent requests, rule validation, and approval decisions.</p>{% endblock %}
+{% block content %}
+<section class="panel">
+    <div class="panel-header"><div><p class="panel-kicker">Traceability</p><h2>Audit events</h2></div><button class="button secondary" id="refresh-audit" type="button">Refresh</button></div>
+    <div id="audit-list" class="audit-list loading-block">Loading audit trail…</div>
+</section>
+{% endblock %}

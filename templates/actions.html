@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel approvals-workspace">
+    <div class="panel-header approvals-page-header">
+        <h2 class="approvals-title">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 4h10v3H7z"></path>
+                <path d="M5 6h14v14H5z"></path>
+                <path d="m8 13 2 2 5-5"></path>
+            </svg>
+            <span>Action approvals</span>
+        </h2>
+        <div class="approvals-header-tools">
+            <span id="approval-total-label" class="approval-total-label">0 actions</span>
+            <button id="refresh-approvals" class="approval-refresh-button" type="button"
+                aria-label="Refresh approvals" title="Refresh approvals">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M20 11a8 8 0 1 0-2.34 5.66"></path>
+                    <path d="M20 4v7h-7"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="approval-summary" aria-label="Approval queue summary">
+        <div class="approval-summary-item">
+            <span class="approval-summary-dot status-pending"></span>
+            <span>Pending</span>
+            <strong id="approval-count-pending">0</strong>
+        </div>
+        <div class="approval-summary-item">
+            <span class="approval-summary-dot status-approved"></span>
+            <span>Approved</span>
+            <strong id="approval-count-approved">0</strong>
+        </div>
+        <div class="approval-summary-item">
+            <span class="approval-summary-dot status-rejected"></span>
+            <span>Rejected / failed</span>
+            <strong id="approval-count-rejected">0</strong>
+        </div>
+    </div>
+
+    <form id="approval-filters" class="approval-filterbar">
+        <label class="approval-search-field">
+            <span>Search</span>
+            <input id="approval-search" type="search" placeholder="ID, title, summary, rule, host…">
+        </label>
+        <label>
+            <span>Tag</span>
+            <select id="approval-tag-filter">
+                <option value="">All tags</option>
+            </select>
+        </label>
+        <label>
+            <span>Risk</span>
+            <select id="approval-risk-filter">
+                <option value="">All risks</option>
+            </select>
+        </label>
+        <label>
+            <span>Status</span>
+            <select id="approval-status-filter">
+                <option value="">All statuses</option>
+            </select>
+        </label>
+        <label>
+            <span>Time</span>
+            <select id="approval-time-filter">
+                <option value="">All time</option>
+                <option value="24h">Last 24 hours</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+            </select>
+        </label>
+        <label>
+            <span>Sort</span>
+            <select id="approval-sort">
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="risk_desc">Highest risk</option>
+                <option value="risk_asc">Lowest risk</option>
+                <option value="status">Status</option>
+                <option value="type">Action type</option>
+            </select>
+        </label>
+        <button id="clear-approval-filters" class="button secondary small" type="button">Clear</button>
+    </form>
+
+    <div class="approval-results-bar">
+        <span id="approval-results-label">Loading actions…</span>
+    </div>
+
+    <div id="approval-list" class="approval-list loading-block">Loading approval queue…</div>
+</section>
+{% endblock %}

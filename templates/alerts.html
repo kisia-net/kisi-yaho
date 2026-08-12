@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block subtitle %}<p class="page-description">Review realistic alert fixtures, correlated evidence, and multi-source LLM analysis. The same interface can later be backed by live Elasticsearch alerts.</p><script src="{{ url_for('static', filename='alert_analysis.js', v=asset_version) }}"></script>
+{% endblock %}
+{% block content %}
+<section class="panel">
+    <form id="alert-filter-form" class="toolbar-form">
+        <label>Search<input id="alert-query" placeholder="host, technique, alert title"></label>
+        <label>Severity<select id="alert-severity"><option value="all">All</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option></select></label>
+        <label>Status<select id="alert-status"><option value="all">All</option><option value="unassigned">Unassigned</option><option value="new">New</option><option value="investigating">Investigating</option><option value="monitoring">Monitoring</option></select></label>
+        <button class="button primary" type="submit">Apply filters</button>
+    </form>
+    <div class="table-header"><span id="alert-count">Loading alerts</span><a class="button secondary" href="/agent?mode=alert_summary">Open agent</a></div>
+    <div class="data-table" id="alerts-table"></div>
+</section>
+{% endblock %}

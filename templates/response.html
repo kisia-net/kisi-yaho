@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block subtitle %}<p class="page-description">Stage host-side collection, isolation, or remediation. Approval and audit are mandatory before gateway submission.</p>{% endblock %}
+{% block content %}
+<section class="split-grid">
+    <article class="panel">
+        <div class="panel-header"><div><p class="panel-kicker">Response proposal</p><h2>Velociraptor host action</h2></div><a class="button secondary" href="{{ velociraptor_url }}" target="_blank" rel="noopener noreferrer">Open Velociraptor ↗</a></div>
+        <form class="stack-form" id="response-agent-form">
+            <label>Target host<input id="response-host" placeholder="WIN-FIN-07" required></label>
+            <label>Incident ID<input id="response-incident" placeholder="INC-2026-1042"></label>
+            <label>Requested outcome<select id="response-outcome"><option>Collect endpoint triage evidence</option><option>Isolate host after collection</option><option>Remove a validated persistence mechanism</option><option>Restore network access</option></select></label>
+            <label>Known evidence<textarea id="response-evidence" rows="6" placeholder="Confirmed process, user, hash, destination, timeline, business constraints…"></textarea></label>
+            <button class="button primary" type="submit">Develop response proposal</button>
+        </form>
+    </article>
+    <article class="panel">
+        <div class="panel-header"><div><p class="panel-kicker">Approval state</p><h2>Velociraptor action queue</h2></div><a class="button secondary" href="/actions">All approvals</a></div>
+        <div id="response-action-list" class="action-list loading-block">Loading actions…</div>
+    </article>
+</section>
+{% endblock %}

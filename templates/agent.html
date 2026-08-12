@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block subtitle %}{% endblock %}
+{% block content %}
+
+<section class="agent-layout">
+    <aside class="panel chat-history-panel">
+        <div class="panel-header chat-history-header">
+            <h2 class="agent-panel-title">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 5h16v14H4z"></path>
+                    <path d="M8 9h8M8 13h5"></path>
+                </svg>
+                <span>Chat history</span>
+            </h2>
+            <button id="new-agent-chat" class="new-chat-button" type="button" aria-label="New chat" title="New chat">
+                <span aria-hidden="true">+</span>
+            </button>
+        </div>
+
+        <div id="agent-history-list" class="agent-history-list" aria-label="Saved chat sessions">
+            <div class="empty-state">No chat sessions yet.</div>
+        </div>
+
+        <div class="chat-history-footer">
+            <span>Saved to your account</span>
+            <button id="clear-agent-history" type="button">Clear all</button>
+        </div>
+    </aside>
+
+    <article class="panel chat-workspace">
+        <div class="panel-header">
+            <h2 id="agent-mode-title" class="agent-panel-title">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 5h16v11H9l-5 4z"></path>
+                    <path d="M8 9h8M8 12h5"></path>
+                </svg>
+                <span>Agent chat</span>
+            </h2>
+            <span id="agent-session-state" class="session-state">New chat</span>
+        </div>
+
+        <div id="agent-messages" class="message-list" aria-live="polite"></div>
+
+        <section class="chat-binder" aria-label="Agent request composer">
+            <div class="chat-mode-section" aria-label="Agent operation modes">
+                <div class="agent-mode-tabs" id="agent-mode-list" role="tablist" aria-label="Operation mode">
+                    <button class="agent-mode-tab active" type="button" role="tab" aria-selected="true" data-agent-mode="alert_summary" title="Alert explanation"><strong>Alert explanation</strong></button>
+                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="log_search" title="Log search"><strong>Log search</strong></button>
+                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="file_hunt" title="Suspicious file hunt"><strong>Suspicious file hunt</strong></button>
+                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="velociraptor_response" title="Host response"><strong>Host response</strong></button>
+                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="suricata_rule" title="Suricata rule"><strong>Suricata rule</strong></button>
+                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="incident_report" title="Incident report"><strong>Incident report</strong></button>
+                </div>
+            </div>
+
+            <div class="chat-binder-body">
+                <form id="agent-form" class="composer">
+                    <div id="agent-mode-context" class="composer-context">
+                        <div class="mode-context-fields" data-mode-context="alert_summary">
+                            <label>Host
+                                <select id="agent-alert-host"><option value="">All hosts</option></select>
+                            </label>
+                            <label>Search alerts
+                                <input id="agent-alert-search" type="search" placeholder="ID, title, summary">
+                            </label>
+                            <label class="context-span-all">Alert
+                                <select id="agent-alert-id"><option value="">Select an alert</option></select>
+                            </label>
+                        </div>
+
+                        <div class="mode-context-fields" data-mode-context="log_search" hidden>
+                            <label>Index<input id="agent-log-index" value="logs-*"></label>
+                            <label>Start<input id="agent-log-start" type="datetime-local"></label>
+                            <label>End<input id="agent-log-end" type="datetime-local"></label>
+                        </div>
+
+                        <div class="mode-context-fields" data-mode-context="file_hunt" hidden>
+                            <label>Host<input id="agent-hunt-host" list="agent-host-options" placeholder="WIN-FIN-07"></label>
+                        </div>
+
+                        <div class="mode-context-fields" data-mode-context="velociraptor_response" hidden>
+                            <label>Host<input id="agent-response-host" list="agent-host-options" placeholder="WIN-FIN-07"></label>
+                            <label>Incident<input id="agent-response-incident" placeholder="INC-2026-1042"></label>
+                        </div>
+
+                        <div class="mode-context-fields" data-mode-context="incident_report" hidden>
+                            <label>Incident<input id="agent-report-incident" placeholder="INC-2026-1042"></label>
+                            <label>Host<input id="agent-report-host" list="agent-host-options" placeholder="Optional"></label>
+                            <label>Start<input id="agent-report-start" type="datetime-local"></label>
+                            <label>End<input id="agent-report-end" type="datetime-local"></label>
+                        </div>
+
+                        <datalist id="agent-host-options"></datalist>
+                    </div>
+
+                    <textarea id="agent-input" rows="4" required placeholder="Enter a request…"></textarea>
+                    <div><span></span><button class="button primary" type="submit">Send</button></div>
+                </form>
+            </div>
+        </section>
+    </article>
+
+    <aside class="panel output-panel">
+        <div class="panel-header">
+            <h2 class="agent-panel-title">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M7 4h10v3H7z"></path>
+                    <path d="M5 6h14v14H5z"></path>
+                    <path d="M8 11h8M8 15h6"></path>
+                </svg>
+                <span>Evidence and proposals</span>
+            </h2>
+        </div>
+        <div id="agent-structured-output" class="structured-output empty-state"></div>
+    </aside>
+</section>
+{% endblock %}
