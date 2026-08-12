@@ -25,6 +25,22 @@ os.environ.setdefault("HAWKI_ADMIN_PASSWORD", "Str0ng-Passw0rd-Value!")
 
 import app  # noqa: E402  (import after the environment is prepared)
 from hawki_alert_analysis import BUNDLE_SCHEMA  # noqa: E402
+from hawki_alert_analysis.assessment import bundle_reference_ids as app_bundle_ids  # noqa: E402
+
+COMPLETE_ASSESSMENT = {
+    "confirmed_observations": ["A traversal URI was requested."],
+    "interpretation": "Probable exploitation attempt.",
+    "attack_hypothesis": "Traversal followed by shell execution.",
+    "confidence": {"level": "high", "rationale": "Three sources agree."},
+    "severity": {"level": "critical", "rationale": "Internet-facing high-criticality asset."},
+    "affected_entities": {"hosts": ["web-01"]},
+    "attack_techniques": [{"id": "T1190", "name": "Exploit Public-Facing Application"}],
+    "supporting_evidence": [{"statement": "Traversal alert", "event_ids": []}],
+    "contradictory_evidence": [],
+    "evidence_gaps": ["Full request body not captured."],
+    "recommended_searches": [{"title": "Same source", "language": "KQL", "value": "source.ip:203.0.113.45"}],
+    "recommended_response": ["Preserve the process tree."],
+}
 
 
 def metadata_blocks(payload: dict) -> set[str]:
@@ -155,6 +171,114 @@ class LlmDeliveryTests(unittest.TestCase):
         system = body["messages"][0]["content"]
         for block in ("security_alerts", "security_events", "assets", "threat_intelligence"):
             self.assertIn(block, system)
+
+
+class AssessmentSchemaTests(unittest.TestCase):
+    """The alert_summary path must always return a reviewed assessment."""
+
+    def setUp(self):
+        self.alert_id = app.ALERT_ANALYSIS.list_alerts()[0]["id"]
+        self.context = {"alert_case": app.ALERT_ANALYSIS.get_case(self.alert_id).to_llm_context()}
+        self.repair_default = app.CONFIG["assessment_repair_enabled"]
+
+    def tearDown(self):
+        app.CONFIG["assessment_repair_enabled"] = self.repair_default
+
+    def run_with_replies(self, replies: list[dict]) -> tuple[dict, list[dict]]:
+        """Drive call_llm against a scripted sequence of model responses."""
+        sent: list[dict] = []
+        remaining = list(replies)
+
+        class StubResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "model": "stub",
+                    "choices": [{"message": {"content": json.dumps(self.payload)}}],
+                }
+
+        def fake_post(url, headers=None, json=None, timeout=None):  # noqa: A002
+            sent.append(json or {})
+            return StubResponse(remaining.pop(0) if remaining else replies[-1])
+
+        original = app.requests.post
+        app.requests.post = fake_post
+        try:
+            result = app.call_llm("alert_summary", "Analyze.", [], self.context)
+        finally:
+            app.requests.post = original
+        return result, sent
+
+    def test_complete_assessment_needs_no_correction(self):
+        result, sent = self.run_with_replies([
+            {"answer": "Done.", "evidence": [], "queries": [], "actions": [], "assessment": COMPLETE_ASSESSMENT},
+        ])
+        self.assertTrue(result["assessment_review"]["complete"])
+        self.assertEqual(len(sent), 1)
+
+    def test_incomplete_assessment_triggers_one_correction_pass(self):
+        partial = {key: value for key, value in COMPLETE_ASSESSMENT.items() if key != "evidence_gaps"}
+        result, sent = self.run_with_replies([
+            {"answer": "Partial.", "evidence": [], "queries": [], "actions": [], "assessment": partial},
+            {"answer": "Corrected.", "evidence": [], "queries": [], "actions": [], "assessment": COMPLETE_ASSESSMENT},
+        ])
+        self.assertEqual(len(sent), 2)
+        self.assertTrue(result["assessment_review"]["complete"])
+        self.assertEqual(
+            result["assessment_review"]["sections_missing_before_repair"], ["evidence_gaps"]
+        )
+        self.assertIn("evidence_gaps", sent[1]["messages"][-1]["content"])
+
+    def test_a_worse_correction_is_discarded(self):
+        partial = {key: value for key, value in COMPLETE_ASSESSMENT.items() if key != "evidence_gaps"}
+        result, _ = self.run_with_replies([
+            {"answer": "Partial.", "evidence": [], "queries": [], "actions": [], "assessment": partial},
+            {"answer": "Worse.", "evidence": [], "queries": [], "actions": [], "assessment": {}},
+        ])
+        # The first answer survives when the correction covers less.
+        self.assertEqual(result["answer"], "Partial.")
+        self.assertTrue(result["assessment"]["confirmed_observations"])
+
+    def test_missing_assessment_key_still_yields_a_reviewed_shape(self):
+        app.CONFIG["assessment_repair_enabled"] = False
+        result, sent = self.run_with_replies([
+            {"answer": "Prose only.", "evidence": [], "queries": [], "actions": []},
+        ])
+        self.assertEqual(len(sent), 1)
+        self.assertFalse(result["assessment_review"]["complete"])
+        self.assertEqual(result["answer"], "Prose only.")
+        self.assertIn("interpretation", result["assessment"])
+
+    def test_ungrounded_citations_are_reported(self):
+        app.CONFIG["assessment_repair_enabled"] = False
+        payload = dict(COMPLETE_ASSESSMENT)
+        payload["supporting_evidence"] = [{"statement": "Invented", "event_ids": ["evt-nope"]}]
+        result, _ = self.run_with_replies([
+            {"answer": "x", "evidence": [], "queries": [], "actions": [], "assessment": payload},
+        ])
+        self.assertEqual(result["assessment_review"]["ungrounded_event_ids"], ["evt-nope"])
+
+    def test_demo_fallback_reads_the_bundle(self):
+        result = app.demo_agent_response("alert_summary", "Analyze.", self.context)
+        self.assertIn("assessment_review", result)
+        counts = self.context["alert_case"]["collection"]["counts"]
+        # The old demo answer claimed no telemetry was supplied.
+        self.assertNotIn("No corroborating raw telemetry", json.dumps(result))
+        self.assertIn(str(counts["security_events"]), json.dumps(result["evidence"]))
+        cited = {
+            event_id
+            for entry in result["assessment"]["supporting_evidence"]
+            for event_id in entry["event_ids"]
+        }
+        valid, _ = app_bundle_ids(self.context["alert_case"])
+        self.assertTrue(cited)
+        self.assertTrue(cited <= valid)
+        self.assertEqual(result["assessment_review"]["ungrounded_event_ids"], [])
 
 
 class MetadataApiTests(unittest.TestCase):

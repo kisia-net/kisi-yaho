@@ -69,6 +69,33 @@
         </div>`;
     }
 
+    function renderReview(root, result) {
+        // Schema coverage for the returned assessment. Sections the model
+        // skipped and citations matching no event in the bundle are shown to
+        // the analyst rather than quietly accepted.
+        const panel = root.querySelector("[data-analysis-review]");
+        const review = result.assessment_review;
+        if (!panel || !review) return;
+
+        const missing = review.missing_sections || [];
+        const ungrounded = review.ungrounded_event_ids || [];
+        const notes = review.notes || [];
+        const tags = [
+            `<span class="tag">${review.complete ? "schema complete" : `${missing.length} section(s) missing`}</span>`,
+            `<span class="tag">${escapeHtml(review.citations ?? 0)} evidence citations</span>`,
+            ungrounded.length ? `<span class="tag">${ungrounded.length} ungrounded id(s)</span>` : "",
+            review.repair_attempted ? `<span class="tag">correction pass run</span>` : "",
+        ].join("");
+
+        panel.hidden = false;
+        panel.innerHTML = `<div class="output-item">
+            <div class="action-meta">${tags}</div>
+            ${missing.length ? `<p class="muted">Not reported: ${escapeHtml(missing.join(", "))}</p>` : ""}
+            ${ungrounded.length ? `<p class="muted">Cited event ids not present in the bundle: ${escapeHtml(ungrounded.join(", "))}</p>` : ""}
+            ${notes.map((note) => `<p class="muted">${escapeHtml(note)}</p>`).join("")}
+        </div>`;
+    }
+
     function renderCase(root, data) {
         const caseData = data.case;
         const trigger = caseData.trigger || {};
@@ -130,6 +157,7 @@
                 });
                 output.innerHTML = `<div class="markdown-body">${markdown(result.answer || "No analysis returned.")}</div>`;
                 if (typeof window.enhanceRenderedContent === "function") window.enhanceRenderedContent(output);
+                renderReview(root, result);
                 const counts = result.metadata_counts || {};
                 const bundled = [
                     `${counts.security_alerts ?? 0} alerts`,

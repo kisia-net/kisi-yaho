@@ -80,6 +80,28 @@ original producer records, then correlated events, then a digest — and what wa
 removed is stated in the payload. The four blocks survive every step, and the
 result is always valid JSON.
 
+## Structured assessment
+
+For `alert_summary`, the model must return an `assessment` object rather than
+prose alone. Asking for that structure in prose is followed unevenly by a small
+local model, so it is enforced as a schema: confirmed observations,
+interpretation, attack hypothesis, confidence, severity, affected entities,
+ATT&CK techniques, supporting and contradictory evidence with cited event ids,
+evidence gaps, recommended searches, and recommended response.
+
+Reading is tolerant and reporting is strict. Normalization accepts a bare
+string where an object was requested and alternate key names, so a usable
+analysis is never discarded on a formatting slip. Review then reports what is
+missing and which cited event ids match nothing in the bundle — those are
+annotated, never quietly dropped, so an analyst can see when the model cited
+evidence that does not exist. An incomplete assessment triggers one correction
+pass (`ASSESSMENT_REPAIR_ENABLED`, default on), and the correction is kept only
+if it covers more than the original.
+
+`contradictory_evidence` may legitimately be empty; that is reported as a note
+rather than counted as a missing section, so a clean case does not trigger a
+pointless correction round trip.
+
 ## Directory structure
 
 ```text
@@ -94,6 +116,7 @@ soar_frontend/
 │   ├── assets.py             asset inventory collection and matching
 │   ├── threat_intel.py       indicator feed collection and matching
 │   ├── bundle.py             the four-block evidence bundle
+│   ├── assessment.py         structured analysis schema and review
 │   └── repository.py         source-agnostic event repository
 ├── data/
 │   ├── scenarios/            native-format telemetry fixtures
