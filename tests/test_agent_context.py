@@ -336,6 +336,14 @@ class MetadataApiTests(unittest.TestCase):
     def test_missing_alert_returns_404(self):
         self.assertEqual(self.client.get("/api/alerts/evt-missing/context").status_code, 404)
 
+    def test_config_reports_the_active_repository(self):
+        status, payload = self.get("/api/config")
+        repository = payload["alert_repository"]
+        self.assertEqual(repository["type"], "fixture")
+        self.assertTrue(repository["configured"])
+        self.assertGreater(repository["alert_count"], 0)
+        self.assertIn("effective_root", repository)
+
     def test_alert_detail_page_is_served(self):
         # alert_detail.html and the alert-table links pointed at this path
         # before any route existed for it.

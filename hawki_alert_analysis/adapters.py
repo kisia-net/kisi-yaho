@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
+from pathlib import PureWindowsPath
 from typing import Any
 
 from .models import CanonicalEvent, parse_timestamp
@@ -69,6 +70,17 @@ class SuricataAdapter:
             if http_raw.get("length") is not None:
                 http.setdefault("response", {})["body_bytes"] = http_raw["length"]
 
+        dns_raw = raw.get("dns") if isinstance(raw.get("dns"), dict) else {}
+        dns: dict[str, Any] = {}
+        if queried := str(dns_raw.get("rrname") or "").strip():
+            dns["question"] = {
+                key: value
+                for key, value in {"name": queried, "type": dns_raw.get("rrtype")}.items()
+                if value
+            }
+            if dns_raw.get("rcode"):
+                dns["response_code"] = dns_raw["rcode"]
+
         rule: dict[str, Any] = {}
         if alert:
             rule = {
@@ -106,6 +118,7 @@ class SuricataAdapter:
             network_transport=str(raw.get("proto", "")).lower(),
             network_application=str(raw.get("app_proto", "") or (event_type if event_type in {"http", "dns", "tls"} else "")).lower(),
             http=http,
+            dns=dns,
             rule=rule,
             tags=[str(value) for value in raw.get("tags", []) if value],
             raw=raw,
@@ -349,6 +362,226 @@ class WazuhAdapter:
         )
 
 
+# Sysmon event id -> (canonical categories, action name).
+SYSMON_EVENT_CATEGORIES: dict[int, tuple[list[str], str]] = {
+    1: (["process"], "process_creation"),
+    2: (["file"], "file_creation_time_changed"),
+    3: (["network"], "network_connection"),
+    5: (["process"], "process_terminated"),
+    6: (["driver"], "driver_loaded"),
+    7: (["process", "library"], "image_loaded"),
+    8: (["process"], "create_remote_thread"),
+    9: (["process"], "raw_access_read"),
+    10: (["process"], "process_access"),
+    11: (["file"], "file_create"),
+    12: (["registry"], "registry_key_event"),
+    13: (["registry"], "registry_value_set"),
+    14: (["registry"], "registry_key_renamed"),
+    15: (["file"], "file_create_stream_hash"),
+    17: (["pipe"], "pipe_created"),
+    18: (["pipe"], "pipe_connected"),
+    22: (["network", "dns"], "dns_query"),
+    23: (["file"], "file_delete"),
+    25: (["process"], "process_tampering"),
+    26: (["file"], "file_delete_detected"),
+}
+
+
+def parse_sysmon_hashes(value: Any) -> dict[str, str]:
+    """Parse Sysmon's "SHA256=...,MD5=..." hash string into a mapping."""
+    hashes: dict[str, str] = {}
+    if isinstance(value, dict):
+        return {str(key).lower(): str(item).lower() for key, item in value.items() if item}
+    for part in str(value or "").split(","):
+        if "=" not in part:
+            continue
+        algorithm, _, digest = part.partition("=")
+        algorithm = algorithm.strip().lower()
+        digest = digest.strip().lower()
+        if algorithm and digest:
+            hashes[algorithm] = digest
+    return hashes
+
+
+def _index_by_leaf(payload: Any) -> dict[str, Any]:
+    """Index a nested Windows event by its leaf field names, shallowest first.
+
+    Sysmon reaches this system in at least three shapes: flat records as
+    published by OTRF/Security-Datasets, nested Event.System/Event.EventData
+    from evtx conversion, and winlog.event_data from Winlogbeat. Indexing by
+    leaf name reads all three without a separate adapter for each.
+    """
+    flat: dict[str, Any] = {}
+    queue: list[Any] = [payload]
+    while queue:
+        current = queue.pop(0)
+        if isinstance(current, dict):
+            for key, value in current.items():
+                name = str(key)
+                if isinstance(value, (dict, list)):
+                    queue.append(value)
+                    # Windows XML conversion wraps scalars as {"#text": ...}.
+                    if isinstance(value, dict) and "#text" in value:
+                        flat.setdefault(name, value["#text"])
+                else:
+                    flat.setdefault(name, value)
+        elif isinstance(current, list):
+            queue.extend(current)
+    return flat
+
+
+class SysmonAdapter:
+    """Windows Sysmon events.
+
+    Sysmon is telemetry, not detection: every event is normalized with
+    kind "event". The operator-assigned RuleName is carried as a tag rather
+    than promoted to a rule, because a Sysmon config label is not a detection
+    verdict.
+    """
+
+    source_type = "sysmon"
+
+    def normalize(self, raw: dict[str, Any], *, scenario_id: str = "", defaults: dict[str, Any] | None = None) -> CanonicalEvent:
+        defaults = defaults or {}
+        fields = _index_by_leaf(raw)
+
+        def value(*names: str) -> Any:
+            for name in names:
+                if fields.get(name) not in (None, ""):
+                    return fields[name]
+            return None
+
+        def text(*names: str) -> str:
+            found = value(*names)
+            return "" if found is None else str(found).strip()
+
+        def port(*names: str) -> int | None:
+            found = text(*names)
+            try:
+                number = int(found)
+            except (TypeError, ValueError):
+                return None
+            return number if 0 <= number <= 65535 else None
+
+        raw_event_id = value("EventID", "EventId", "event_id")
+        try:
+            event_id = int(str(raw_event_id).strip())
+        except (TypeError, ValueError):
+            event_id = 0
+
+        timestamp = text("UtcTime", "@timestamp", "SystemTime", "TimeCreated", "timestamp")
+        if not timestamp:
+            raise ValueError("Sysmon event carries no usable timestamp")
+
+        categories, action = SYSMON_EVENT_CATEGORIES.get(event_id, (["host"], f"sysmon_event_{event_id}"))
+
+        process: dict[str, Any] = {}
+        if image := text("Image"):
+            process["name"] = PureWindowsPath(image).name
+            process["executable"] = image
+        if command_line := text("CommandLine"):
+            process["command_line"] = command_line
+        if pid := text("ProcessId"):
+            try:
+                process["pid"] = int(pid)
+            except ValueError:
+                pass
+        if guid := text("ProcessGuid"):
+            process["entity_id"] = guid
+        if working_directory := text("CurrentDirectory"):
+            process["working_directory"] = working_directory
+
+        parent: dict[str, Any] = {}
+        if parent_image := text("ParentImage"):
+            parent["name"] = PureWindowsPath(parent_image).name
+            parent["executable"] = parent_image
+        if parent_command := text("ParentCommandLine"):
+            parent["command_line"] = parent_command
+        if parent_pid := text("ParentProcessId"):
+            try:
+                parent["pid"] = int(parent_pid)
+            except ValueError:
+                pass
+        if parent_guid := text("ParentProcessGuid"):
+            parent["entity_id"] = parent_guid
+        if parent:
+            process["parent"] = parent
+
+        # Sysmon reports hashes on the subject of the event: the image for
+        # process events, the written file for file events.
+        hashes = parse_sysmon_hashes(value("Hashes", "Hash"))
+        file_data: dict[str, Any] = {}
+        if target := text("TargetFilename"):
+            file_data["path"] = target
+            file_data["name"] = PureWindowsPath(target).name
+        if event_id in {11, 15, 23, 26} and hashes:
+            file_data["hash"] = hashes
+        elif hashes:
+            process["hash"] = hashes
+
+        source_ip = text("SourceIp")
+        destination_ip = text("DestinationIp")
+        network_transport = text("Protocol").lower()
+        network_application = ""
+        query_name = text("QueryName")
+        if event_id == 22 and query_name:
+            network_application = "dns"
+
+        dns_data: dict[str, Any] = {}
+        if query_name:
+            dns_data["question"] = {"name": query_name}
+            if results := text("QueryResults"):
+                dns_data["answers"] = results
+            if status := text("QueryStatus"):
+                dns_data["response_code"] = status
+
+        registry_path = text("TargetObject")
+        message_parts = [action]
+        if process.get("executable"):
+            message_parts.append(str(process["executable"]))
+        if event_id == 3 and destination_ip:
+            message_parts.append(f"-> {destination_ip}:{port('DestinationPort') or ''}".rstrip(":"))
+        if query_name:
+            message_parts.append(query_name)
+        if registry_path:
+            message_parts.append(registry_path)
+        if file_data.get("path"):
+            message_parts.append(str(file_data["path"]))
+
+        tags = []
+        if rule_name := text("RuleName"):
+            if rule_name != "-":
+                tags.append(f"sysmon-rule:{rule_name}")
+
+        return CanonicalEvent(
+            id=stable_event_id(self.source_type, raw, timestamp),
+            timestamp=parse_timestamp(timestamp).isoformat(),
+            source_type=self.source_type,
+            source_dataset=str(defaults.get("dataset") or "windows.sysmon"),
+            kind="event",
+            category=list(dict.fromkeys(categories)),
+            severity="info",
+            message=" ".join(part for part in message_parts if part).strip(),
+            host_name=text("Hostname", "Computer", "ComputerName", "host_name")
+            or str(defaults.get("host_name", "")),
+            source_ip=source_ip,
+            source_port=port("SourcePort"),
+            destination_ip=destination_ip,
+            destination_port=port("DestinationPort"),
+            network_transport=network_transport,
+            network_application=network_application,
+            user_name=text("User", "SubjectUserName", "TargetUserName"),
+            process=process,
+            file=file_data,
+            dns=dns_data,
+            rule={},
+            tags=tags,
+            raw=raw,
+            scenario_id=scenario_id,
+            correlation={"registry_path": registry_path} if registry_path else {},
+        )
+
+
 class ECSAdapter:
     """Normalize an already ECS-like Elasticsearch document.
 
@@ -394,6 +627,8 @@ class ECSAdapter:
             process=raw.get("process") if isinstance(raw.get("process"), dict) else {},
             file=raw.get("file") if isinstance(raw.get("file"), dict) else {},
             http=raw.get("http") if isinstance(raw.get("http"), dict) else {},
+            dns=raw.get("dns") if isinstance(raw.get("dns"), dict) else {},
+            outcome=str(event.get("outcome", "")),
             rule=rule,
             tags=[str(value) for value in raw.get("tags", [])] if isinstance(raw.get("tags"), list) else [],
             raw=raw.get("event", {}).get("original", raw),

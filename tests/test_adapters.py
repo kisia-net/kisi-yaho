@@ -119,5 +119,150 @@ class ApacheAdapterTests(unittest.TestCase):
         self.assertNotEqual(apache.id, nginx.id)
 
 
+FLAT_SYSMON = {
+    "@timestamp": "2026-08-11T14:03:02.418Z",
+    "EventID": 1,
+    "Hostname": "WIN-WS-07",
+    "UtcTime": "2026-08-11 14:03:02.418",
+    "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    "CommandLine": "powershell.exe -NoP -W Hidden -Enc SQBF",
+    "ProcessId": "6412",
+    "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+    "ParentProcessId": "5108",
+    "User": "CORP\\j.lee",
+    "Hashes": "SHA1=6CBCE4,MD5=7353F6,SHA256=DE96A6E69944335375DC1AC238336066889D9FFC7D73628D1E01F0DE4E1E0FA0",
+    "RuleName": "technique_id=T1059.001",
+}
+
+NESTED_SYSMON = {
+    "Event": {
+        "System": {
+            "Provider": {"#attributes": {"Name": "Microsoft-Windows-Sysmon"}},
+            "EventID": 3,
+            "Computer": "WIN-WS-07",
+        },
+        "EventData": {
+            "UtcTime": "2026-08-11 14:03:05.742",
+            "Image": "C:\\Windows\\System32\\cmd.exe",
+            "SourceIp": "192.168.60.41",
+            "SourcePort": "51288",
+            "DestinationIp": "198.51.100.77",
+            "DestinationPort": "443",
+            "Protocol": "tcp",
+        },
+    }
+}
+
+WINLOGBEAT_SYSMON = {
+    "@timestamp": "2026-08-11T14:03:04.106Z",
+    "winlog": {
+        "channel": "Microsoft-Windows-Sysmon/Operational",
+        "event_id": 22,
+        "computer_name": "WIN-WS-07",
+        "event_data": {
+            "UtcTime": "2026-08-11 14:03:04.106",
+            "QueryName": "updates.cdn-sync.example.invalid",
+            "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "User": "CORP\\j.lee",
+        },
+    },
+}
+
+
+class SysmonAdapterTests(unittest.TestCase):
+    def setUp(self):
+        from hawki_alert_analysis.adapters import SysmonAdapter
+
+        self.adapter = SysmonAdapter()
+
+    def test_flat_process_creation(self):
+        event = self.adapter.normalize(FLAT_SYSMON)
+        self.assertEqual(event.kind, "event")  # Sysmon is telemetry, not detection
+        self.assertEqual(event.category, ["process"])
+        self.assertEqual(event.host_name, "WIN-WS-07")
+        self.assertEqual(event.user_name, "CORP\\j.lee")
+        self.assertEqual(event.process["name"], "powershell.exe")
+        self.assertEqual(event.process["pid"], 6412)
+        self.assertEqual(event.process["parent"]["name"], "WINWORD.EXE")
+        self.assertEqual(
+            event.process["hash"]["sha256"],
+            "de96a6e69944335375dc1ac238336066889d9ffc7d73628d1e01f0de4e1e0fa0",
+        )
+        self.assertIn("sysmon-rule:technique_id=T1059.001", event.tags)
+        # A Sysmon config label is not a detection verdict.
+        self.assertEqual(event.rule, {})
+        self.assertEqual(event.severity, "info")
+
+    def test_nested_evtx_shape_network_connection(self):
+        event = self.adapter.normalize(NESTED_SYSMON)
+        self.assertEqual(event.category, ["network"])
+        self.assertEqual(event.source_ip, "192.168.60.41")
+        self.assertEqual(event.source_port, 51288)
+        self.assertEqual(event.destination_ip, "198.51.100.77")
+        self.assertEqual(event.destination_port, 443)
+        self.assertEqual(event.network_transport, "tcp")
+
+    def test_winlogbeat_shape_dns_query_is_an_observable(self):
+        event = self.adapter.normalize(WINLOGBEAT_SYSMON)
+        self.assertEqual(event.dns["question"]["name"], "updates.cdn-sync.example.invalid")
+        self.assertEqual(event.network_application, "dns")
+        observables = {item["field"]: item for item in event.observables()}
+        self.assertEqual(observables["dns.question.name"]["type"], "domain-name")
+
+    def test_file_events_hash_the_file_not_the_process(self):
+        event = self.adapter.normalize(
+            {
+                "EventID": 11,
+                "UtcTime": "2026-08-11 14:03:07.933",
+                "Hostname": "WIN-WS-07",
+                "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "TargetFilename": "C:\\Users\\j.lee\\AppData\\Local\\Temp\\update.exe",
+                "Hashes": "SHA256=9F2C4B",
+            }
+        )
+        self.assertEqual(event.category, ["file"])
+        self.assertEqual(event.file["name"], "update.exe")
+        self.assertEqual(event.file["hash"]["sha256"], "9f2c4b")
+        self.assertNotIn("hash", event.process)
+
+    def test_unknown_event_id_is_kept_rather_than_dropped(self):
+        event = self.adapter.normalize(
+            {"EventID": 255, "UtcTime": "2026-08-11 14:03:07.933", "Hostname": "WIN-WS-07"}
+        )
+        self.assertEqual(event.category, ["host"])
+        self.assertIn("sysmon_event_255", event.message)
+
+    def test_event_without_a_timestamp_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self.adapter.normalize({"EventID": 1, "Hostname": "WIN-WS-07"})
+
+    def test_port_values_outside_range_are_dropped(self):
+        event = self.adapter.normalize(
+            {
+                "EventID": 3,
+                "UtcTime": "2026-08-11 14:03:05.742",
+                "Hostname": "WIN-WS-07",
+                "DestinationIp": "198.51.100.77",
+                "DestinationPort": "99999",
+            }
+        )
+        self.assertIsNone(event.destination_port)
+
+
+class SysmonHashParsingTests(unittest.TestCase):
+    def test_hash_string_is_split_and_lowercased(self):
+        from hawki_alert_analysis.adapters import parse_sysmon_hashes
+
+        parsed = parse_sysmon_hashes("SHA1=AABB,MD5=CCDD,SHA256=EEFF,IMPHASH=1122")
+        self.assertEqual(parsed, {"sha1": "aabb", "md5": "ccdd", "sha256": "eeff", "imphash": "1122"})
+
+    def test_malformed_values_are_ignored(self):
+        from hawki_alert_analysis.adapters import parse_sysmon_hashes
+
+        self.assertEqual(parse_sysmon_hashes("garbage"), {})
+        self.assertEqual(parse_sysmon_hashes(""), {})
+        self.assertEqual(parse_sysmon_hashes(None), {})
+
+
 if __name__ == "__main__":
     unittest.main()

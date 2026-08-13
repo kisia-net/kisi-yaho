@@ -12,6 +12,7 @@ from .adapters import (
     NginxAdapter,
     SuricataAdapter,
     SyslogAdapter,
+    SysmonAdapter,
     WazuhAdapter,
 )
 from .assets import AssetInventory, NullAssetInventory, match_assets
@@ -36,6 +37,7 @@ ADAPTERS = {
     "apache": ApacheAdapter(),
     "syslog": SyslogAdapter(),
     "authlog": AuthLogAdapter(),
+    "sysmon": SysmonAdapter(),
     "wazuh": WazuhAdapter(),
     "ecs": ECSAdapter(),
 }

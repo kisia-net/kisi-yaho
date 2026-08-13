@@ -44,17 +44,20 @@ explicitly, because absence of data is not evidence of safety.
 
 ```text
 Suricata ─┐
-Nginx ────┼─► adapters ─► canonical events ─► correlation ─► AlertCase
-Wazuh ────┘                                                     │
+Wazuh ────┤
+Sysmon ───┼─► adapters ─► canonical events ─► correlation ─► AlertCase
+Nginx ────┤                                                     │
+syslog ───┘                                                     │
                                     asset inventory ────────────┤
                                     threat intel feed ──────────┤
                                                                 ▼
                                                        evidence bundle ─► LLM/SLM
 ```
 
-Collection sources are swappable behind their interfaces: `FixtureEventRepository`,
-`FileAssetInventory`, and `FileThreatIntelFeed` can be replaced by Elasticsearch,
-a CMDB, and MISP/OpenCTI without changing correlation, bundling, or the agent.
+Collection sources are swappable behind their interfaces. `FixtureEventRepository`
+is replaced by `ElasticsearchEventRepository` with one environment variable, and
+`FileAssetInventory` and `FileThreatIntelFeed` can be replaced by a CMDB and
+MISP/OpenCTI, without changing correlation, bundling, or the agent.
 
 Relevant endpoints:
 
@@ -82,8 +85,8 @@ result is always valid JSON.
 
 ## Collecting real logs
 
-Adapters exist for Suricata EVE, Wazuh alerts, Nginx and Apache combined access
-logs, Linux syslog, and `auth.log`, plus a generic ECS reader. Anything those
+Adapters exist for Suricata EVE, Wazuh alerts, Windows Sysmon, Nginx and Apache
+combined access logs, Linux syslog, and `auth.log`, plus a generic ECS reader. Anything those
 understand can be ingested without writing code.
 
 ### From a directory of collected logs
@@ -148,11 +151,11 @@ These do fit:
 | Dataset | Contents | Use |
 | --- | --- | --- |
 | AIT Log Data Set (AIT-LDS) | Apache, auth, syslog, audit, DNS, Suricata EVE, and Wazuh in v2; multi-host, labeled attack phases | Closest match to the existing adapters; primary evaluation corpus. Check the Zenodo record for the exact per-version source list |
-| OTRF Security-Datasets (ex-Mordor) | Per-ATT&CK-technique JSON, Sysmon and Windows Security | Technique-level evaluation; needs a Sysmon adapter |
+| OTRF Security-Datasets (ex-Mordor) | Per-ATT&CK-technique JSON, Sysmon and Windows Security | Technique-level evaluation; read directly by the Sysmon adapter |
 | Splunk `attack_data` | Per-technique raw logs across many producers | Pick individual datasets |
 | Splunk BOTS v1–v3 | A full incident with ground-truth Q&A | Feed the Q&A into `expected.answers` as an evaluation set |
 | malware-traffic-analysis.net | PCAP plus a published write-up | Replay through `collect_pcap.py`; the write-up is the ground truth |
-| EVTX-ATTACK-SAMPLES | Per-technique Windows EVTX | Windows coverage |
+| EVTX-ATTACK-SAMPLES | Per-technique Windows EVTX | Convert to JSON (evtx_dump, Chainsaw) and ingest as Sysmon |
 
 Keep corpora outside the repository — size and licensing both argue against
 committing them — and point `ALERT_FIXTURE_ROOT` at them.
@@ -213,6 +216,7 @@ soar_frontend/
 │   ├── assets.py             asset inventory collection and matching
 │   ├── threat_intel.py       indicator feed collection and matching
 │   ├── bundle.py             the four-block evidence bundle
+│   ├── elastic.py           Phase 2: Elasticsearch-backed repository
 │   ├── assessment.py         structured analysis schema and review
 │   └── repository.py         source-agnostic event repository
 ├── data/
@@ -236,39 +240,96 @@ python -m unittest discover -s tests
 ## Run
 
 ```bash
-cd soar_frontend
 python -m venv .venv
-source .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-
+source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env
 ```
 
-Edit `.env`, then start the server:
+Two environment variables are required, and the server refuses to start without
+them:
 
 ```bash
+export FLASK_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+export HAWKI_ADMIN_USERNAME=analyst
+export HAWKI_ADMIN_PASSWORD='choose-a-strong-password'
 python app.py
 ```
 
-Open:
+Open <http://127.0.0.1:5000> and sign in. The alert queue is at `/alerts`; each
+row links to `/alerts/<id>`, where **Analyze with LLM** sends the evidence
+bundle to the configured model.
 
-```text
-http://127.0.0.1:5000
+Without a reachable model the analysis falls back to a deterministic summary
+built from the bundle, labelled as such. To use a real one, point `LLM_API_URL`
+and `LLM_MODEL` at any OpenAI-compatible endpoint (vLLM, Ollama, llama.cpp):
+
+```bash
+export LLM_API_URL=http://127.0.0.1:8000/v1/chat/completions
+export LLM_MODEL=hawki-local
+export DEMO_MODE=false        # fail loudly instead of falling back
 ```
 
-## Elasticsearch mode
+`docker compose up` runs the app together with vLLM; see `compose.yaml`.
 
-The default is `ENABLE_ES_SEARCH=false`. In that mode, the UI generates an investigation link but does not execute a search.
+Verify everything without a browser:
 
-To enable direct search:
+```bash
+python -m unittest discover -s tests    # 101 tests, no network or model needed
+python tools/evaluate.py                # score the bundled scenarios
+```
 
-1. Create a read-only Elasticsearch API key.
-2. Restrict it to the intended log indices.
-3. Put the API key in `.env`.
-4. Set `ENABLE_ES_SEARCH=true`.
+## Data sources
 
-The backend enforces a result limit and returns selected fields only. A dedicated policy gateway should replace this simple search endpoint before production use.
+The default is Phase 1: alerts and events come from scenario files under
+`data/scenarios/`. Two scenarios ship with the repository — a Linux web
+exploitation case (Suricata, Nginx, Wazuh) and a Windows dropper case (Sysmon,
+Wazuh).
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ALERT_REPOSITORY` | `fixture` | `fixture` or `elasticsearch` |
+| `ALERT_FIXTURE_ROOT` | `data/scenarios` | Scenario directory |
+| `ASSET_INVENTORY_ROOT` | `data/assets` | Asset inventory JSON |
+| `THREAT_INTEL_ROOT` | `data/threat_intel` | Indicator feed JSON |
+| `AGENT_CONTEXT_MAX_CHARS` | `24000` | Serialized context budget |
+| `ASSESSMENT_REPAIR_ENABLED` | `true` | One correction pass for incomplete assessments |
+
+Each root falls back to the fixtures packaged in
+`hawki_alert_analysis/fixtures/` when the configured path is absent, which is
+what happens in the container, where a volume is mounted over `/app/data`.
+
+### Phase 2: reading from Elasticsearch
+
+```bash
+export ALERT_REPOSITORY=elasticsearch
+export ELASTICSEARCH_URL=https://es.internal:9200
+export ELASTICSEARCH_API_KEY=...                       # or _USERNAME/_PASSWORD
+export ELASTICSEARCH_ALERT_INDEX='wazuh-alerts-*,logs-*'
+export ELASTICSEARCH_EVENT_INDEX='logs-*,winlogbeat-*,packetbeat-*'
+export ELASTICSEARCH_WINDOW_SECONDS=300
+python app.py
+```
+
+Nothing below the repository boundary changes. Elasticsearch selects candidates
+by time and entity; ranking and case assembly stay in `correlate.build_case`, so
+a case built from a live index is assembled by the same rules as one built from
+a fixture and remains comparable to it. Documents are read either as ECS or in
+their native producer shape — a Suricata, Wazuh, or Sysmon record shipped
+verbatim is normalized by its own adapter rather than requiring one convention
+across the cluster. Document `_id` becomes the event id.
+
+Only `_search` is ever issued and index patterns are validated before reaching a
+URL, so the repository is read-only by construction. Use a read-only API key
+restricted to the intended indices.
+
+An unreachable cluster yields an empty alert list rather than an error on every
+page; `/api/config` reports `alert_repository.reachable` and `last_error` so the
+emptiness explains itself.
+
+`ENABLE_ES_SEARCH` is separate and governs the analyst-facing log search on
+`/logs`. It stays `false` by default, where the UI prepares a Kibana link
+instead of querying. A dedicated policy gateway should replace that endpoint
+before production use.
 
 ## Production notes
 

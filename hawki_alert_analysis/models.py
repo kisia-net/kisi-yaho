@@ -47,6 +47,7 @@ class CanonicalEvent:
     process: dict[str, Any] = field(default_factory=dict)
     file: dict[str, Any] = field(default_factory=dict)
     http: dict[str, Any] = field(default_factory=dict)
+    dns: dict[str, Any] = field(default_factory=dict)
     rule: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     raw: Any = None
@@ -95,6 +96,16 @@ class CanonicalEvent:
             else:
                 add("domain-name", host, "http.request.host")
         add("url", request.get("uri"), "http.request.uri")
+
+        question = self.dns.get("question") if isinstance(self.dns.get("question"), dict) else {}
+        queried = str(question.get("name") or self.dns.get("name") or "").strip()
+        if queried:
+            # A resolved name is an observable in its own right, whether or not
+            # the lookup succeeded.
+            if HOSTNAME_IS_IPV4.match(queried):
+                add_ip(queried, "dns.question.name")
+            else:
+                add("domain-name", queried, "dns.question.name")
 
         for container, prefix in ((self.file, "file"), (self.process, "process")):
             if not isinstance(container, dict):
@@ -169,6 +180,7 @@ class CanonicalEvent:
             "process": self.process,
             "file": self.file,
             "http": self.http,
+            "dns": self.dns,
             "rule": self.rule,
             "tags": self.tags,
             "scenario_id": self.scenario_id,

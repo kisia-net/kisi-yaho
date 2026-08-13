@@ -44,6 +44,12 @@ from hawki_alert_analysis import (
     normalize_assessment,
     review_assessment,
 )
+from hawki_alert_analysis.elastic import (
+    DEFAULT_ALERT_INDEX,
+    DEFAULT_EVENT_INDEX,
+    ElasticsearchClient,
+    ElasticsearchEventRepository,
+)
 
 load_dotenv()
 
@@ -179,11 +185,42 @@ THREAT_INTEL_REQUESTED_ROOT, THREAT_INTEL_ROOT = collection_root(
 # own collections. All four are assembled into one bundle per alert case.
 ASSET_INVENTORY = FileAssetInventory(ASSET_INVENTORY_ROOT)
 THREAT_INTEL_FEED = FileThreatIntelFeed(THREAT_INTEL_ROOT)
-ALERT_REPOSITORY = FixtureEventRepository(
-    ALERT_FIXTURE_ROOT,
-    asset_inventory=ASSET_INVENTORY,
-    threat_intel_feed=THREAT_INTEL_FEED,
-)
+
+# Phase 1 reads fixtures, Phase 2 reads Elasticsearch. Only this selection
+# changes: correlation, enrichment, bundling, and the assessment schema sit
+# below the repository boundary and are identical either way.
+ALERT_REPOSITORY_KIND = os.getenv("ALERT_REPOSITORY", "fixture").strip().lower()
+
+
+def build_alert_repository():
+    if ALERT_REPOSITORY_KIND != "elasticsearch":
+        return FixtureEventRepository(
+            ALERT_FIXTURE_ROOT,
+            asset_inventory=ASSET_INVENTORY,
+            threat_intel_feed=THREAT_INTEL_FEED,
+        )
+
+    client = ElasticsearchClient(
+        CONFIG["elasticsearch_url"],
+        api_key=CONFIG["elasticsearch_api_key"],
+        username=CONFIG["elasticsearch_username"],
+        password=CONFIG["elasticsearch_password"],
+        verify_tls=CONFIG["verify_tls"],
+        timeout=float(os.getenv("ELASTICSEARCH_TIMEOUT", "20")),
+    )
+    return ElasticsearchEventRepository(
+        client,
+        alert_index=os.getenv("ELASTICSEARCH_ALERT_INDEX", DEFAULT_ALERT_INDEX),
+        event_index=os.getenv("ELASTICSEARCH_EVENT_INDEX", DEFAULT_EVENT_INDEX),
+        asset_inventory=ASSET_INVENTORY,
+        threat_intel_feed=THREAT_INTEL_FEED,
+        alert_limit=int(os.getenv("ELASTICSEARCH_ALERT_LIMIT", "100")),
+        candidate_limit=int(os.getenv("ELASTICSEARCH_CANDIDATE_LIMIT", "200")),
+        window_seconds=int(os.getenv("ELASTICSEARCH_WINDOW_SECONDS", "300")),
+    )
+
+
+ALERT_REPOSITORY = build_alert_repository()
 ALERT_ANALYSIS = AlertAnalysisService(ALERT_REPOSITORY)
 
 PAGE_TITLES = {
@@ -1045,6 +1082,42 @@ def api_status():
     return jsonify({"checked_at": utc_now_iso(), "services": services})
 
 
+def alert_repository_status() -> dict[str, Any]:
+    """Describe the active repository, including why it may be empty.
+
+    A live repository that cannot reach its cluster returns no alerts rather
+    than failing every page, so the reason has to be visible somewhere.
+    """
+    status: dict[str, Any] = {
+        "type": ALERT_REPOSITORY_KIND,
+        "alert_count": len(ALERT_ANALYSIS.list_alerts()),
+    }
+    if isinstance(ALERT_REPOSITORY, ElasticsearchEventRepository):
+        status.update(
+            {
+                "elasticsearch_url": CONFIG["elasticsearch_url"],
+                "alert_index": ALERT_REPOSITORY.alert_index,
+                "event_index": ALERT_REPOSITORY.event_index,
+                "window_seconds": ALERT_REPOSITORY.window_seconds,
+                "configured": bool(CONFIG["elasticsearch_url"]),
+                "last_error": ALERT_REPOSITORY.last_error,
+                "reachable": not ALERT_REPOSITORY.last_error,
+            }
+        )
+        return status
+
+    status.update(
+        {
+            "configured": ALERT_FIXTURE_ROOT.exists(),
+            "requested_root": str(ALERT_FIXTURE_REQUESTED_ROOT),
+            "effective_root": str(ALERT_FIXTURE_ROOT),
+            "using_embedded_fallback": ALERT_FIXTURE_ROOT != ALERT_FIXTURE_REQUESTED_ROOT,
+            "unreadable_lines": len(getattr(ALERT_REPOSITORY, "skipped_lines", [])),
+        }
+    )
+    return status
+
+
 @app.get("/api/config")
 def api_config():
     return jsonify(
@@ -1058,16 +1131,7 @@ def api_config():
                 "design": "output_validation_with_semantic_grounding",
                 "repair_enabled": CONFIG["suricata_repair_enabled"],
             },
-            "alert_repository": {
-                "type": "fixture",
-                "configured": ALERT_FIXTURE_ROOT.exists(),
-                "alert_count": len(ALERT_ANALYSIS.list_alerts()),
-                "requested_root": str(ALERT_FIXTURE_REQUESTED_ROOT),
-                "effective_root": str(ALERT_FIXTURE_ROOT),
-                "using_embedded_fallback": (
-                    ALERT_FIXTURE_ROOT != ALERT_FIXTURE_REQUESTED_ROOT
-                ),
-            },
+            "alert_repository": alert_repository_status(),
             "metadata_collection": {
                 **ALERT_ANALYSIS.collection_summary(),
                 "asset_inventory_root": str(ASSET_INVENTORY_ROOT),
