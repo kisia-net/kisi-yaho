@@ -255,57 +255,6 @@ INDEX_PATTERN = re.compile(r"^[A-Za-z0-9._*,-]{1,128}$")
 SID_PATTERN = re.compile(r"\bsid\s*:\s*(\d+)\s*;")
 REV_PATTERN = re.compile(r"\brev\s*:\s*(\d+)\s*;")
 
-DEMO_ALERTS = [
-    {
-        "id": "ALT-2026-0717",
-        "severity": "critical",
-        "title": "Possible credential dumping followed by lateral movement",
-        "source": "Wazuh + Sysmon",
-        "host": "WIN-FIN-07",
-        "mitre": "T1003 / T1021.002",
-        "time": "4 min ago",
-        "status": "Unassigned",
-        "risk": 94,
-        "summary": "LSASS access was followed by an administrative SMB connection from the same endpoint.",
-    },
-    {
-        "id": "ALT-2026-0716",
-        "severity": "high",
-        "title": "Encoded PowerShell with outbound connection",
-        "source": "Suricata + Endpoint",
-        "host": "WIN-HR-12",
-        "mitre": "T1059.001",
-        "time": "18 min ago",
-        "status": "Investigating",
-        "risk": 86,
-        "summary": "An encoded PowerShell process contacted a newly observed external destination.",
-    },
-    {
-        "id": "ALT-2026-0715",
-        "severity": "high",
-        "title": "Unsigned executable launched from a user temp directory",
-        "source": "Velociraptor",
-        "host": "WIN-RND-04",
-        "mitre": "T1204.002",
-        "time": "31 min ago",
-        "status": "New",
-        "risk": 81,
-        "summary": "A new unsigned PE file was executed from AppData\\Local\\Temp.",
-    },
-    {
-        "id": "ALT-2026-0714",
-        "severity": "medium",
-        "title": "Repeated authentication failures across multiple accounts",
-        "source": "Elastic Security",
-        "host": "VPN-GW-01",
-        "mitre": "T1110",
-        "time": "54 min ago",
-        "status": "Monitoring",
-        "risk": 63,
-        "summary": "One source generated failed logons for 23 accounts in 12 minutes.",
-    },
-]
-
 DEMO_INCIDENTS = [
     {
         "id": "INC-2026-1042",
@@ -1175,9 +1124,7 @@ def api_dashboard():
 @app.get("/api/alerts")
 def api_alerts():
     # The agent frontend intentionally sends empty filter values while loading
-    # its selector. Empty means "all"; it must never select the legacy demo
-    # alert collection as a fallback because those IDs do not exist in the
-    # correlated AlertAnalysis repository.
+    # its selector, so an empty value means "all" rather than "no match".
     severity = (request.args.get("severity") or "all").strip().lower()
     status = (request.args.get("status") or "all").strip().lower()
     query = (request.args.get("q") or "").strip().lower()
