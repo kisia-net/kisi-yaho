@@ -1,0 +1,39 @@
+{
+  "id": "WIN-DROPPER-001",
+  "name": "Office-spawned PowerShell writes and runs a payload",
+  "description": "Windows endpoint case exercising the Sysmon adapter. Correlates Sysmon process, DNS, network, and file telemetry with Wazuh host alerts. File hash and queried domain both resolve against the threat-intelligence feed.",
+  "correlation_window_seconds": 300,
+  "minimum_correlation_score": 2,
+  "trigger": {
+    "source_type": "wazuh",
+    "kind": "alert",
+    "rule_id": "100610"
+  },
+  "sources": [
+    {
+      "type": "sysmon",
+      "path": "sysmon.jsonl",
+      "defaults": {"host_name": "WIN-WS-07"}
+    },
+    {
+      "type": "wazuh",
+      "path": "wazuh_alerts.jsonl",
+      "defaults": {"host_name": "WIN-WS-07"}
+    }
+  ],
+  "expected": {
+    "attack_techniques": ["T1105", "T1204.002", "T1059.001"],
+    "affected_hosts": ["WIN-WS-07"],
+    "indicators": ["198.51.100.77", "updates.cdn-sync.example.invalid"],
+    "answers": [
+      {
+        "question": "What wrote the payload to disk?",
+        "expect": ["powershell", "Temp", "update.exe"]
+      },
+      {
+        "question": "Which account was involved?",
+        "expect": ["j.lee"]
+      }
+    ]
+  }
+}

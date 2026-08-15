@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+
+HOSTNAME_IS_IPV4 = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
 
 
 def parse_timestamp(value: str) -> datetime:
@@ -29,6 +32,9 @@ class CanonicalEvent:
     kind: str
     category: list[str] = field(default_factory=list)
     severity: str = "info"
+    # ECS event.outcome. Mapped from the producer when it states one; never
+    # inferred from what the event appears to mean.
+    outcome: str = ""
     message: str = ""
     host_name: str = ""
     source_ip: str = ""
@@ -41,6 +47,7 @@ class CanonicalEvent:
     process: dict[str, Any] = field(default_factory=dict)
     file: dict[str, Any] = field(default_factory=dict)
     http: dict[str, Any] = field(default_factory=dict)
+    dns: dict[str, Any] = field(default_factory=dict)
     rule: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     raw: Any = None
@@ -50,6 +57,65 @@ class CanonicalEvent:
     @property
     def timestamp_dt(self) -> datetime:
         return parse_timestamp(self.timestamp)
+
+    def observables(self) -> list[dict[str, str]]:
+        """Extract indicator-shaped values with the field they came from.
+
+        Only structured fields are read. Values keep their semantic role: a URI
+        is reported as a URI, never re-typed into something a lookup happens to
+        accept.
+        """
+        found: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        def add(observable_type: str, value: Any, field_name: str) -> None:
+            text = str(value or "").strip()
+            if not text:
+                return
+            key = (observable_type, text.lower())
+            if key in seen:
+                return
+            seen.add(key)
+            found.append({"type": observable_type, "value": text, "field": field_name})
+
+        def add_ip(value: Any, field_name: str) -> None:
+            text = str(value or "").strip()
+            if not text:
+                return
+            add("ipv6-addr" if ":" in text else "ipv4-addr", text, field_name)
+
+        add_ip(self.source_ip, "source.ip")
+        add_ip(self.destination_ip, "destination.ip")
+
+        request = self.http.get("request") if isinstance(self.http.get("request"), dict) else {}
+        host = str(request.get("host", "")).strip()
+        if host:
+            # A Host header holding an address is still an address.
+            if HOSTNAME_IS_IPV4.match(host):
+                add_ip(host, "http.request.host")
+            else:
+                add("domain-name", host, "http.request.host")
+        add("url", request.get("uri"), "http.request.uri")
+
+        question = self.dns.get("question") if isinstance(self.dns.get("question"), dict) else {}
+        queried = str(question.get("name") or self.dns.get("name") or "").strip()
+        if queried:
+            # A resolved name is an observable in its own right, whether or not
+            # the lookup succeeded.
+            if HOSTNAME_IS_IPV4.match(queried):
+                add_ip(queried, "dns.question.name")
+            else:
+                add("domain-name", queried, "dns.question.name")
+
+        for container, prefix in ((self.file, "file"), (self.process, "process")):
+            if not isinstance(container, dict):
+                continue
+            hashes = container.get("hash") if isinstance(container.get("hash"), dict) else {}
+            for algorithm in ("sha256", "sha1", "md5"):
+                value = hashes.get(algorithm) or container.get(algorithm)
+                add(f"file-hash-{algorithm}", value, f"{prefix}.hash.{algorithm}")
+
+        return found
 
     def entity_values(self) -> dict[str, list[str]]:
         result: dict[str, list[str]] = {
@@ -81,9 +147,14 @@ class CanonicalEvent:
             "source_type": self.source_type,
             "source_dataset": self.source_dataset,
             "event": {
-                "kind": self.kind,
-                "category": self.category,
-                "severity": self.severity,
+                key: value
+                for key, value in {
+                    "kind": self.kind,
+                    "category": self.category,
+                    "severity": self.severity,
+                    "outcome": self.outcome,
+                }.items()
+                if value or key != "outcome"
             },
             "message": self.message,
             "host": {"name": self.host_name} if self.host_name else {},
@@ -109,6 +180,7 @@ class CanonicalEvent:
             "process": self.process,
             "file": self.file,
             "http": self.http,
+            "dns": self.dns,
             "rule": self.rule,
             "tags": self.tags,
             "scenario_id": self.scenario_id,
@@ -128,6 +200,28 @@ class AlertCase:
     related_events: list[CanonicalEvent]
     entities: dict[str, list[str]]
     time_window: dict[str, str]
+    # Enrichment blocks. Typed as Any to keep models.py free of imports from the
+    # asset/intel collectors, which themselves depend on CanonicalEvent.
+    asset_matches: list[Any] = field(default_factory=list)
+    unresolved_assets: list[str] = field(default_factory=list)
+    intel_matches: list[Any] = field(default_factory=list)
+    intel_stats: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def alerts(self) -> list[CanonicalEvent]:
+        """The triggering alert first, then any correlated alerts."""
+        return [
+            self.trigger,
+            *[event for event in self.related_events if event.kind == "alert"],
+        ]
+
+    @property
+    def raw_events(self) -> list[CanonicalEvent]:
+        """Correlated non-alert telemetry, ordered by time."""
+        return sorted(
+            [event for event in self.related_events if event.kind != "alert"],
+            key=lambda item: item.timestamp_dt,
+        )
 
     @property
     def timeline(self) -> list[CanonicalEvent]:
@@ -152,21 +246,18 @@ class AlertCase:
                 event.to_dict(include_raw=False)
                 for event in self.timeline
             ],
+            "assets": [match.to_dict() for match in self.asset_matches],
+            "unresolved_assets": self.unresolved_assets,
+            "threat_intelligence": [match.to_dict() for match in self.intel_matches],
+            "threat_intelligence_stats": self.intel_stats,
         }
 
     def to_llm_context(self, *, max_related: int = 30) -> dict[str, Any]:
-        # Keep normalized and original evidence together. Raw evidence is data,
-        # never instructions; the system prompt enforces that boundary.
-        related = self.related_events[:max_related]
-        return {
-            "case_id": self.id,
-            "title": self.title,
-            "trigger": self.trigger.to_dict(include_raw=True),
-            "related_events": [event.to_dict(include_raw=True) for event in related],
-            "entities": self.entities,
-            "time_window": self.time_window,
-            "correlation_note": (
-                "Related events were selected deterministically by time and shared entities. "
-                "Correlation is evidence organization, not proof of causation."
-            ),
-        }
+        """Build the four-block metadata bundle handed to the LLM/SLM.
+
+        Imported here rather than at module scope because the bundle builder
+        depends on this module.
+        """
+        from .bundle import build_evidence_bundle
+
+        return build_evidence_bundle(self, max_related=max_related)

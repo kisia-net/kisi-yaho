@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">Correlated multi-source evidence for one alert. The test case uses native-format Suricata, Nginx, and Wazuh telemetry.</p>{% endblock %}
+{% block subtitle %}<p class="page-description">Correlated multi-source evidence for one alert, bundled as four metadata blocks — security alerts, raw security events, asset inventory, and threat intelligence — before it reaches the model. The test case uses native-format Suricata, Nginx, and Wazuh telemetry.</p>{% endblock %}
 {% block content %}
 <div id="alert-analysis-root" data-alert-id="{{ alert_id }}" data-csrf="{{ csrf_token() }}">
     <section class="panel">
@@ -23,9 +23,21 @@
         </article>
     </section>
 
+    <section class="split-grid">
+        <article class="panel">
+            <div class="panel-header"><div><p class="panel-kicker">Asset context</p><h2>Affected assets</h2></div></div>
+            <div class="structured-output" data-assets></div>
+        </article>
+        <article class="panel">
+            <div class="panel-header"><div><p class="panel-kicker">Threat intelligence</p><h2>Indicator matches</h2></div></div>
+            <div class="structured-output" data-intel></div>
+        </article>
+    </section>
+
     <section class="panel">
         <div class="panel-header"><div><p class="panel-kicker">Local LLM</p><h2>Case assessment</h2></div><span class="muted" data-analysis-meta>Not analyzed</span></div>
         <div class="structured-output empty-state" data-analysis-output>Run analysis to evaluate the trigger together with related network, application, and host evidence.</div>
+        <div class="structured-output" data-analysis-review hidden></div>
     </section>
 
     <section class="panel">

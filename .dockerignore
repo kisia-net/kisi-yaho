@@ -27,3 +27,6 @@ Thumbs.db
 
 # Logs
 *.log
+# Native-format telemetry fixtures ship with the image.
+!data/scenarios/**/*.log
+!hawki_alert_analysis/fixtures/**/*.log
