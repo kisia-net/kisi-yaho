@@ -168,6 +168,24 @@ python tools/evaluate.py --live      # against the configured LLM
 python tools/evaluate.py --json report.json
 ```
 
+### Before and after enrichment
+
+```bash
+python tools/evaluate.py --compare --live --markdown comparison.md
+```
+
+Analyzes each alert twice and diffs the two runs. The "before" side is the
+triggering alert alone — what an un-enriched SIEM hands an analyst, with no
+correlated events, no asset context, and no threat intelligence. The "after"
+side is the full four-block bundle. The question put to the model is identical
+both times, so any difference in the answer is attributable to the evidence
+rather than to prompting.
+
+It reports what changed on both sides of the boundary: how much evidence went
+in, and what came back out — entities named, ATT&CK techniques, confirmed
+observations, cited events, schema sections filled, and recovery of any declared
+ground truth. `--markdown` writes both full answers side by side.
+
 Three things are measured, in decreasing order of how objectively they can be
 judged: schema coverage, citation grounding, and recovery of any declared ground
 truth. The first two need no labels, so this doubles as a regression check on

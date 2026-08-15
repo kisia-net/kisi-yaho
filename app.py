@@ -2576,15 +2576,25 @@ def demo_alert_assessment(context: dict[str, Any], host: str) -> dict[str, Any]:
         for item in alerts[:4]
     ]
 
+    # Wording tracks the evidence actually supplied: with one alert and no
+    # correlated events there is nothing to call a cluster.
+    clustered = len(alerts) > 1 or bool(events)
     assessment = {
         "confirmed_observations": observations,
         "interpretation": (
-            f"Multiple detections cluster on {trigger_host} within one time window. This demo response "
-            "summarizes the bundle deterministically; it is not a model assessment."
+            (
+                f"{len(alerts)} detections and {len(events)} correlated events fall on {trigger_host} "
+                "within one time window."
+                if clustered
+                else f"A single detection on {trigger_host}, with no correlated evidence supplied."
+            )
+            + " This demo response summarizes the bundle deterministically; it is not a model assessment."
         ),
         "attack_hypothesis": (
-            f"The detections on {trigger_host} are consistent with a single related sequence rather than "
+            f"The evidence on {trigger_host} is consistent with a single related sequence rather than "
             "unrelated noise, but the demo path does not evaluate causation."
+            if clustered
+            else f"The alert on {trigger_host} cannot be placed in a sequence from the evidence supplied."
         ),
         "confidence": {
             "level": "low",

@@ -128,6 +128,55 @@ class EvaluateTests(unittest.TestCase):
             # The demo path cites only real ids.
             self.assertEqual(record["grounding"]["ungrounded"], [])
 
+    def test_compare_mode_shows_enrichment_adding_evidence(self):
+        report = self.work / "compare.json"
+        markdown = self.work / "compare.md"
+        result = run(
+            ["tools/evaluate.py", "--compare", "--json", str(report), "--markdown", str(markdown)],
+            AUTH_DATABASE_PATH=str(self.work / "auth.db"),
+            AUDIT_LOG_PATH=str(self.work / "audit.jsonl"),
+            ACTION_QUEUE_PATH=str(self.work / "actions.jsonl"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("증강 전/후 비교", result.stdout)
+
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertIn("comparisons", payload)
+        for record in payload["comparisons"]:
+            before, after = record["before"], record["after"]
+            # The "before" side is the trigger alert alone: no correlated
+            # events, no asset context, no threat intelligence.
+            self.assertEqual(before["evidence_supplied"]["security_alerts"], 1)
+            self.assertEqual(before["evidence_supplied"]["security_events"], 0)
+            self.assertEqual(before["evidence_supplied"]["assets"], 0)
+            self.assertEqual(before["evidence_supplied"]["threat_indicators"], 0)
+            # Enrichment must add evidence, never remove it.
+            self.assertGreaterEqual(
+                after["evidence_supplied"]["security_alerts"],
+                before["evidence_supplied"]["security_alerts"],
+            )
+            self.assertGreaterEqual(record["delta"]["entities_named"], 0)
+            # Enrichment can only help coverage: the un-enriched side may
+            # legitimately be unable to fill a section (a Suricata alert alone
+            # carries no ATT&CK mapping), but it must never report more.
+            self.assertGreaterEqual(
+                after["schema"]["reported"], before["schema"]["reported"]
+            )
+            self.assertTrue(after["schema"]["complete"])
+            # Neither side may cite an event that was not supplied to it.
+            self.assertEqual(before["grounding"]["ungrounded"], [])
+            self.assertEqual(after["grounding"]["ungrounded"], [])
+
+        self.assertTrue(any(record["delta"]["assets"] > 0 for record in payload["comparisons"]))
+        text = markdown.read_text(encoding="utf-8")
+        self.assertIn("### 증강 전 답변", text)
+        self.assertIn("### 증강 후 답변", text)
+
+    def test_markdown_requires_compare(self):
+        result = run(["tools/evaluate.py", "--markdown", "/tmp/x.md"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--markdown requires --compare", result.stderr)
+
     def test_unknown_alert_filter_reports_no_match(self):
         result = run(
             ["tools/evaluate.py", "--alert", "evt-does-not-exist"],
