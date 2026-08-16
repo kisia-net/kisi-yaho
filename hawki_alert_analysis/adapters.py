@@ -44,6 +44,21 @@ def severity_from_wazuh(value: Any) -> str:
     return "low"
 
 
+class IgnoredEvent(Exception):
+    """A producer record that is deliberately not a security event.
+
+    Distinct from a parse failure: nothing went wrong, the record simply
+    describes the sensor rather than the network. Repositories count these
+    separately so they do not appear as unreadable lines.
+    """
+
+
+# Suricata reports its own health into the same file as its detections. A live
+# sensor writes one of these every few seconds, so on any real capture they
+# would outnumber the security events.
+SURICATA_SELF_REPORTING_TYPES = {"stats", "engine"}
+
+
 class SuricataAdapter:
     source_type = "suricata"
 
@@ -51,6 +66,8 @@ class SuricataAdapter:
         defaults = defaults or {}
         timestamp = str(raw.get("timestamp", ""))
         event_type = str(raw.get("event_type", "event"))
+        if event_type in SURICATA_SELF_REPORTING_TYPES:
+            raise IgnoredEvent(f"suricata {event_type} record describes the sensor, not the network")
         alert = raw.get("alert") if isinstance(raw.get("alert"), dict) else {}
         http_raw = raw.get("http") if isinstance(raw.get("http"), dict) else {}
 
@@ -96,10 +113,80 @@ class SuricataAdapter:
         if http_raw or str(raw.get("app_proto", "")).lower() == "http":
             categories.append("web")
 
-        message = rule.get("name") or (
-            f"HTTP {http.get('request', {}).get('method', '')} "
-            f"{http.get('request', {}).get('uri', '')}"
-        ).strip() or f"Suricata {event_type} event"
+        tls_raw = raw.get("tls") if isinstance(raw.get("tls"), dict) else {}
+        tls: dict[str, Any] = {}
+        if tls_raw:
+            tls = {
+                key: value
+                for key, value in {
+                    "server_name": str(tls_raw.get("sni") or "").strip(),
+                    "version": str(tls_raw.get("version") or "").strip(),
+                    "subject": str(tls_raw.get("subject") or "").strip(),
+                    "issuer": str(tls_raw.get("issuerdn") or "").strip(),
+                    "ja3": (tls_raw.get("ja3") or {}).get("hash")
+                    if isinstance(tls_raw.get("ja3"), dict)
+                    else None,
+                }.items()
+                if value
+            }
+
+        file_raw = raw.get("fileinfo") if isinstance(raw.get("fileinfo"), dict) else {}
+        file_data: dict[str, Any] = {}
+        if file_raw:
+            name = str(file_raw.get("filename") or "").strip()
+            file_data = {
+                key: value
+                for key, value in {
+                    "path": name,
+                    "name": name.rsplit("/", 1)[-1] if name else "",
+                    "size": file_raw.get("size"),
+                }.items()
+                if value not in (None, "")
+            }
+            hashes = {
+                algorithm: str(file_raw[algorithm]).lower()
+                for algorithm in ("sha256", "sha1", "md5")
+                if file_raw.get(algorithm)
+            }
+            if hashes:
+                file_data["hash"] = hashes
+
+        # Every event type gets a message that says what it recorded. Left
+        # generic, a real capture fills the case with rows carrying nothing but
+        # a pair of addresses.
+        request = http.get("request", {})
+        queried = (dns.get("question") or {}).get("name", "")
+        if rule.get("name"):
+            message = rule["name"]
+        elif event_type == "dns" and queried:
+            direction = "answer" if str(dns_raw.get("type", "")) == "answer" else "query"
+            answers = [
+                str(item.get("rdata", "")).strip()
+                for item in (dns_raw.get("answers") or [])
+                if isinstance(item, dict) and item.get("rdata")
+            ]
+            message = f"DNS {direction} {queried}" + (f" -> {', '.join(answers[:3])}" if answers else "")
+        elif event_type == "tls" and tls.get("server_name"):
+            message = f"TLS connection to {tls['server_name']}" + (
+                f" ({tls['version']})" if tls.get("version") else ""
+            )
+        elif event_type == "fileinfo" and file_data.get("name"):
+            size = file_data.get("size")
+            message = f"File transferred: {file_data['name']}" + (f" ({size} bytes)" if size else "")
+        elif event_type == "anomaly":
+            anomaly = raw.get("anomaly") if isinstance(raw.get("anomaly"), dict) else {}
+            message = f"Protocol anomaly: {anomaly.get('event', 'unspecified')}"
+        elif request.get("uri"):
+            message = f"HTTP {request.get('method', '')} {request['uri']}".strip()
+        elif event_type == "flow":
+            flow = raw.get("flow") if isinstance(raw.get("flow"), dict) else {}
+            message = (
+                f"Flow {flow.get('state', 'recorded')}, "
+                f"{flow.get('pkts_toserver', 0)} packets to server / "
+                f"{flow.get('pkts_toclient', 0)} to client"
+            )
+        else:
+            message = f"Suricata {event_type} event"
 
         return CanonicalEvent(
             id=stable_event_id(self.source_type, raw, timestamp),
@@ -119,6 +206,8 @@ class SuricataAdapter:
             network_application=str(raw.get("app_proto", "") or (event_type if event_type in {"http", "dns", "tls"} else "")).lower(),
             http=http,
             dns=dns,
+            tls=tls,
+            file=file_data,
             rule=rule,
             tags=[str(value) for value in raw.get("tags", []) if value],
             raw=raw,

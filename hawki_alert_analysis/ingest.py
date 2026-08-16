@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .adapters import SYSLOG_LINE
+from .adapters import SYSLOG_LINE, IgnoredEvent
 from .models import CanonicalEvent
 from .repository import ADAPTERS, TEXT_LINE_SOURCES
 
@@ -86,11 +86,13 @@ class IngestResult:
     manifest: dict[str, Any] = field(default_factory=dict)
     alert_count: int = 0
     event_count: int = 0
+    ignored_count: int = 0
 
     def summary(self) -> str:
         lines = [
             f"{len(self.sources)} source(s) detected, "
             f"{self.event_count} events, {self.alert_count} alerts"
+            + (f", {self.ignored_count} sensor self-reports ignored" if self.ignored_count else "")
         ]
         for source in self.sources:
             note = "" if source.sample_ok else f"  [unreadable: {source.detail}]"
@@ -173,6 +175,10 @@ def _probe(path: Path, source_type: str) -> tuple[bool, str]:
             return False, f"invalid JSON: {exc}"
     try:
         adapter.normalize(row, scenario_id="probe", defaults={"year": 2026})
+    except IgnoredEvent:
+        # The first line happened to be a sensor self-report. The adapter
+        # understood it perfectly well; it just is not a security event.
+        return True, ""
     except Exception as exc:  # noqa: BLE001 - report any adapter rejection
         return False, str(exc)
     return True, ""
@@ -264,8 +270,9 @@ def build_manifest(
 
     # No ground truth: load what was detected and pick the most severe alert.
     manifest["trigger"] = {"kind": "alert"}
-    events = _load_preview(log_dir, manifest)
+    events, ignored = _load_preview(log_dir, manifest)
     result.event_count = len(events)
+    result.ignored_count = ignored
     alerts = [event for event in events if event.kind == "alert"]
     result.alert_count = len(alerts)
     if alerts:
@@ -283,7 +290,7 @@ def build_manifest(
     return result
 
 
-def _load_preview(log_dir: Path, manifest: dict[str, Any]) -> list[CanonicalEvent]:
+def _load_preview(log_dir: Path, manifest: dict[str, Any]) -> tuple[list[CanonicalEvent], int]:
     """Normalize the detected sources once, to choose a trigger.
 
     Reads through the adapters directly rather than staging a scenario
@@ -291,6 +298,7 @@ def _load_preview(log_dir: Path, manifest: dict[str, Any]) -> list[CanonicalEven
     write into the source data.
     """
     events: list[CanonicalEvent] = []
+    ignored = 0
     for source in manifest.get("sources", []):
         source_type = str(source.get("type", ""))
         adapter = ADAPTERS.get(source_type)
@@ -314,9 +322,11 @@ def _load_preview(log_dir: Path, manifest: dict[str, Any]) -> list[CanonicalEven
                         continue
                 try:
                     events.append(adapter.normalize(row, scenario_id="preview", defaults=defaults))
+                except IgnoredEvent:
+                    ignored += 1
                 except (ValueError, KeyError, TypeError):
                     continue
-    return events
+    return events, ignored
 
 
 def write_scenario(

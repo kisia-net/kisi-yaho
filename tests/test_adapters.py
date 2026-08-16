@@ -120,6 +120,105 @@ class ApacheAdapterTests(unittest.TestCase):
         self.assertNotEqual(apache.id, nginx.id)
 
 
+class SuricataRealCaptureTests(unittest.TestCase):
+    """Event types a real capture produces beyond the alert records.
+
+    A fixture holds alerts and a couple of HTTP records. A live sensor writes
+    dns, tls, fileinfo, flow, anomaly and stats too, and on any real capture
+    those vastly outnumber the alerts.
+    """
+
+    def setUp(self):
+        from hawki_alert_analysis.adapters import SuricataAdapter
+
+        self.adapter = SuricataAdapter()
+
+    def normalize(self, raw):
+        return self.adapter.normalize(raw, defaults={"host_name": "sensor-01"})
+
+    def test_sensor_self_reports_are_ignored_not_failed(self):
+        from hawki_alert_analysis.adapters import IgnoredEvent
+
+        # Suricata writes one of these every few seconds. They describe the
+        # sensor, not the network, so they are neither events nor errors.
+        for event_type in ("stats", "engine"):
+            with self.subTest(event_type=event_type):
+                with self.assertRaises(IgnoredEvent):
+                    self.normalize({"timestamp": "2026-08-11T14:03:01.1+0000", "event_type": event_type})
+
+    def test_dns_query_and_answer_say_what_was_resolved(self):
+        query = self.normalize({
+            "timestamp": "2026-08-11T14:03:02.418+0000", "event_type": "dns",
+            "src_ip": "10.0.0.5", "dest_ip": "10.0.0.1", "proto": "UDP",
+            "dns": {"type": "query", "rrname": "updates.cdn-sync.example.invalid", "rrtype": "A"},
+        })
+        self.assertIn("DNS query updates.cdn-sync.example.invalid", query.message)
+        self.assertEqual(query.dns["question"]["name"], "updates.cdn-sync.example.invalid")
+
+        answer = self.normalize({
+            "timestamp": "2026-08-11T14:03:02.512+0000", "event_type": "dns",
+            "src_ip": "10.0.0.1", "dest_ip": "10.0.0.5", "proto": "UDP",
+            "dns": {
+                "type": "answer", "rrname": "updates.cdn-sync.example.invalid", "rcode": "NOERROR",
+                "answers": [{"rrname": "updates.cdn-sync.example.invalid", "rrtype": "A", "rdata": "198.51.100.77"}],
+            },
+        })
+        self.assertIn("198.51.100.77", answer.message)
+
+    def test_tls_server_name_is_an_observable(self):
+        # With an encrypted payload and no DNS in the capture, the SNI is the
+        # only place the destination name appears.
+        event = self.normalize({
+            "timestamp": "2026-08-11T14:03:04.88+0000", "event_type": "tls",
+            "src_ip": "10.0.0.5", "dest_ip": "198.51.100.77", "dest_port": 443, "proto": "TCP",
+            "tls": {"sni": "updates.cdn-sync.example.invalid", "version": "TLS 1.2",
+                    "ja3": {"hash": "51c64c77e60f3980eea90869b68c58a8"}},
+        })
+        self.assertEqual(event.tls["server_name"], "updates.cdn-sync.example.invalid")
+        self.assertEqual(event.tls["ja3"], "51c64c77e60f3980eea90869b68c58a8")
+        self.assertIn("TLS connection to updates.cdn-sync.example.invalid", event.message)
+        by_field = {item["field"]: item for item in event.observables()}
+        self.assertEqual(by_field["tls.server_name"]["type"], "domain-name")
+
+    def test_fileinfo_carries_the_transferred_file(self):
+        event = self.normalize({
+            "timestamp": "2026-08-11T14:03:03.15+0000", "event_type": "fileinfo",
+            "src_ip": "198.51.100.77", "dest_ip": "10.0.0.5", "proto": "TCP",
+            "fileinfo": {"filename": "/payload.bin", "size": 98304,
+                         "sha256": "9F2C4B1D0E5A77C3B8AD6F41E2C9D0B57A4318FE6C2D9B0A4E7F15C3D8B2A6E0"},
+        })
+        self.assertEqual(event.file["name"], "payload.bin")
+        self.assertEqual(event.file["size"], 98304)
+        self.assertIn("File transferred: payload.bin", event.message)
+        by_field = {item["field"]: item for item in event.observables()}
+        # Hashes are lowercased so a feed lookup matches regardless of case.
+        self.assertTrue(by_field["file.hash.sha256"]["value"].startswith("9f2c4b"))
+
+    def test_flow_and_anomaly_records_describe_themselves(self):
+        flow = self.normalize({
+            "timestamp": "2026-08-11T14:03:06+0000", "event_type": "flow",
+            "src_ip": "10.0.0.5", "dest_ip": "198.51.100.77", "proto": "TCP",
+            "flow": {"pkts_toserver": 12, "pkts_toclient": 18, "state": "closed"},
+        })
+        self.assertIn("Flow closed", flow.message)
+        self.assertIn("12 packets to server", flow.message)
+
+        anomaly = self.normalize({
+            "timestamp": "2026-08-11T14:03:05.4+0000", "event_type": "anomaly",
+            "src_ip": "10.0.0.5", "dest_ip": "198.51.100.77", "proto": "TCP",
+            "anomaly": {"type": "applayer", "event": "TLS_ERROR_INVALID_HANDSHAKE_MESSAGE"},
+        })
+        self.assertIn("TLS_ERROR_INVALID_HANDSHAKE_MESSAGE", anomaly.message)
+
+    def test_no_event_falls_back_to_a_bare_protocol_name(self):
+        # The old fallback rendered an HTTP-less record as the word "HTTP".
+        event = self.normalize({
+            "timestamp": "2026-08-11T14:03:09+0000", "event_type": "smb",
+            "src_ip": "10.0.0.5", "dest_ip": "10.0.0.9", "proto": "TCP",
+        })
+        self.assertEqual(event.message, "Suricata smb event")
+
+
 MODSEC_V3 = {
     "transaction": {
         "client_ip": "203.0.113.45",
