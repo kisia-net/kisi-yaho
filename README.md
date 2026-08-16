@@ -327,6 +327,18 @@ To work against scenarios you ingested on the host, mount them in:
 docker compose -f compose.yaml -f compose.dev.yaml up
 ```
 
+The interface renders Markdown with three browser libraries served from this
+origin. Install them once — the Content Security Policy allows scripts from
+`'self'` only, and the deployment plan puts the web tier on a subnet with no
+route to a CDN:
+
+```bash
+python tools/vendor_assets.py            # install into static/vendor/
+python tools/vendor_assets.py --verify   # check against the lock file
+```
+
+Without them the app still runs; Markdown falls back to escaped plain text.
+
 Verify everything without a browser:
 
 ```bash
