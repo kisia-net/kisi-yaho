@@ -472,12 +472,23 @@ function enhanceRenderedContent(container) {
 }
 
 function toast(message) {
+    const region = byId("toast-region");
+    if (!region) return;
     const item = document.createElement("div");
     item.className = "toast";
     item.textContent = message;
-    byId("toast-region").appendChild(item);
+    region.appendChild(item);
     setTimeout(() => item.remove(), 3200);
 }
+
+// Safety net. Most page loaders await a fetch without catching, so a failed
+// request used to leave placeholder text on screen indefinitely and look like
+// a page that never loaded. Say what happened instead.
+window.addEventListener("unhandledrejection", (event) => {
+    const message = event.reason?.message || String(event.reason ?? "Request failed");
+    console.error("HAW-KI request failed:", event.reason);
+    toast(`Request failed: ${message}`);
+});
 async function api(url, options = {}) {
     const method = String(options.method || "GET").toUpperCase();
     const headers = new Headers(options.headers || {});
@@ -1710,6 +1721,16 @@ async function initAgent() {
     saveAgentSessions();
 }
 async function loadAlerts() {
+    try {
+        await loadAlertsInner();
+    } catch (error) {
+        // Without this the table kept its "Loading alerts" placeholder, which
+        // reads as a page that never finished rather than a failed request.
+        byId("alert-count").textContent = "Could not load alerts";
+        byId("alerts-table").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}<br><br>Check the server logs: <code>docker compose logs hawki-web</code></div>`;
+    }
+}
+async function loadAlertsInner() {
     const q = encodeURIComponent(byId("alert-query").value.trim());
     const sev = encodeURIComponent(byId("alert-severity").value); const status = encodeURIComponent(byId("alert-status").value);
     const data = await api(`/api/alerts?q=${q}&severity=${sev}&status=${status}`);

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -53,6 +54,63 @@ class AlertAnalysisFixtureTests(unittest.TestCase):
         self.assertIn("wazuh", source_types)
         self.assertIn("web-01", case.entities["hosts"])
         self.assertIn("203.0.113.45", case.entities["source_ips"])
+
+
+class RepositoryResilienceTests(unittest.TestCase):
+    """One broken file degrades its own case, never the whole repository.
+
+    A missing source used to raise FileNotFoundError out of list_alerts, so
+    /api/alerts answered 500 and every scenario disappeared at once.
+    """
+
+    def setUp(self):
+        import shutil
+        import tempfile
+
+        self.root = Path(tempfile.mkdtemp(prefix="hawki-broken-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        shutil.copytree(ROOT / "data" / "scenarios", self.root, dirs_exist_ok=True)
+
+    def test_missing_source_file_degrades_only_its_own_case(self):
+        (self.root / "web_path_traversal" / "nginx_access.log").unlink()
+        repo = FixtureEventRepository(self.root)
+
+        alerts = repo.list_alerts()
+        self.assertTrue(alerts)
+        # The Windows scenario is untouched.
+        self.assertTrue(any(item["scenario_id"] == "WIN-DROPPER-001" for item in alerts))
+        # The degraded scenario still works, minus the unreadable source.
+        self.assertTrue(any(item["scenario_id"] == "WEB-TRAVERSAL-001" for item in alerts))
+        self.assertTrue(any("nginx_access.log" in entry for entry in repo.skipped_lines))
+
+    def test_malformed_manifest_disables_only_its_scenario(self):
+        (self.root / "web_path_traversal" / "scenario.json").write_text("{ not json", encoding="utf-8")
+        repo = FixtureEventRepository(self.root)
+
+        alerts = repo.list_alerts()
+        self.assertTrue(any(item["scenario_id"] == "WIN-DROPPER-001" for item in alerts))
+        self.assertFalse(any(item["scenario_id"] == "WEB-TRAVERSAL-001" for item in alerts))
+        self.assertTrue(any("scenario.json" in entry for entry in repo.skipped_lines))
+
+    def test_unknown_source_type_is_reported_not_fatal(self):
+        manifest_path = self.root / "web_path_traversal" / "scenario.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["sources"].append({"type": "zeek", "path": "conn.log"})
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        repo = FixtureEventRepository(self.root)
+        self.assertTrue(repo.list_alerts())
+        self.assertTrue(any("zeek" in entry for entry in repo.skipped_lines))
+
+    def test_truncated_json_line_keeps_the_lines_before_it(self):
+        path = self.root / "web_path_traversal" / "suricata_eve.jsonl"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write('{"timestamp":"2026-08-11T10:2')  # a log still being written
+
+        repo = FixtureEventRepository(self.root)
+        alerts = [item for item in repo.list_alerts() if item["source"] == "suricata"]
+        self.assertTrue(alerts)
+        self.assertTrue(any("suricata_eve.jsonl" in entry for entry in repo.skipped_lines))
 
 
 class MetadataBundleTests(unittest.TestCase):
