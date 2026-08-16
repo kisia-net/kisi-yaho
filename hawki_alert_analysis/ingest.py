@@ -63,6 +63,16 @@ NAME_HINTS = (
 
 SKIP_NAMES = {"scenario.json", "labels.json", "readme", "readme.md"}
 
+# A producer's own operational output, which sits in the same directory as its
+# telemetry. Naming these explicitly keeps the report about the collection
+# rather than about files that were never going to be events.
+NON_TELEMETRY = {
+    "fast.log": "Suricata's human-readable alert log; eve.json carries the same alerts with more detail",
+    "stats.log": "Suricata's own performance counters",
+    "suricata.log": "Suricata's operational log",
+    "suricata-start.log": "Suricata's startup log",
+}
+
 
 @dataclass
 class DetectedSource:
@@ -83,6 +93,7 @@ class DetectedSource:
 class IngestResult:
     sources: list[DetectedSource] = field(default_factory=list)
     unclassified: list[str] = field(default_factory=list)
+    non_telemetry: list[str] = field(default_factory=list)
     manifest: dict[str, Any] = field(default_factory=dict)
     alert_count: int = 0
     event_count: int = 0
@@ -99,6 +110,8 @@ class IngestResult:
             lines.append(f"  {source.path.name:<28} -> {source.source_type:<9} ({source.reason}){note}")
         for name in self.unclassified:
             lines.append(f"  {name:<28} -> skipped (no adapter matched)")
+        for name in self.non_telemetry:
+            lines.append(f"  {name:<28} -> skipped (producer's own output)")
         return "\n".join(lines)
 
 
@@ -184,11 +197,15 @@ def _probe(path: Path, source_type: str) -> tuple[bool, str]:
     return True, ""
 
 
-def detect_sources(log_dir: Path) -> tuple[list[DetectedSource], list[str]]:
+def detect_sources(log_dir: Path) -> tuple[list[DetectedSource], list[str], list[str]]:
     detected: list[DetectedSource] = []
     unclassified: list[str] = []
+    non_telemetry: list[str] = []
     for path in sorted(log_dir.iterdir()):
         if not path.is_file() or path.name.lower() in SKIP_NAMES or path.name.startswith("."):
+            continue
+        if path.name.lower() in NON_TELEMETRY:
+            non_telemetry.append(f"{path.name} ({NON_TELEMETRY[path.name.lower()]})")
             continue
         source_type, reason = sniff_source_type(path)
         if not source_type:
@@ -199,7 +216,7 @@ def detect_sources(log_dir: Path) -> tuple[list[DetectedSource], list[str]]:
             unclassified.append(f"{path.name} ({detail})")
             continue
         detected.append(DetectedSource(path=path, source_type=source_type, reason=reason))
-    return detected, unclassified
+    return detected, unclassified, non_telemetry
 
 
 def _load_labels(path: Path | None) -> dict[str, Any]:
@@ -239,7 +256,7 @@ def build_manifest(
     correlation_window_seconds: int = 300,
 ) -> IngestResult:
     labels = labels or {}
-    detected, unclassified = detect_sources(log_dir)
+    detected, unclassified, non_telemetry = detect_sources(log_dir)
 
     defaults: dict[str, Any] = {}
     if host_name:
@@ -261,7 +278,12 @@ def build_manifest(
     if labels.get("expected"):
         manifest["expected"] = labels["expected"]
 
-    result = IngestResult(sources=detected, unclassified=unclassified, manifest=manifest)
+    result = IngestResult(
+        sources=detected,
+        unclassified=unclassified,
+        non_telemetry=non_telemetry,
+        manifest=manifest,
+    )
 
     trigger = labels.get("trigger")
     if isinstance(trigger, dict) and trigger:
@@ -385,10 +407,21 @@ def main(argv: list[str] | None = None) -> int:
 
     trigger = result.manifest.get("trigger", {})
     print(f"\ntrigger: {json.dumps(trigger, ensure_ascii=False)}")
-    if trigger == {"kind": "alert"}:
+
+    if result.event_count == 0:
+        # Sources were readable but held nothing. Almost always the collection
+        # step upstream produced no telemetry, not a problem with these files.
         print(
-            "warning: no alert was found in the collected logs, so the trigger is unresolved. "
-            "Supply --labels to name one, or include an alerting source."
+            "\nwarning: the sources were readable but contained no events at all.\n"
+            "  The collection step upstream probably produced nothing. For a Suricata replay,\n"
+            "  check its own output: 'read 0 files, 0 packets' means it never saw the capture —\n"
+            "  usually the capture path is missing, or is a directory rather than the .pcap file."
+        )
+    elif trigger == {"kind": "alert"}:
+        print(
+            "warning: events were collected but none of them is an alert, so the trigger is\n"
+            "  unresolved. Either the ruleset raised nothing on this traffic, or the alerting\n"
+            "  source is missing. Supply --labels to name a trigger explicitly."
         )
 
     if args.dry_run:

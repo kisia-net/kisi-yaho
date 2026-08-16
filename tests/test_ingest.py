@@ -65,17 +65,32 @@ class DetectionTests(unittest.TestCase):
         self.write("notes.txt", "just some prose\n")
         self.write("empty.log", "")
         self.write("broken.json", '{"not": "a known producer"}\n')
-        detected, unclassified = detect_sources(self.dir)
+        detected, unclassified, _ = detect_sources(self.dir)
         self.assertEqual(detected, [])
         joined = " ".join(unclassified)
         for name in ("notes.txt", "empty.log", "broken.json"):
             self.assertIn(name, joined)
 
+    def test_suricata_own_output_is_named_not_reported_as_unreadable(self):
+        # A Suricata run leaves these beside eve.json. Reporting them as
+        # unreadable buries the one line that matters in a failed collection.
+        self.write("fast.log", "")
+        self.write("suricata.log", "16/8/2026 -- 14:42:44 - <Info> -- Loading suricata.yaml\n")
+        self.write("stats.log", "Date: 8/16/2026 -- 14:43:29 (uptime: 0d, 00h 00m 00s)\n")
+        self.write("eve.json", '{"timestamp":"2026-08-11T14:03:01.1+0000","event_type":"stats"}\n')
+
+        detected, unclassified, non_telemetry = detect_sources(self.dir)
+        self.assertEqual([source.path.name for source in detected], ["eve.json"])
+        self.assertEqual(unclassified, [])
+        named = " ".join(non_telemetry)
+        for name in ("fast.log", "suricata.log", "stats.log"):
+            self.assertIn(name, named)
+
     def test_scenario_and_label_files_are_not_treated_as_logs(self):
         self.write("scenario.json", "{}")
         self.write("labels.json", "{}")
         self.write("auth.log", AUTH_LOG)
-        detected, unclassified = detect_sources(self.dir)
+        detected, unclassified, _ = detect_sources(self.dir)
         self.assertEqual([source.path.name for source in detected], ["auth.log"])
         self.assertEqual(unclassified, [])
 
