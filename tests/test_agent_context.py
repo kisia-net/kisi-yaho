@@ -327,6 +327,36 @@ class MetadataApiTests(unittest.TestCase):
         alert = next(item for item in payload["alerts"] if item["host"] == "web-01")
         self.assertEqual(alert["asset_criticality"], "high")
 
+    def test_no_mutation_observer_writes_into_what_it_watches(self):
+        """Guard against the self-triggering observer that froze the tab.
+
+        alert_analysis.js watched #alerts-table with subtree: true and assigned
+        link.textContent inside it. Assigning textContent replaces the text
+        node and registers as a mutation even when the value is unchanged, so
+        the callback re-triggered itself forever, the microtask queue never
+        drained, and the page stopped painting and stopped accepting input —
+        a hang no server-side test can see.
+        """
+        source = (Path(app.BASE_DIR) / "static" / "alert_analysis.js").read_text(encoding="utf-8")
+        # The constructor call, not the word: the file explains the bug in a
+        # comment so the fix is not silently undone later.
+        self.assertNotIn("new MutationObserver", source)
+
+    def test_no_inline_style_attribute_is_written_into_markup(self):
+        # style-src 'self' blocks a style attribute in markup, so a progress
+        # bar built that way silently never renders. CSSOM assignment is not
+        # covered by the policy and is the supported way to do this.
+        static_dir = Path(app.BASE_DIR) / "static"
+        for name in ("app.js", "alert_analysis.js", "agent_alert_context.js", "theme-init.js"):
+            with self.subTest(script=name):
+                self.assertNotIn('style="', (static_dir / name).read_text(encoding="utf-8"))
+
+    def test_alert_rows_link_straight_to_the_case(self):
+        # The link is rendered correctly rather than rewritten after the fact,
+        # which is what removed the need for the observer.
+        source = (Path(app.BASE_DIR) / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('href="/alerts/${encodeURIComponent(a.id)}"', source)
+
     def test_pages_load_no_script_the_csp_forbids(self):
         # script-src 'self' blocks inline blocks and CDN tags outright, so a
         # page carrying either is broken in the browser regardless of tests.
