@@ -390,11 +390,21 @@ def main(argv: list[str] | None = None) -> int:
     if not log_dir.is_dir():
         parser.error(f"{log_dir} is not a directory")
 
+    try:
+        labels = _load_labels(args.labels)
+    except FileNotFoundError:
+        parser.error(
+            f"labels file not found: {args.labels}\n"
+            "Create it, or drop --labels to let the most severe alert be the trigger."
+        )
+    except ValueError as exc:
+        parser.error(f"labels file is not valid JSON: {args.labels}\n{exc}")
+
     result = build_manifest(
         log_dir,
         scenario_id=args.scenario_id or log_dir.name,
         name=args.name,
-        labels=_load_labels(args.labels),
+        labels=labels,
         host_name=args.host,
         year=args.year,
         correlation_window_seconds=args.window,
