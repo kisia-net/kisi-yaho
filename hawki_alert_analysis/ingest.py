@@ -46,6 +46,7 @@ NAME_HINTS = (
     ("sysmon", "sysmon"),
     ("wazuh", "wazuh"),
     ("alerts.json", "wazuh"),
+    ("modsec", "modsecurity"),
     ("apache", "apache"),
     ("httpd", "apache"),
     ("nginx", "nginx"),
@@ -137,6 +138,8 @@ def sniff_source_type(path: Path) -> tuple[str, str]:
             return "suricata", "JSON carries Suricata EVE fields"
         if "rule" in payload and "agent" in payload:
             return "wazuh", "JSON carries Wazuh alert fields"
+        if "transaction" in payload or "audit_data" in payload:
+            return "modsecurity", "JSON carries a ModSecurity audit transaction"
         # Checked before ECS: Winlogbeat-shaped Sysmon also carries @timestamp,
         # and the Sysmon adapter reads the Windows fields the ECS one drops.
         if "winlog" in payload or "EventID" in payload or "EventId" in payload:

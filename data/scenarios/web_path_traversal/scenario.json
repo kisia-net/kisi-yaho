@@ -16,6 +16,11 @@
       "defaults": {"host_name": "web-01"}
     },
     {
+      "type": "modsecurity",
+      "path": "modsec_audit.json",
+      "defaults": {"host_name": "web-01"}
+    },
+    {
       "type": "nginx",
       "path": "nginx_access.log",
       "defaults": {

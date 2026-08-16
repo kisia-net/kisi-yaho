@@ -1,5 +1,17 @@
 name: hawki
 
+# Profiles keep the local stage light. Plain `docker compose up` starts the web
+# app alone (~300 MB, no GPU). vLLM and Suricata are opt-in:
+#
+#   docker compose up -d                              web app only
+#   docker compose --profile llm up -d                + vLLM (needs a GPU)
+#   docker compose run --rm suricata-update           fetch ET Open rules (once)
+#   docker compose run --rm suricata                  replay a PCAP
+#
+# The web app previously declared depends_on: vllm, which made `docker compose
+# up` fail on a machine without a GPU. It handles an unreachable model on its
+# own, so the dependency is gone.
+
 services:
   hawki-web:
     build:
@@ -9,15 +21,13 @@ services:
     container_name: hawki-web
     restart: unless-stopped
 
-    depends_on:
-      - vllm
-
     env_file:
       - .env
 
     environment:
       # Inside Docker, use the Compose service name rather than localhost.
-      LLM_API_URL: "http://vllm:8000/v1/chat/completions"
+      # Override in .env to point at a model running elsewhere.
+      LLM_API_URL: "${LLM_API_URL:-http://vllm:8000/v1/chat/completions}"
       LLM_MODEL: "${VLLM_SERVED_MODEL:-hawki-local}"
       LLM_API_KEY: "${VLLM_API_KEY}"
 
@@ -33,9 +43,60 @@ services:
     networks:
       - hawki
 
+  # ---------------------------------------------------------------------
+  # Network sensor. Reads a capture and writes its own eve.json — the same
+  # format a live sensor produces, so nothing downstream knows the difference.
+  #
+  #   1. mkdir -p capture/pcap capture/out
+  #   2. cp <your>.pcap capture/pcap/capture.pcap
+  #   3. docker compose run --rm suricata-update
+  #   4. docker compose run --rm suricata
+  #   5. python -m hawki_alert_analysis.ingest capture/out \
+  #          --out data/scenarios/real_001 --host web-01
+  #
+  # Set PCAP_FILE to replay a different capture from capture/pcap/.
+  # ---------------------------------------------------------------------
+  suricata:
+    image: jasonish/suricata:latest
+    container_name: hawki-suricata
+    profiles: ["capture"]
+    restart: "no"
+
+    volumes:
+      - ./capture/pcap:/capture:ro
+      - ./capture/out:/var/log/suricata
+      - hawki-suricata-rules:/var/lib/suricata
+
+    command:
+      - -r
+      - "/capture/${PCAP_FILE:-capture.pcap}"
+      - -l
+      - /var/log/suricata
+      - -v
+
+    networks:
+      - hawki
+
+  # Fetches the Emerging Threats Open ruleset into the shared rules volume.
+  # Without it Suricata still logs http, dns, tls and flow events, but raises
+  # no alerts — and the case has no trigger.
+  suricata-update:
+    image: jasonish/suricata:latest
+    container_name: hawki-suricata-update
+    profiles: ["rules"]
+    restart: "no"
+    entrypoint: ["suricata-update"]
+
+    volumes:
+      - hawki-suricata-rules:/var/lib/suricata
+
+    networks:
+      - hawki
+
   vllm:
     image: vllm/vllm-openai:latest
     container_name: hawki-vllm
+    profiles: ["llm"]
     restart: unless-stopped
 
     gpus: all
@@ -102,3 +163,4 @@ volumes:
   hawki-data:
   hawki-hf-cache:
   hawki-vllm-cache:
+  hawki-suricata-rules:

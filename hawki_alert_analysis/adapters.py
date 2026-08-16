@@ -311,6 +311,250 @@ class AuthLogAdapter(SyslogAdapter):
     dataset = "linux.auth"
 
 
+def severity_from_modsecurity(value: Any) -> str:
+    """Map a ModSecurity/CRS severity to the canonical scale.
+
+    ModSecurity counts down from EMERGENCY(0), the opposite of Wazuh. CRS marks
+    most attack rules CRITICAL(2).
+    """
+    words = {
+        "emergency": 0, "alert": 1, "critical": 2, "error": 3,
+        "warning": 4, "notice": 5, "info": 6, "debug": 7,
+    }
+    text = str(value or "").strip().lower()
+    level = words.get(text)
+    if level is None:
+        try:
+            level = int(text)
+        except (TypeError, ValueError):
+            return "medium"
+    if level <= 2:
+        return "critical"
+    if level == 3:
+        return "high"
+    if level == 4:
+        return "medium"
+    return "low"
+
+
+MODSEC_TIME_FORMATS = (
+    "%a %b %d %H:%M:%S %Y",       # ModSecurity v3: "Tue Aug 11 10:21:03 2026"
+    "%a %b %d %H:%M:%S.%f %Y",
+    "%d/%b/%Y:%H:%M:%S %z",       # ModSecurity v2: "11/Aug/2026:10:21:03 +0000"
+)
+
+# ModSecurity v2 writes its messages as prose with bracketed options rather
+# than as structured objects.
+MODSEC_V2_OPTION = re.compile(r'\[(?P<key>[a-zA-Z_]+)\s+"(?P<value>(?:\\.|[^"\\])*)"\]')
+MODSEC_REQUEST_LINE = re.compile(r"^(?P<method>[A-Z]+)\s+(?P<uri>\S+)(?:\s+(?P<protocol>\S+))?$")
+
+
+def parse_modsecurity_time(value: str) -> datetime:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("ModSecurity record carries no timestamp")
+    for fmt in MODSEC_TIME_FORMATS:
+        try:
+            stamp = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
+    return parse_timestamp(text)
+
+
+def _modsecurity_messages(raw: dict[str, Any], audit: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalize v3 structured messages and v2 message strings to one shape."""
+    entries: list[dict[str, Any]] = []
+    messages = raw.get("messages")
+    if not isinstance(messages, list):
+        messages = audit.get("messages") if isinstance(audit.get("messages"), list) else []
+
+    for item in messages:
+        if isinstance(item, dict):
+            details = item.get("details") if isinstance(item.get("details"), dict) else {}
+            entries.append(
+                {
+                    "id": str(details.get("ruleId", "")).strip(),
+                    "message": str(item.get("message", "")).strip(),
+                    "severity": details.get("severity", ""),
+                    "data": str(details.get("data", "")).strip(),
+                    "match": str(details.get("match", "")).strip(),
+                    "file": str(details.get("file", "")).strip(),
+                    "version": str(details.get("ver", "")).strip(),
+                    "tags": [str(tag) for tag in details.get("tags", [])]
+                    if isinstance(details.get("tags"), list)
+                    else [],
+                }
+            )
+        elif isinstance(item, str):
+            options = {
+                match.group("key").lower(): match.group("value")
+                for match in MODSEC_V2_OPTION.finditer(item)
+            }
+            tags = [
+                match.group("value")
+                for match in MODSEC_V2_OPTION.finditer(item)
+                if match.group("key").lower() == "tag"
+            ]
+            entries.append(
+                {
+                    "id": options.get("id", ""),
+                    "message": options.get("msg", item.split("[")[0].strip()),
+                    "severity": options.get("severity", ""),
+                    "data": options.get("data", ""),
+                    "match": "",
+                    "file": options.get("file", ""),
+                    "version": options.get("ver", ""),
+                    "tags": tags,
+                }
+            )
+    return [entry for entry in entries if entry["id"] or entry["message"]]
+
+
+class ModSecurityAdapter:
+    """ModSecurity WAF audit log, JSON format (v2 and v3/nginx).
+
+    A transaction that triggered rules is a detection, so it is normalized with
+    kind "alert"; a transaction that triggered nothing stays an event. The
+    triggered CRS rule ids are preserved in full, because they are the baseline
+    a rule-only decision would have produced — the thing an LLM assessment has
+    to be measured against.
+    """
+
+    source_type = "modsecurity"
+
+    def normalize(self, raw: dict[str, Any], *, scenario_id: str = "", defaults: dict[str, Any] | None = None) -> CanonicalEvent:
+        defaults = defaults or {}
+        # v3 nests everything under "transaction"; v2 keeps request/response at
+        # the top level and puts detections under "audit_data".
+        transaction = raw.get("transaction") if isinstance(raw.get("transaction"), dict) else {}
+        body = transaction if transaction.get("request") else raw
+        audit = raw.get("audit_data") if isinstance(raw.get("audit_data"), dict) else {}
+
+        request = body.get("request") if isinstance(body.get("request"), dict) else {}
+        response = body.get("response") if isinstance(body.get("response"), dict) else {}
+
+        timestamp = parse_modsecurity_time(
+            transaction.get("time_stamp") or transaction.get("time") or raw.get("time_stamp") or ""
+        )
+
+        method = str(request.get("method", "")).strip()
+        uri = str(request.get("uri", "")).strip()
+        if not method and (line := str(request.get("request_line", "")).strip()):
+            if match := MODSEC_REQUEST_LINE.match(line):
+                method = match.group("method")
+                uri = match.group("uri")
+
+        headers = request.get("headers") if isinstance(request.get("headers"), dict) else {}
+        lowered = {str(key).lower(): value for key, value in headers.items()}
+        status = response.get("http_code", response.get("status"))
+
+        http: dict[str, Any] = {}
+        if method or uri:
+            http["request"] = {
+                key: value
+                for key, value in {
+                    "method": method,
+                    "uri": uri,
+                    "host": str(lowered.get("host", "")).strip(),
+                    "user_agent": str(lowered.get("user-agent", "")).strip(),
+                    "referer": str(lowered.get("referer", "")).strip(),
+                }.items()
+                if value
+            }
+        if status is not None:
+            try:
+                # A status code stays a status code.
+                http["response"] = {"status_code": int(status)}
+            except (TypeError, ValueError):
+                pass
+
+        entries = _modsecurity_messages(body, audit)
+        # The most severe match names the alert; every match is retained.
+        primary = min(
+            entries,
+            key=lambda entry: {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(
+                severity_from_modsecurity(entry["severity"]), 4
+            ),
+            default=None,
+        ) if entries else None
+
+        producer = body.get("producer") if isinstance(body.get("producer"), dict) else {}
+        engine_mode = str(
+            producer.get("secrules_engine") or audit.get("engine_mode") or ""
+        ).strip()
+
+        rule: dict[str, Any] = {}
+        if primary:
+            rule = {
+                "id": primary["id"],
+                "name": primary["message"],
+                "severity": primary["severity"],
+                "matched_data": primary["data"],
+                "ruleset": primary["version"] or ", ".join(
+                    str(item) for item in producer.get("components", [])
+                    if isinstance(producer.get("components"), list)
+                ),
+                "engine_mode": engine_mode,
+                # Every rule the transaction triggered, in file order. This is
+                # the rule-only baseline.
+                "matched_rules": [
+                    {
+                        "id": entry["id"],
+                        "message": entry["message"],
+                        "severity": entry["severity"],
+                    }
+                    for entry in entries
+                ],
+            }
+
+        tags: list[str] = []
+        for entry in entries:
+            tags.extend(entry["tags"])
+
+        source_port = transaction.get("client_port", transaction.get("remote_port"))
+        destination_port = transaction.get("host_port", transaction.get("local_port"))
+
+        def port(value: Any) -> int | None:
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                return None
+            return number if 0 <= number <= 65535 else None
+
+        message = (
+            f"{primary['message']} ({method} {uri})".strip()
+            if primary
+            else f"{method} {uri}".strip() or "ModSecurity transaction"
+        )
+
+        return CanonicalEvent(
+            id=stable_event_id(self.source_type, raw, timestamp.isoformat()),
+            timestamp=timestamp.isoformat(),
+            source_type=self.source_type,
+            source_dataset="modsecurity.audit",
+            kind="alert" if entries else "event",
+            category=["web", "network"] + (["intrusion_detection"] if entries else []),
+            severity=severity_from_modsecurity(primary["severity"]) if primary else "info",
+            message=message,
+            host_name=str(defaults.get("host_name", "")),
+            source_ip=str(transaction.get("client_ip") or transaction.get("remote_address") or ""),
+            source_port=port(source_port),
+            destination_ip=str(transaction.get("host_ip") or transaction.get("local_address") or ""),
+            destination_port=port(destination_port),
+            network_transport="tcp",
+            network_application="http",
+            http=http,
+            rule=rule,
+            tags=list(dict.fromkeys(tags)),
+            raw=raw,
+            scenario_id=scenario_id,
+            correlation={"transaction_id": str(transaction.get("unique_id") or transaction.get("transaction_id") or "")}
+            if (transaction.get("unique_id") or transaction.get("transaction_id"))
+            else {},
+        )
+
+
 class WazuhAdapter:
     source_type = "wazuh"
 

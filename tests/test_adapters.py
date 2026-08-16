@@ -7,6 +7,7 @@ no adapter understands is rejected rather than guessed at.
 
 from __future__ import annotations
 
+import copy
 import unittest
 from datetime import datetime, timezone
 
@@ -117,6 +118,144 @@ class ApacheAdapterTests(unittest.TestCase):
         apache = ApacheAdapter().normalize(line)
         nginx = NginxAdapter().normalize(line)
         self.assertNotEqual(apache.id, nginx.id)
+
+
+MODSEC_V3 = {
+    "transaction": {
+        "client_ip": "203.0.113.45",
+        "time_stamp": "Tue Aug 11 10:21:03 2026",
+        "client_port": 51822,
+        "host_ip": "192.168.50.20",
+        "host_port": 80,
+        "unique_id": "175492326303.117425",
+        "request": {
+            "method": "GET",
+            "uri": "/../../../../etc/passwd",
+            "headers": {"Host": "portal.example.local", "User-Agent": "curl/8.5.0"},
+        },
+        "response": {"http_code": 200},
+        "producer": {
+            "modsecurity": "ModSecurity v3.0.12 (Linux)",
+            "secrules_engine": "DetectionOnly",
+            "components": ["OWASP_CRS/4.7.0"],
+        },
+        "messages": [
+            {
+                "message": "Path Traversal Attack (/../ or /.././)",
+                "details": {
+                    "ruleId": "930100",
+                    "severity": "2",
+                    "ver": "OWASP_CRS/4.7.0",
+                    "data": "Matched Data: /../ found within REQUEST_URI",
+                    "tags": ["attack-lfi", "OWASP_CRS"],
+                },
+            },
+            {
+                "message": "OS File Access Attempt",
+                "details": {"ruleId": "930120", "severity": "2", "tags": ["attack-lfi"]},
+            },
+        ],
+    }
+}
+
+MODSEC_V2 = {
+    "transaction": {
+        "time": "11/Aug/2026:10:21:03 +0000",
+        "transaction_id": "W3sBccQ",
+        "remote_address": "203.0.113.45",
+        "remote_port": 51822,
+        "local_address": "192.168.50.20",
+        "local_port": 80,
+    },
+    "request": {
+        "request_line": "GET /../../../../etc/passwd HTTP/1.1",
+        "headers": {"Host": "portal.example.local", "User-Agent": "curl/8.5.0"},
+    },
+    "response": {"status": 403},
+    "audit_data": {
+        "engine_mode": "ENABLED",
+        "messages": [
+            'Warning. Matched phrase "/../" at REQUEST_URI. '
+            '[file "REQUEST-930-APPLICATION-ATTACK-LFI.conf"] [line "56"] [id "930100"] '
+            '[msg "Path Traversal Attack (/../ or /.././)"] [severity "CRITICAL"] '
+            '[ver "OWASP_CRS/4.7.0"] [tag "attack-lfi"]'
+        ],
+    },
+}
+
+
+class ModSecurityAdapterTests(unittest.TestCase):
+    def setUp(self):
+        from hawki_alert_analysis.adapters import ModSecurityAdapter
+
+        self.adapter = ModSecurityAdapter()
+
+    def test_v3_transaction_with_rules_is_an_alert(self):
+        event = self.adapter.normalize(MODSEC_V3, defaults={"host_name": "web-01"})
+        self.assertEqual(event.kind, "alert")
+        self.assertEqual(event.severity, "critical")
+        self.assertIn("intrusion_detection", event.category)
+        self.assertEqual(event.timestamp_dt, datetime(2026, 8, 11, 10, 21, 3, tzinfo=timezone.utc))
+        self.assertEqual(event.source_ip, "203.0.113.45")
+        self.assertEqual(event.source_port, 51822)
+        self.assertEqual(event.destination_port, 80)
+
+    def test_every_triggered_crs_rule_id_is_preserved(self):
+        # The rule-only baseline depends on these surviving intact.
+        event = self.adapter.normalize(MODSEC_V3)
+        self.assertEqual(event.rule["id"], "930100")
+        self.assertEqual(event.rule["ruleset"], "OWASP_CRS/4.7.0")
+        self.assertEqual(event.rule["engine_mode"], "DetectionOnly")
+        self.assertEqual([item["id"] for item in event.rule["matched_rules"]], ["930100", "930120"])
+
+    def test_http_status_is_not_reinterpreted_as_a_port(self):
+        event = self.adapter.normalize(MODSEC_V3)
+        self.assertEqual(event.http["response"]["status_code"], 200)
+        self.assertEqual(event.destination_port, 80)
+        self.assertEqual(event.http["request"]["uri"], "/../../../../etc/passwd")
+        self.assertEqual(event.http["request"]["host"], "portal.example.local")
+
+    def test_transaction_without_rules_is_an_event_not_an_alert(self):
+        clean = copy.deepcopy(MODSEC_V3)
+        clean["transaction"]["messages"] = []
+        event = self.adapter.normalize(clean)
+        self.assertEqual(event.kind, "event")
+        self.assertEqual(event.severity, "info")
+        self.assertNotIn("intrusion_detection", event.category)
+        self.assertEqual(event.rule, {})
+
+    def test_v2_message_strings_are_parsed(self):
+        event = self.adapter.normalize(MODSEC_V2, defaults={"host_name": "web-01"})
+        self.assertEqual(event.kind, "alert")
+        self.assertEqual(event.rule["id"], "930100")
+        self.assertEqual(event.rule["name"], "Path Traversal Attack (/../ or /.././)")
+        self.assertEqual(event.severity, "critical")
+        self.assertEqual(event.http["request"]["method"], "GET")
+        self.assertEqual(event.http["request"]["uri"], "/../../../../etc/passwd")
+        self.assertEqual(event.http["response"]["status_code"], 403)
+        self.assertEqual(event.source_ip, "203.0.113.45")
+
+    def test_severity_words_and_numbers_map_the_same_way(self):
+        from hawki_alert_analysis.adapters import severity_from_modsecurity
+
+        # ModSecurity counts down from EMERGENCY(0), unlike Wazuh.
+        self.assertEqual(severity_from_modsecurity("CRITICAL"), "critical")
+        self.assertEqual(severity_from_modsecurity("2"), "critical")
+        self.assertEqual(severity_from_modsecurity(3), "high")
+        self.assertEqual(severity_from_modsecurity("WARNING"), "medium")
+        self.assertEqual(severity_from_modsecurity("NOTICE"), "low")
+        self.assertEqual(severity_from_modsecurity("nonsense"), "medium")
+
+    def test_record_without_a_timestamp_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self.adapter.normalize({"transaction": {"request": {"method": "GET", "uri": "/"}}})
+
+    def test_uri_is_an_observable_for_intelligence_lookup(self):
+        event = self.adapter.normalize(MODSEC_V3)
+        by_field = {item["field"]: item for item in event.observables()}
+        self.assertEqual(by_field["http.request.uri"]["type"], "url")
+        self.assertEqual(by_field["http.request.host"]["type"], "domain-name")
+        self.assertEqual(by_field["source.ip"]["value"], "203.0.113.45")
 
 
 FLAT_SYSMON = {

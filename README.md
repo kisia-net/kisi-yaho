@@ -43,11 +43,11 @@ inventory record and observables with no intelligence coverage are reported
 explicitly, because absence of data is not evidence of safety.
 
 ```text
-Suricata ─┐
-Wazuh ────┤
-Sysmon ───┼─► adapters ─► canonical events ─► correlation ─► AlertCase
-Nginx ────┤                                                     │
-syslog ───┘                                                     │
+ModSecurity ─┐
+Suricata ────┤
+Wazuh ───────┼─► adapters ─► canonical events ─► correlation ─► AlertCase
+Sysmon ──────┤                                                     │
+Nginx/syslog ┘                                                     │
                                     asset inventory ────────────┤
                                     threat intel feed ──────────┤
                                                                 ▼
@@ -85,8 +85,9 @@ result is always valid JSON.
 
 ## Collecting real logs
 
-Adapters exist for Suricata EVE, Wazuh alerts, Windows Sysmon, Nginx and Apache
-combined access logs, Linux syslog, and `auth.log`, plus a generic ECS reader. Anything those
+Adapters exist for Suricata EVE, Wazuh alerts, ModSecurity audit logs, Windows
+Sysmon, Nginx and Apache combined access logs, Linux syslog, and `auth.log`,
+plus a generic ECS reader. Anything those
 understand can be ingested without writing code.
 
 ### From a directory of collected logs
@@ -109,14 +110,35 @@ directory, so read-only corpora work as-is.
 
 ### From a PCAP
 
+With Suricata installed locally:
+
 ```bash
 python tools/collect_pcap.py capture.pcap --out data/scenarios/replay_case
 ```
 
-Suricata reads the capture and writes its own `eve.json`; nothing about the
-resulting events is synthetic. Suricata is not bundled — if it is missing, the
-script prints installation instructions and exits rather than reporting a
-collection that did not happen.
+Or through Compose, with no local install:
+
+```bash
+cp ~/Downloads/traffic.pcap capture/pcap/capture.pcap
+
+docker compose run --rm suricata-update      # once: fetch ET Open rules
+docker compose run --rm suricata             # replay -> capture/out/eve.json
+
+python -m hawki_alert_analysis.ingest capture/out \
+    --out data/scenarios/real_001 --host web-01
+```
+
+Suricata reads the capture and writes its own `eve.json` — the same format a
+live sensor produces, so nothing downstream can tell the difference. Nothing
+about the resulting events is synthetic.
+
+Run `suricata-update` first. Without a ruleset Suricata still logs `http`,
+`dns`, `tls` and `flow` events, but raises no alerts, and a case with no alert
+has no trigger.
+
+`tools/collect_pcap.py` does not bundle Suricata; if it is missing the script
+prints installation instructions and exits rather than reporting a collection
+that did not happen.
 
 ### Ground truth
 
@@ -167,6 +189,24 @@ python tools/evaluate.py             # every scenario, deterministic demo path
 python tools/evaluate.py --live      # against the configured LLM
 python tools/evaluate.py --json report.json
 ```
+
+### Before and after enrichment
+
+```bash
+python tools/evaluate.py --compare --live --markdown comparison.md
+```
+
+Analyzes each alert twice and diffs the two runs. The "before" side is the
+triggering alert alone — what an un-enriched SIEM hands an analyst, with no
+correlated events, no asset context, and no threat intelligence. The "after"
+side is the full four-block bundle. The question put to the model is identical
+both times, so any difference in the answer is attributable to the evidence
+rather than to prompting.
+
+It reports what changed on both sides of the boundary: how much evidence went
+in, and what came back out — entities named, ATT&CK techniques, confirmed
+observations, cited events, schema sections filled, and recovery of any declared
+ground truth. `--markdown` writes both full answers side by side.
 
 Three things are measured, in decreasing order of how objectively they can be
 judged: schema coverage, citation grounding, and recovery of any declared ground
@@ -269,7 +309,23 @@ export LLM_MODEL=hawki-local
 export DEMO_MODE=false        # fail loudly instead of falling back
 ```
 
-`docker compose up` runs the app together with vLLM; see `compose.yaml`.
+### With Compose
+
+```bash
+cp .env.example .env                  # required: compose reads it through env_file
+docker compose up -d                  # web app only, ~300 MB, no GPU
+docker compose --profile llm up -d    # add vLLM (needs a GPU)
+```
+
+Services sit behind profiles so the local stage stays light. The web app does
+not depend on vLLM — it runs and reports the model as unreachable rather than
+refusing to start.
+
+To work against scenarios you ingested on the host, mount them in:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up
+```
 
 Verify everything without a browser:
 
@@ -282,8 +338,8 @@ python tools/evaluate.py                # score the bundled scenarios
 
 The default is Phase 1: alerts and events come from scenario files under
 `data/scenarios/`. Two scenarios ship with the repository — a Linux web
-exploitation case (Suricata, Nginx, Wazuh) and a Windows dropper case (Sysmon,
-Wazuh).
+exploitation case (ModSecurity, Suricata, Nginx, Wazuh) and a Windows dropper
+case (Sysmon, Wazuh).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

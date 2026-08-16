@@ -1,0 +1,5 @@
+# Captures and Suricata output are evidence, not source.
+pcap/*
+out/*
+!.gitkeep
+!SOURCES.txt
