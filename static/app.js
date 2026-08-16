@@ -2741,7 +2741,10 @@ async function init() {
     initTheme();
     await loadAuth();
     byId("refresh-services")?.addEventListener("click", loadServices);
-    await Promise.all([loadConfig(), loadServices()]);
+    // Pages need the config. They do not need to know whether Kibana is up, so
+    // the reachability probe runs alongside rather than delaying the content.
+    await loadConfig();
+    loadServices();
     if (page === "dashboard") await initDashboard();
     if (page === "agent") await initAgent();
     if (page === "alerts") initAlerts();
