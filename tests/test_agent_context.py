@@ -342,6 +342,15 @@ class MetadataApiTests(unittest.TestCase):
         # comment so the fix is not silently undone later.
         self.assertNotIn("new MutationObserver", source)
 
+    def test_no_inline_style_attribute_is_written_into_markup(self):
+        # style-src 'self' blocks a style attribute in markup, so a progress
+        # bar built that way silently never renders. CSSOM assignment is not
+        # covered by the policy and is the supported way to do this.
+        static_dir = Path(app.BASE_DIR) / "static"
+        for name in ("app.js", "alert_analysis.js", "agent_alert_context.js", "theme-init.js"):
+            with self.subTest(script=name):
+                self.assertNotIn('style="', (static_dir / name).read_text(encoding="utf-8"))
+
     def test_alert_rows_link_straight_to_the_case(self):
         # The link is rendered correctly rather than rewritten after the fact,
         # which is what removed the need for the observer.

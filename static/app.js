@@ -1767,7 +1767,15 @@ function initLogs() {
 
 async function initHunts() {
     const data = await api("/api/hunts");
-    byId("hunt-list").innerHTML = data.hunts.map((h) => `<div class="hunt-card"><div class="hunt-top"><strong>${escapeHtml(h.id)} · ${escapeHtml(h.name)}</strong><span class="status-text">${escapeHtml(h.state)}</span></div><p>${escapeHtml(h.target)} · ${escapeHtml(h.artifact)}</p><div class="progress"><span style="width:${Number(h.progress)}%"></span></div><div class="hunt-bottom"><span class="muted">${h.progress}% complete</span><span class="tag">${h.hits} hits</span></div></div>`).join("");
+    const list = byId("hunt-list");
+    list.innerHTML = data.hunts.map((h) => `<div class="hunt-card"><div class="hunt-top"><strong>${escapeHtml(h.id)} · ${escapeHtml(h.name)}</strong><span class="status-text">${escapeHtml(h.state)}</span></div><p>${escapeHtml(h.target)} · ${escapeHtml(h.artifact)}</p><div class="progress"><span data-progress="${Number(h.progress)}"></span></div><div class="hunt-bottom"><span class="muted">${h.progress}% complete</span><span class="tag">${h.hits} hits</span></div></div>`).join("");
+    // The CSP allows styles from 'self' only, which blocks a style attribute
+    // written into markup. Setting the property through CSSOM is not covered
+    // by style-src, so the bar renders without loosening the policy.
+    list.querySelectorAll(".progress > span[data-progress]").forEach((bar) => {
+        const percent = Math.max(0, Math.min(Number(bar.dataset.progress) || 0, 100));
+        bar.style.width = `${percent}%`;
+    });
     byId("hunt-agent-form").addEventListener("submit", (e) => { e.preventDefault(); const query = new URLSearchParams({mode:"file_hunt", host:byId("hunt-target").value, incident:byId("hunt-incident").value, prompt:byId("hunt-indicator").value}); location.href = `/agent?${query}`; });
 }
 
