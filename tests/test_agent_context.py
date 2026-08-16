@@ -327,6 +327,23 @@ class MetadataApiTests(unittest.TestCase):
         alert = next(item for item in payload["alerts"] if item["host"] == "web-01")
         self.assertEqual(alert["asset_criticality"], "high")
 
+    def test_healthz_answers_without_a_session(self):
+        # The Docker health check has no session. It previously called
+        # /api/build, got 401, and reported a healthy container as unhealthy.
+        anonymous = app.app.test_client()
+        response = anonymous.get("/healthz")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.data), {"status": "ok"})
+
+    def test_healthz_reveals_nothing_else(self):
+        anonymous = app.app.test_client()
+        body = json.loads(anonymous.get("/healthz").data)
+        self.assertEqual(set(body), {"status"})
+        # Build and service detail stay behind authentication.
+        for path in ("/api/build", "/api/status"):
+            with self.subTest(path=path):
+                self.assertEqual(anonymous.get(path).status_code, 401)
+
     def test_metadata_endpoints_require_authentication(self):
         anonymous = app.app.test_client()
         for path in ("/api/assets", "/api/threat-intel", f"/api/alerts/{self.alert_id}/context"):
