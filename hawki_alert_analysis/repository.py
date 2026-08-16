@@ -77,25 +77,48 @@ class FixtureEventRepository:
     def _load_jsonl(self, path: Path) -> list[dict[str, Any]]:
         values: list[dict[str, Any]] = []
         with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
+            for number, line in enumerate(handle, start=1):
                 line = line.strip()
                 if not line:
                     continue
-                value = json.loads(line)
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    # A truncated final line is normal in a log still being
+                    # written. It must not discard the lines before it.
+                    if len(self.skipped_lines) < MAX_REPORTED_SKIPS:
+                        self.skipped_lines.append(f"{path.name} line {number}: {exc}")
+                    continue
                 if isinstance(value, dict):
                     values.append(value)
         return values
 
     def _load_source(self, scenario_dir: Path, source: dict[str, Any], scenario_id: str) -> list[CanonicalEvent]:
-        source_type = str(source["type"])
-        adapter = ADAPTERS[source_type]
-        defaults = source.get("defaults") if isinstance(source.get("defaults"), dict) else {}
-        path = scenario_dir / str(source["path"])
+        source_type = str(source.get("type", ""))
+        adapter = ADAPTERS.get(source_type)
+        if adapter is None:
+            self.skipped_lines.append(
+                f"{scenario_dir.name}: no adapter registered for source type {source_type!r}"
+            )
+            return []
 
-        if source_type in TEXT_LINE_SOURCES:
-            rows: list[Any] = [line.rstrip("\n") for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        else:
-            rows = self._load_jsonl(path)
+        defaults = source.get("defaults") if isinstance(source.get("defaults"), dict) else {}
+        path = scenario_dir / str(source.get("path", ""))
+
+        try:
+            if source_type in TEXT_LINE_SOURCES:
+                rows: list[Any] = [
+                    line.rstrip("\n")
+                    for line in path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+            else:
+                rows = self._load_jsonl(path)
+        except OSError as exc:
+            # One unreadable source degrades its own case. It must not take
+            # down every other scenario in the repository with it.
+            self.skipped_lines.append(f"{path.name}: {exc}")
+            return []
 
         events: list[CanonicalEvent] = []
         skipped: list[str] = []
@@ -120,8 +143,13 @@ class FixtureEventRepository:
             self._scenarios = []
             return []
         for manifest_path in sorted(self.root.glob("*/scenario.json")):
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            scenario_id = str(manifest["id"])
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                scenario_id = str(manifest["id"])
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                # A malformed manifest disables its own scenario, not the app.
+                self.skipped_lines.append(f"{manifest_path.parent.name}/scenario.json: {exc}")
+                continue
             events: list[CanonicalEvent] = []
             for source in manifest.get("sources", []):
                 if isinstance(source, dict):
