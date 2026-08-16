@@ -109,14 +109,35 @@ directory, so read-only corpora work as-is.
 
 ### From a PCAP
 
+With Suricata installed locally:
+
 ```bash
 python tools/collect_pcap.py capture.pcap --out data/scenarios/replay_case
 ```
 
-Suricata reads the capture and writes its own `eve.json`; nothing about the
-resulting events is synthetic. Suricata is not bundled — if it is missing, the
-script prints installation instructions and exits rather than reporting a
-collection that did not happen.
+Or through Compose, with no local install:
+
+```bash
+cp ~/Downloads/traffic.pcap capture/pcap/capture.pcap
+
+docker compose run --rm suricata-update      # once: fetch ET Open rules
+docker compose run --rm suricata             # replay -> capture/out/eve.json
+
+python -m hawki_alert_analysis.ingest capture/out \
+    --out data/scenarios/real_001 --host web-01
+```
+
+Suricata reads the capture and writes its own `eve.json` — the same format a
+live sensor produces, so nothing downstream can tell the difference. Nothing
+about the resulting events is synthetic.
+
+Run `suricata-update` first. Without a ruleset Suricata still logs `http`,
+`dns`, `tls` and `flow` events, but raises no alerts, and a case with no alert
+has no trigger.
+
+`tools/collect_pcap.py` does not bundle Suricata; if it is missing the script
+prints installation instructions and exits rather than reporting a collection
+that did not happen.
 
 ### Ground truth
 
@@ -287,7 +308,23 @@ export LLM_MODEL=hawki-local
 export DEMO_MODE=false        # fail loudly instead of falling back
 ```
 
-`docker compose up` runs the app together with vLLM; see `compose.yaml`.
+### With Compose
+
+```bash
+cp .env.example .env                  # required: compose reads it through env_file
+docker compose up -d                  # web app only, ~300 MB, no GPU
+docker compose --profile llm up -d    # add vLLM (needs a GPU)
+```
+
+Services sit behind profiles so the local stage stays light. The web app does
+not depend on vLLM — it runs and reports the model as unreachable rather than
+refusing to start.
+
+To work against scenarios you ingested on the host, mount them in:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up
+```
 
 Verify everything without a browser:
 
