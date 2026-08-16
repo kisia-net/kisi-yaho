@@ -338,7 +338,9 @@ class MetadataApiTests(unittest.TestCase):
         a hang no server-side test can see.
         """
         source = (Path(app.BASE_DIR) / "static" / "alert_analysis.js").read_text(encoding="utf-8")
-        self.assertNotIn("MutationObserver", source)
+        # The constructor call, not the word: the file explains the bug in a
+        # comment so the fix is not silently undone later.
+        self.assertNotIn("new MutationObserver", source)
 
     def test_alert_rows_link_straight_to_the_case(self):
         # The link is rendered correctly rather than rewritten after the fact,
