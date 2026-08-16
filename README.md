@@ -43,11 +43,11 @@ inventory record and observables with no intelligence coverage are reported
 explicitly, because absence of data is not evidence of safety.
 
 ```text
-Suricata ─┐
-Wazuh ────┤
-Sysmon ───┼─► adapters ─► canonical events ─► correlation ─► AlertCase
-Nginx ────┤                                                     │
-syslog ───┘                                                     │
+ModSecurity ─┐
+Suricata ────┤
+Wazuh ───────┼─► adapters ─► canonical events ─► correlation ─► AlertCase
+Sysmon ──────┤                                                     │
+Nginx/syslog ┘                                                     │
                                     asset inventory ────────────┤
                                     threat intel feed ──────────┤
                                                                 ▼
@@ -85,8 +85,9 @@ result is always valid JSON.
 
 ## Collecting real logs
 
-Adapters exist for Suricata EVE, Wazuh alerts, Windows Sysmon, Nginx and Apache
-combined access logs, Linux syslog, and `auth.log`, plus a generic ECS reader. Anything those
+Adapters exist for Suricata EVE, Wazuh alerts, ModSecurity audit logs, Windows
+Sysmon, Nginx and Apache combined access logs, Linux syslog, and `auth.log`,
+plus a generic ECS reader. Anything those
 understand can be ingested without writing code.
 
 ### From a directory of collected logs
@@ -337,8 +338,8 @@ python tools/evaluate.py                # score the bundled scenarios
 
 The default is Phase 1: alerts and events come from scenario files under
 `data/scenarios/`. Two scenarios ship with the repository — a Linux web
-exploitation case (Suricata, Nginx, Wazuh) and a Windows dropper case (Sysmon,
-Wazuh).
+exploitation case (ModSecurity, Suricata, Nginx, Wazuh) and a Windows dropper
+case (Sysmon, Wazuh).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
