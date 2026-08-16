@@ -175,24 +175,16 @@
         });
     }
 
-    function upgradeAlertLinks() {
-        const table = document.getElementById("alerts-table");
-        if (!table) return;
-        const rewrite = () => {
-            table.querySelectorAll(".alert-row").forEach((row) => {
-                const id = row.querySelector("strong")?.textContent?.trim();
-                const link = row.querySelector("a.button");
-                if (!id || !link || !id.startsWith("evt-")) return;
-                link.href = `/alerts/${encodeURIComponent(id)}`;
-                link.textContent = "Analyze";
-            });
-        };
-        rewrite();
-        new MutationObserver(rewrite).observe(table, {childList: true, subtree: true});
-    }
+    // The alert table used to be rendered with an agent link and then rewritten
+    // here, by a MutationObserver watching #alerts-table with subtree: true
+    // whose callback assigned link.textContent inside that same subtree.
+    // Assigning textContent replaces the text node and counts as a mutation
+    // even when the value is unchanged, so the callback re-triggered itself
+    // without end. The microtask queue never drained, and the tab stopped
+    // painting and stopped accepting input. app.js now renders the correct
+    // link directly, so there is nothing to rewrite.
 
     document.addEventListener("DOMContentLoaded", () => {
-        upgradeAlertLinks();
         const root = document.getElementById("alert-analysis-root");
         if (root) initDetail(root);
     });

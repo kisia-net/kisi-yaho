@@ -327,6 +327,25 @@ class MetadataApiTests(unittest.TestCase):
         alert = next(item for item in payload["alerts"] if item["host"] == "web-01")
         self.assertEqual(alert["asset_criticality"], "high")
 
+    def test_no_mutation_observer_writes_into_what_it_watches(self):
+        """Guard against the self-triggering observer that froze the tab.
+
+        alert_analysis.js watched #alerts-table with subtree: true and assigned
+        link.textContent inside it. Assigning textContent replaces the text
+        node and registers as a mutation even when the value is unchanged, so
+        the callback re-triggered itself forever, the microtask queue never
+        drained, and the page stopped painting and stopped accepting input —
+        a hang no server-side test can see.
+        """
+        source = (Path(app.BASE_DIR) / "static" / "alert_analysis.js").read_text(encoding="utf-8")
+        self.assertNotIn("MutationObserver", source)
+
+    def test_alert_rows_link_straight_to_the_case(self):
+        # The link is rendered correctly rather than rewritten after the fact,
+        # which is what removed the need for the observer.
+        source = (Path(app.BASE_DIR) / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('href="/alerts/${encodeURIComponent(a.id)}"', source)
+
     def test_pages_load_no_script_the_csp_forbids(self):
         # script-src 'self' blocks inline blocks and CDN tags outright, so a
         # page carrying either is broken in the browser regardless of tests.
