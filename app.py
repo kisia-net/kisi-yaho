@@ -95,6 +95,20 @@ def compute_asset_version() -> str:
 
 ASSET_VERSION = compute_asset_version()
 
+# Browser libraries, served from this origin rather than a CDN. The Content
+# Security Policy allows scripts from 'self' only, and the deployment plan puts
+# the web tier on an internal subnet with no route to a CDN — so a CDN tag is
+# blocked in development and unreachable in production. Third-party JavaScript
+# in a security console is also an attack-surface item in its own right.
+# Install with tools/vendor_assets.py; without them the interface falls back to
+# escaped plain text.
+VENDOR_SCRIPTS = ("marked.umd.js", "purify.min.js", "highlight.min.js")
+
+
+def available_vendor_scripts() -> list[str]:
+    vendor_dir = BASE_DIR / "static" / "vendor"
+    return [name for name in VENDOR_SCRIPTS if (vendor_dir / name).is_file()]
+
 
 def env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -870,6 +884,7 @@ def template_context(active_page: str) -> dict[str, Any]:
         "suricata_ui_url": CONFIG["suricata_ui_url"],
         "build_id": BUILD_ID,
         "asset_version": ASSET_VERSION,
+        "vendor_scripts": available_vendor_scripts(),
         "current_user": public_user(g.user) if getattr(g, "user", None) else None,
     }
 

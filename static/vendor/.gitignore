@@ -1,0 +1,5 @@
+# Third-party browser libraries, installed by tools/vendor_assets.py.
+# The lock file is committed so the digests are reviewable; the bytes are not.
+*
+!.gitignore
+!VENDOR.lock.json

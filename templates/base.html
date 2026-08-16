@@ -5,34 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
     <title>{{ page_title }} · HAW-KI</title>
-    <script>
-        // Apply the saved theme before CSS is painted. app.js restores it again
-        // after load and synchronizes changes across open HAW-KI tabs.
-        (() => {
-            const normalize = (value) => value === "light" || value === "dark" ? value : null;
-            let saved = null;
-
-            try {
-                saved = normalize(localStorage.getItem("hawki-theme"));
-            } catch {
-                // Use the cookie fallback below.
-            }
-
-            if (!saved) {
-                const prefix = "hawki_theme=";
-                const item = document.cookie
-                    .split(";")
-                    .map((part) => part.trim())
-                    .find((part) => part.startsWith(prefix));
-                saved = normalize(item ? decodeURIComponent(item.slice(prefix.length)) : null);
-            }
-
-            const preferred = window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
-            const theme = saved || preferred;
-            document.documentElement.dataset.theme = theme;
-            document.documentElement.style.colorScheme = theme;
-        })();
-    </script>
+    <script src="{{ url_for('static', filename='theme-init.js', v=asset_version) }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=asset_version) }}">
 </head>
 <body data-page="{{ active_page }}">
@@ -118,10 +91,12 @@
     </main>
 </div>
 <div id="toast-region" class="toast-region" aria-live="polite"></div>
-<!-- Pinned browser libraries for Markdown, sanitization, and syntax highlighting. -->
-<script src="https://cdn.jsdelivr.net/npm/marked@18.0.7/lib/marked.umd.js" referrerpolicy="no-referrer"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.12/dist/purify.min.js" referrerpolicy="no-referrer"></script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js" referrerpolicy="no-referrer"></script>
+<!-- Markdown, sanitization, and syntax highlighting, served from this origin.
+     Install with: python tools/vendor_assets.py
+     Absent, rendering falls back to escaped plain text. -->
+{% for script in vendor_scripts %}
+<script src="{{ url_for('static', filename='vendor/' + script, v=asset_version) }}"></script>
+{% endfor %}
 <script src="{{ url_for('static', filename='app.js', v=asset_version) }}"></script>
 </body>
 </html>

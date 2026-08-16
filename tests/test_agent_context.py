@@ -327,6 +327,31 @@ class MetadataApiTests(unittest.TestCase):
         alert = next(item for item in payload["alerts"] if item["host"] == "web-01")
         self.assertEqual(alert["asset_criticality"], "high")
 
+    def test_pages_load_no_script_the_csp_forbids(self):
+        # script-src 'self' blocks inline blocks and CDN tags outright, so a
+        # page carrying either is broken in the browser regardless of tests.
+        import re
+
+        for path in ("/", "/alerts", "/agent"):
+            with self.subTest(path=path):
+                html = self.client.get(path).get_data(as_text=True)
+                self.assertEqual(re.findall(r"<script(?![^>]*\ssrc=)[^>]*>", html), [])
+                sources = re.findall(r'<script[^>]*src="([^"]+)"', html)
+                self.assertTrue(sources)
+                self.assertEqual([src for src in sources if src.startswith("http")], [])
+
+    def test_vendor_scripts_are_included_only_when_installed(self):
+        vendor_dir = Path(app.BASE_DIR) / "static" / "vendor"
+        installed = app.available_vendor_scripts()
+        self.assertEqual(
+            installed, [name for name in app.VENDOR_SCRIPTS if (vendor_dir / name).is_file()]
+        )
+        html = self.client.get("/alerts").get_data(as_text=True)
+        for name in app.VENDOR_SCRIPTS:
+            # A library that is not installed must not be referenced at all,
+            # rather than 404ing on every page load.
+            self.assertEqual(f"vendor/{name}" in html, name in installed)
+
     def test_healthz_answers_without_a_session(self):
         # The Docker health check has no session. It previously called
         # /api/build, got 401, and reported a healthy container as unhealthy.
