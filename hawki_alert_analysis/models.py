@@ -48,6 +48,7 @@ class CanonicalEvent:
     file: dict[str, Any] = field(default_factory=dict)
     http: dict[str, Any] = field(default_factory=dict)
     dns: dict[str, Any] = field(default_factory=dict)
+    tls: dict[str, Any] = field(default_factory=dict)
     rule: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     raw: Any = None
@@ -96,6 +97,13 @@ class CanonicalEvent:
             else:
                 add("domain-name", host, "http.request.host")
         add("url", request.get("uri"), "http.request.uri")
+
+        server_name = str(self.tls.get("server_name") or "").strip()
+        if server_name:
+            if HOSTNAME_IS_IPV4.match(server_name):
+                add_ip(server_name, "tls.server_name")
+            else:
+                add("domain-name", server_name, "tls.server_name")
 
         question = self.dns.get("question") if isinstance(self.dns.get("question"), dict) else {}
         queried = str(question.get("name") or self.dns.get("name") or "").strip()
@@ -181,6 +189,7 @@ class CanonicalEvent:
             "file": self.file,
             "http": self.http,
             "dns": self.dns,
+            "tls": self.tls,
             "rule": self.rule,
             "tags": self.tags,
             "scenario_id": self.scenario_id,

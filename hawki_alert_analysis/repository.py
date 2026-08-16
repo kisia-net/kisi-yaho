@@ -9,6 +9,7 @@ from .adapters import (
     ApacheAdapter,
     AuthLogAdapter,
     ECSAdapter,
+    IgnoredEvent,
     ModSecurityAdapter,
     NginxAdapter,
     SuricataAdapter,
@@ -72,6 +73,7 @@ class FixtureEventRepository:
         self.asset_inventory: AssetInventory = asset_inventory or NullAssetInventory()
         self.threat_intel_feed: ThreatIntelFeed = threat_intel_feed or NullThreatIntelFeed()
         self.skipped_lines: list[str] = []
+        self.ignored_events = 0
         self._scenarios: list[LoadedScenario] | None = None
 
     def _load_jsonl(self, path: Path) -> list[dict[str, Any]]:
@@ -125,6 +127,9 @@ class FixtureEventRepository:
         for row in rows:
             try:
                 events.append(adapter.normalize(row, scenario_id=scenario_id, defaults=defaults))
+            except IgnoredEvent:
+                # Not a failure: the producer wrote a record about itself.
+                self.ignored_events += 1
             except (ValueError, KeyError, TypeError) as exc:
                 # Collected logs contain lines no adapter claims — rotation
                 # banners, multi-line stack traces, truncated writes. One
@@ -161,6 +166,7 @@ class FixtureEventRepository:
     def reload(self) -> None:
         self._scenarios = None
         self.skipped_lines = []
+        self.ignored_events = 0
         for collection in (self.asset_inventory, self.threat_intel_feed):
             reload_collection = getattr(collection, "reload", None)
             if callable(reload_collection):
