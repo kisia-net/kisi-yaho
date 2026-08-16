@@ -527,7 +527,7 @@ def inject_auth_context() -> dict[str, Any]:
     }
 
 
-PUBLIC_ENDPOINTS = {"login_page", "static"}
+PUBLIC_ENDPOINTS = {"login_page", "static", "healthz"}
 
 
 @app.before_request
@@ -990,6 +990,18 @@ def check_http_service(name: str, url: str, path: str = "") -> tuple[str, dict[s
             "latency_ms": latency_ms,
             "error": str(exc)[:180],
         }
+
+
+@app.get("/healthz")
+def healthz():
+    """Container liveness probe.
+
+    Unauthenticated by necessity — the Docker health check has no session — so
+    it reports nothing but the fact that the process is serving. The build id
+    and service status stay behind /api/build and /api/status, which require a
+    signed-in analyst.
+    """
+    return jsonify({"status": "ok"})
 
 
 @app.get("/api/build")
