@@ -75,6 +75,27 @@ app.json.sort_keys = False
 BUILD_ID = os.getenv("APP_BUILD_ID", "2026.08.11-hawki-runtime-stability-v5")
 
 
+def compute_asset_version() -> str:
+    """Cache-busting token that changes when the static assets change.
+
+    Templates load app.js and style.css with ?v=<token>. That token used to be
+    BUILD_ID, a constant, so the URL never changed between builds and browsers
+    kept serving a stale app.js after every rebuild — shipped JavaScript fixes
+    simply never arrived. Deriving it from the files themselves means a rebuild
+    invalidates the cache on its own.
+    """
+    newest = 0.0
+    static_dir = BASE_DIR / "static"
+    if static_dir.is_dir():
+        for path in static_dir.rglob("*"):
+            if path.is_file():
+                newest = max(newest, path.stat().st_mtime)
+    return f"{BUILD_ID}.{int(newest)}"
+
+
+ASSET_VERSION = compute_asset_version()
+
+
 def env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -848,7 +869,7 @@ def template_context(active_page: str) -> dict[str, Any]:
         "velociraptor_url": CONFIG["velociraptor_url"],
         "suricata_ui_url": CONFIG["suricata_ui_url"],
         "build_id": BUILD_ID,
-        "asset_version": BUILD_ID,
+        "asset_version": ASSET_VERSION,
         "current_user": public_user(g.user) if getattr(g, "user", None) else None,
     }
 
