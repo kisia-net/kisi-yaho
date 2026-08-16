@@ -1,0 +1,17 @@
+{
+  "highlight.min.js": {
+    "license": "BSD-3-Clause",
+    "sha256": "c4a399dd6f488bc97a3546e3476747b3e714c99c57b9473154c6fb8d259b9381",
+    "url": "https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"
+  },
+  "marked.umd.js": {
+    "license": "MIT",
+    "sha256": "7a1f8c5e7226b75ff16644bdb2c0130d2ae7371e7ea3106c2d6dac77ab0ff7b6",
+    "url": "https://cdn.jsdelivr.net/npm/marked@18.0.7/lib/marked.umd.js"
+  },
+  "purify.min.js": {
+    "license": "Apache-2.0 OR MPL-2.0",
+    "sha256": "c45ba939765574f96cbf35ee9b6d89f73756a17921814425e74b82f7c54603ce",
+    "url": "https://cdn.jsdelivr.net/npm/dompurify@3.4.12/dist/purify.min.js"
+  }
+}
