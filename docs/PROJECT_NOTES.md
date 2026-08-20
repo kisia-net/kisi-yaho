@@ -683,12 +683,86 @@ trigger: {"source_type": "suricata", "kind": "alert", "rule_id": "2013926"}
 하나도 흘리지 않았다는 교차 검증이다. `2 sensor self-reports ignored`는 파싱 실패가 아니라
 Suricata가 자기 자신에 대해 쓴 `stats`/`engine` 레코드로, `IgnoredEvent`가 의도대로 걸러 낸 것이다.
 
+**정답지(ground truth)** 는 `capture/labels.json` 에 있다. 모든 항목이 경보 레코드 자체에서
+읽히는 값이고, 연습문제 해설에서 가져온 추측은 넣지 않았다.
+
+```json
+{
+  "trigger": {"source_type": "suricata", "kind": "alert", "rule_id": "2013926"},
+  "expected": {
+    "attack_techniques": ["T1219", "T1071.001", "T1571"],
+    "affected_hosts": ["10.2.28.88"],
+    "indicators": ["45.131.214.85"],
+    "answers": [
+      {"question": "What tooling does the traffic identify itself as?", "expect": ["netsupport"]},
+      {"question": "Which request path does the check-in use?", "expect": ["fakeurl.htm"]}
+    ]
+  }
+}
+```
+
+```powershell
+python -m hawki_alert_analysis.ingest capture\out --out data\scenarios\mta_001 `
+    --host victim-pc --labels capture\labels.json
+```
+
+> 채점 용어는 **변별력 있는 것만** 골랐다. `"443"`, `"http"`, `"post"` 같은 단어는 어떤 답변에도
+> 등장하므로 정답지에 넣으면 점수가 항상 만점처럼 보인다. `netsupport`, `fakeurl.htm`,
+> `45.131.214.85` 처럼 맞혔을 때만 나오는 문자열이어야 의미가 있다.
+
+### 이 캡처가 프로젝트 논지에 맞는 이유
+
+트리거로 뽑힌 규칙의 이름은 **`ET INFO HTTP traffic on port 443 (POST)`** 이고, 규칙 자신의
+메타데이터는 `signature_severity: Informational`, 카테고리는 `Potentially Bad Traffic` 이다.
+561건 중 이것이 최상위였다는 것은 **이 캡처에서 critical로 뜬 규칙이 하나도 없다**는 뜻이다
+(`SEVERITY_RANK`에서 Suricata severity 1만 critical, 이 경보는 2 → high).
+
+규칙만 보면 "포트 443에 평문 HTTP POST" — 넘기기 쉬운 정책성 잡음이다. 그런데 같은 레코드의
+증거를 읽으면 이야기가 달라진다:
+
+```
+http_user_agent : "NetSupport Manager/1.3"      ← 원격제어 도구가 자기 이름을 말하고 있다
+url             : http://45.131.214.85/fakeurl.htm   ← 도메인 없는 생 IP + 고정 경로
+tls_state       : plaintext                      ← 443인데 TLS가 아니다
+http_method     : POST, content-type: x-www-form-urlencoded
+```
+
+**규칙은 "이상한 포트 사용"까지만 말하고, 그것이 RAT의 C2 체크인이라는 판단은 주변 증거에서
+나온다.** 증강 전/후 비교가 보여 줘야 하는 것이 정확히 이 간극이고, 이제 합성 데이터가 아니라
+실제 캡처로 보여 줄 수 있다.
+
 > **`--host` 의 부작용 — 발표 전에 알고 있어야 할 것.**
 > Suricata EVE에는 호스트 이름 필드가 없어서 `--host victim-pc` 값이 **3852개 이벤트 전부에**
 > 채워진다. 그러면 상관분석의 "same host +5"가 모든 후보에 똑같이 붙어 **변별력이 사라진다.**
 > 단일 PCAP 재생이므로 사실 자체는 맞지만, 이 캡처에서 실제로 사건을 묶는 신호는
 > `flow_id`(+7)와 공유 IP(+4)뿐이다. 호스트 기반 상관분석이 의미를 갖는 것은 다중 호스트
 > 데이터셋(AIT-LDS) 단계부터다. 이 캡처를 근거로 "호스트 상관분석이 동작한다"고 말하면 안 된다.
+
+### 실제 캡처에서 자산·인텔 블록은 어떻게 되나 (측정값)
+
+붙여 주신 경보 레코드로 최소 재현을 만들어 실제로 번들을 뽑아 본 결과다.
+
+```
+assets: 1  | unresolved: ['45.131.214.85']
+   -> victim-pc | criticality=low | exposure=internal
+intel : 0 matched, 3 observables without intelligence
+links : {'asset_ids': ['asset-victim-pc'], 'indicator_ids': []}
+```
+
+- **자산은 물린다.** `data/assets/inventory.json` 에 실습용 항목(`victim-pc` / `10.2.28.88`)을
+  추가했다. 외부 C2인 `45.131.214.85` 는 **의도적으로 미해결로 남는다** — 우리 자산이 아니므로
+  자산 명단에 있으면 안 되고, "명단에 없음"이 올바른 보고다.
+  이 항목에는 출처를 명시해 두었다: 손으로 선언한 실습 항목이며, 실제 조직 소유 자산이 아니고,
+  criticality/exposure를 lab 값으로 낮춰 **영향도를 과장하지 않도록** 했다.
+- **위협 인텔은 비어 있다.** 우리 피드는 합성 지표 6개뿐이라 `45.131.214.85` 가 없다.
+  중요한 건 시스템이 이것을 **'안전'이 아니라 '정보 없음'으로 보고**한다는 점이다:
+  `observables_without_intelligence_count: 3`. 2-4절의 설계 결정이 실제 데이터에서 그대로 작동했다.
+
+> **브리핑에서 반드시 말할 것:** 합성 시나리오의 헤드라인 수치(자산 0→1, **인텔 0→3**)는
+> 실제 캡처로 그대로 옮겨지지 않는다. 실제 캡처에서는 **인텔 0→0** 이다. 이걸 메우는 정직한
+> 방법은 지표를 손으로 적어 넣는 것이 아니라 **실제 피드(abuse.ch URLhaus/ThreatFox 등)를
+> 연동하는 것**이고, 그건 별도 작업이다. 정답(C2 주소)을 피드에 넣어 두고 "AI가 C2를 찾았다"고
+> 하면 순환 논증이 된다.
 
 `evaluate.py`를 그냥 돌리면 561개 경보(상당수는 같은 시그니처의 반복)를 전부 분석하므로
 **한 건만** 채점할 것:
