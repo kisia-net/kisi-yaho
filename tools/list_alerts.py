@@ -42,11 +42,26 @@ def report_silent_scenarios(app, contributing: list[str]) -> None:
     # the answer is this line.
     root = getattr(repository, "root", None)
     print(f"reading from: {root}")
-    if app.ALERT_FIXTURE_ROOT != app.ALERT_FIXTURE_REQUESTED_ROOT:
+
+    # All three collections resolve the same way, so a container path left in
+    # .env silently redirects any of them. Reporting one and not the others
+    # just moves the confusion to the asset or intelligence block.
+    fallbacks = [
+        (name, requested)
+        for name, requested, effective in (
+            ("ALERT_FIXTURE_ROOT", app.ALERT_FIXTURE_REQUESTED_ROOT, app.ALERT_FIXTURE_ROOT),
+            ("ASSET_INVENTORY_ROOT", app.ASSET_INVENTORY_REQUESTED_ROOT, app.ASSET_INVENTORY_ROOT),
+            ("THREAT_INTEL_ROOT", app.THREAT_INTEL_REQUESTED_ROOT, app.THREAT_INTEL_ROOT),
+        )
+        if requested != effective
+    ]
+    for name, requested in fallbacks:
+        print(f"  note: {name}={requested} does not exist; packaged fixtures used instead.")
+    if fallbacks:
         print(
-            f"  note: {app.ALERT_FIXTURE_REQUESTED_ROOT} does not exist, so the packaged\n"
-            f"  fixtures are being read instead. Scenarios written elsewhere will not appear.\n"
-            f"  ALERT_FIXTURE_ROOT (env or .env) selects the directory."
+            "  Data written elsewhere will not appear. These are read from the environment\n"
+            "  and from .env, which is loaded natively as well as inside the container —\n"
+            "  a container path (/app/data/...) resolves to nothing on the host."
         )
 
     silent = [
