@@ -217,21 +217,47 @@ links : {'asset_ids': ['asset-victim-pc'], 'indicator_ids': []}
 | 지표 | 45.131.214.85 |
 | 답변 용어 | `netsupport`, `fakeurl.htm` |
 
-**실제 캡처 기준선: ⬜ 아직 측정 안 됨** — 아래 명령의 출력을 여기 채울 것.
-
-```powershell
-python tools\list_alerts.py
-python tools\evaluate.py --alert <MTA 시나리오의 id>
-```
-
-참고로 **합성 시나리오**(web_path_traversal)의 데모 경로 결과는 이렇습니다:
+**실제 캡처 기준선 — 실측 (데모 경로):**
 
 ```
-schema     11/11 sections
-grounding  4 citations  all resolved
+[review] evt-db011fc07ebd7ee4  ET INFO HTTP traffic on port 443 (POST)
+  schema     10/11 sections  missing: attack_techniques
+  grounding  4 citations  all resolved
+  attack_techniques found 0, missed T1219, T1071.001, T1571
+  affected_hosts found 1
+  indicators found 1
+  answer     [hit] Which internal host is beaconing?
+  answer     [hit] What is the command-and-control endpoint?
+  answer     [hit] What tooling does the traffic identify itself as?
+  answer     [hit] Which request path does the check-in use?
 ```
 
-⚠️ 이건 **데모 경로**입니다 — 결정적 요약이지 모델 추론이 아닙니다. 실모델 측정은 GPU가 필요합니다.
+**읽는 법 — 이 표가 브리핑에서 가장 중요합니다.**
+
+| 항목 | 결과 | 의미 |
+|---|---|---|
+| 인용 근거성 | 4건 인용, **전부 실제 존재** | 없는 증거를 지어낸 것이 0건. 실제 데이터에서 확인됨 |
+| 호스트 | 1/1 | 피해 호스트를 짚음 |
+| 지표 | 1/1 | C2 주소를 짚음 |
+| 답변 | **4/4** | `netsupport`, `fakeurl.htm` 포함 |
+| ATT&CK | **0/3** | 못 채움. 항목 자체가 비어 `10/11` |
+
+**답변 4/4가 증강의 효과를 보여줍니다.** 같은 정답지를 경보 레코드 3건짜리 최소 재현에 걸었을
+때는 2/4였습니다(`netsupport`, `fakeurl.htm`을 놓침). 실제 시나리오는 3,852 이벤트에서 상관
+이벤트가 붙어 그 두 값이 증거 안에 들어왔고, 그래서 답변에 나타났습니다.
+
+**ATT&CK 0/3이 정확히 저희가 메우려는 간극입니다.** Suricata 경보 단독에는 MITRE 매핑이 없어서
+데모 경로는 이 항목을 아예 못 채웁니다. 즉 위 수치가 **증강 전 기준선(floor)** 이고,
+증강 + 실모델이 이 항목을 채우는지가 다음 측정 대상입니다.
+
+> ⚠️ **반드시 덧붙일 것:** 이건 **데모 경로** 결과입니다. 결정적 요약이지 모델 추론이 아닙니다.
+> GPU가 없어 실모델(`--live`)로는 아직 재지 못했습니다. 이 표는 "AI가 이만큼 했다"가 아니라
+> **"모델 없이도 여기까지는 나온다"는 바닥값**입니다.
+
+참고로 합성 시나리오(web_path_traversal)의 같은 측정은 `11/11 sections`, `4 citations all
+resolved`입니다 — 합성 데이터에는 규칙에 ATT&CK 매핑을 넣어 두었기 때문에 11/11이 나옵니다.
+**실제 규칙에는 그런 매핑이 없다**는 것이 위 10/11과의 차이이고, 합성 데이터의 한계를
+그대로 보여주는 대목이기도 합니다.
 
 ### 5-4. 규모
 
@@ -346,8 +372,10 @@ http://localhost:5000/api/alerts/<경보ID>/context
 # 수집이 스스로를 보고한다 — 아무것도 쓰지 않고 확인만
 python -m hawki_alert_analysis.ingest capture\out --out data\scenarios\mta_001 --host victim-pc --dry-run
 
-# 채점
-python tools\evaluate.py --alert <MTA 경보 id>
+# 채점 — --scenario 를 붙여야 MTA 경보가 나온다.
+# 붙이지 않으면 합성 시나리오(critical)가 최상위로 추천된다.
+python tools\list_alerts.py --scenario MTA-2026-02-28-NETSUPPORT
+python tools\evaluate.py --alert evt-db011fc07ebd7ee4
 ```
 
 ---
