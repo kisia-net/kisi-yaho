@@ -23,6 +23,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 
+def report_silent_scenarios(app, contributing: list[str]) -> None:
+    """Name scenarios that are on disk but contributed no alert.
+
+    A scenario whose telemetry failed to load still parses its manifest, so it
+    exists as far as the repository is concerned and simply never appears in a
+    list built from alerts. That is the one failure this listing could hide,
+    and it is exactly what an operator hits after a fresh ingest.
+    """
+    repository = app.ALERT_REPOSITORY
+    load = getattr(repository, "_load", None)
+    if not callable(load):  # Elasticsearch: no scenario directories to compare.
+        return
+
+    root = getattr(repository, "root", None)
+    silent = [
+        str(scenario.manifest.get("id", "?"))
+        for scenario in load()
+        if str(scenario.manifest.get("id", "")) not in contributing
+    ]
+    skipped = list(getattr(repository, "skipped_lines", []))
+    if not silent and not skipped:
+        return
+
+    print(f"reading from: {root}")
+    for scenario_id in silent:
+        print(f"  warning: scenario {scenario_id!r} loaded but produced no alerts.")
+    for line in skipped[:10]:
+        print(f"  unreadable: {line}")
+    if len(skipped) > 10:
+        print(f"  ... and {len(skipped) - 10} more unreadable lines.")
+    if silent:
+        print(
+            "  A scenario with no alerts usually means its log file is missing from the\n"
+            "  scenario directory, or holds no records the adapter recognised. Check that\n"
+            "  the file named in its scenario.json 'sources' sits beside it.\n"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="tools/list_alerts.py",
@@ -49,6 +87,7 @@ def main() -> int:
 
     scenarios = sorted({item.get("scenario_id", "") for item in alerts})
     print(f"{len(alerts)} alert(s) across {len(scenarios)} scenario(s): {', '.join(scenarios)}\n")
+    report_silent_scenarios(app, scenarios)
 
     if args.all:
         rows = sorted(alerts, key=lambda item: SEVERITY_ORDER.get(item.get("severity", ""), 5))
