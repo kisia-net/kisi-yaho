@@ -596,7 +596,9 @@ self.assertEqual(after["grounding"]["ungrounded"], [])
 - [x] **로컬에서 돌려보기** (로그 파일 읽어 시나리오 생성 — `ingest`)
 - [ ] **Terraform 초안**
 - [x] **Suricata 실연동** (compose `capture` 프로파일 + ET Open 룰셋, 실제 PCAP 561경보 확보)
-- [ ] **증강 로직에 진짜 로그 올리기** — PCAP 재생까지 성공, **`ingest`로 시나리오화하는 단계가 남음**
+- [x] **증강 로직에 진짜 로그 올리기** — PCAP 재생(561경보) → `ingest` 인식 확인까지 완료.
+      남은 것은 `--dry-run` 을 떼고 `data/scenarios/mta_001` 로 실제 기록하는 것과,
+      MTA 연습문제 정답으로 `labels.json`(ground truth)을 만드는 것
 - [ ] **AWS 대기** (저장소를 주기적으로 조회)
   → 조회 계층은 이미 있음(`elastic.py`). 남은 건 실제 클러스터 검증.
   ※ 이벤트 발생 즉시 검사하는 스트리밍 방식은 계획 X
@@ -655,7 +657,7 @@ Info: counters: Alerts: 561
 > 만들어 버린다. 그러면 `read 0 files, 0 packets`가 나온다. 0건이 나오면 먼저
 > `Get-Item capture\pcap\capture.pcap` 로 파일인지 확인할 것.
 
-### 6-3. 561건을 시나리오로 올리기 (다음 단계)
+### 6-3. 561건을 시나리오로 올리기
 
 ```powershell
 # 먼저 어떻게 인식되는지만 확인 (아무것도 쓰지 않음)
@@ -664,6 +666,29 @@ python -m hawki_alert_analysis.ingest capture\out --out data\scenarios\mta_001 -
 # 확인되면 실제로 쓰기
 python -m hawki_alert_analysis.ingest capture\out --out data\scenarios\mta_001 --host victim-pc
 ```
+
+**실측 결과 (dry-run):**
+
+```
+1 source(s) detected, 3852 events, 561 alerts, 2 sensor self-reports ignored
+  eve.json                     -> suricata  (filename contains 'eve')
+  fast.log      (Suricata's human-readable alert log; eve.json carries the same alerts with more detail)
+  stats.log     (Suricata's own performance counters)
+  suricata.log  (Suricata's operational log)
+
+trigger: {"source_type": "suricata", "kind": "alert", "rule_id": "2013926"}
+```
+
+읽어 낸 경보 **561건이 Suricata 자신의 카운터(`Alerts: 561`)와 정확히 일치한다.** 어댑터가
+하나도 흘리지 않았다는 교차 검증이다. `2 sensor self-reports ignored`는 파싱 실패가 아니라
+Suricata가 자기 자신에 대해 쓴 `stats`/`engine` 레코드로, `IgnoredEvent`가 의도대로 걸러 낸 것이다.
+
+> **`--host` 의 부작용 — 발표 전에 알고 있어야 할 것.**
+> Suricata EVE에는 호스트 이름 필드가 없어서 `--host victim-pc` 값이 **3852개 이벤트 전부에**
+> 채워진다. 그러면 상관분석의 "same host +5"가 모든 후보에 똑같이 붙어 **변별력이 사라진다.**
+> 단일 PCAP 재생이므로 사실 자체는 맞지만, 이 캡처에서 실제로 사건을 묶는 신호는
+> `flow_id`(+7)와 공유 IP(+4)뿐이다. 호스트 기반 상관분석이 의미를 갖는 것은 다중 호스트
+> 데이터셋(AIT-LDS) 단계부터다. 이 캡처를 근거로 "호스트 상관분석이 동작한다"고 말하면 안 된다.
 
 `evaluate.py`를 그냥 돌리면 561개 경보(상당수는 같은 시그니처의 반복)를 전부 분석하므로
 **한 건만** 채점할 것:
@@ -721,21 +746,21 @@ python tools\evaluate.py --alert evt-xxxxxxxx
 아래 두 가지는 **내 환경에서 낼 수 없다** (GPU 없음, Suricata·Docker 없음, 외부 네트워크 차단).
 돌려서 출력을 주면 이 문서의 해당 자리에 실제 값으로 채워 넣겠다.
 
-**① 561건 캡처를 시나리오로 인식시킨 결과** — 어떤 파일이 어떤 제작자로 잡히는지, 몇 건이
-읽히고 몇 줄이 건너뛰어지는지 확인이 필요하다.
-
-```powershell
-python -m hawki_alert_analysis.ingest capture\out --out data\scenarios\mta_001 --host victim-pc --dry-run
-```
-→ 터미널 출력 전체
-
 **② 실제 sLM으로 돌린 증강 전/후 비교** — 지금 문서의 표를 대체할 값이다.
+
+명령은 **두 개**다. 한 줄로 붙여넣으면 `--compare` 이하가 전부 `docker compose`의 인자로
+들어가 `unknown flag: --compare` 가 난다 (evaluate.py는 실행조차 되지 않는다).
 
 ```powershell
 docker compose --profile llm up -d vllm
+```
+```powershell
 python tools\evaluate.py --compare --live --markdown comparison.md
 ```
 → 터미널 출력 + `comparison.md` 파일
+
+GPU가 없으면 첫 줄(vLLM)이 실패한다. `--live`를 뺀 값은 이미 4번 표에 있는 데모 경로 값과
+같으므로 새로 얻을 것이 없다.
 
 ②를 돌릴 GPU 기기가 팀에 없다면, 표에 **"데모 경로 측정값"** 이라고 명시한 채로 발표하고
 "실모델 측정은 AWS 단계에서" 로 두는 것이 정확하다. 지금 표를 실모델 결과처럼 제시하면
