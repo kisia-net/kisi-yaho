@@ -35,7 +35,19 @@ services:
       - "5000:5000"
 
     volumes:
+      # Runtime state — the account database, the action queue, the audit trail.
+      # Kept in a Docker volume rather than the working tree: the account
+      # database holds password hashes, and SQLite over a Windows bind mount
+      # has locking problems.
       - hawki-data:/app/data
+
+      # Collected evidence, read from the working tree so a scenario ingested
+      # on the host is visible at localhost:5000 without rebuilding the image.
+      # Read-only: the app reads this data and must never write back to it.
+      # These nest inside /app/data above; Docker mounts the parent first.
+      - ./data/scenarios:/app/data/scenarios:ro
+      - ./data/assets:/app/data/assets:ro
+      - ./data/threat_intel:/app/data/threat_intel:ro
 
     extra_hosts:
       - "host.docker.internal:host-gateway"

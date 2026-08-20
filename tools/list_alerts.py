@@ -34,9 +34,21 @@ def report_silent_scenarios(app, contributing: list[str]) -> None:
     repository = app.ALERT_REPOSITORY
     load = getattr(repository, "_load", None)
     if not callable(load):  # Elasticsearch: no scenario directories to compare.
+        print(f"reading from: {app.ALERT_REPOSITORY_KIND} repository\n")
         return
 
+    # Always printed. "The scenario I just ingested is not listed" is almost
+    # always a scenario written to one directory and read from another, and
+    # the answer is this line.
     root = getattr(repository, "root", None)
+    print(f"reading from: {root}")
+    if app.ALERT_FIXTURE_ROOT != app.ALERT_FIXTURE_REQUESTED_ROOT:
+        print(
+            f"  note: {app.ALERT_FIXTURE_REQUESTED_ROOT} does not exist, so the packaged\n"
+            f"  fixtures are being read instead. Scenarios written elsewhere will not appear.\n"
+            f"  ALERT_FIXTURE_ROOT (env or .env) selects the directory."
+        )
+
     silent = [
         str(scenario.manifest.get("id", "?"))
         for scenario in load()
@@ -44,9 +56,9 @@ def report_silent_scenarios(app, contributing: list[str]) -> None:
     ]
     skipped = list(getattr(repository, "skipped_lines", []))
     if not silent and not skipped:
+        print()
         return
 
-    print(f"reading from: {root}")
     for scenario_id in silent:
         print(f"  warning: scenario {scenario_id!r} loaded but produced no alerts.")
     for line in skipped[:10]:
