@@ -65,6 +65,26 @@ class IngestCliTests(unittest.TestCase):
         self.assertEqual(manifest["trigger"]["source_type"], "suricata")
         self.assertTrue((out / "eve.json").exists())
 
+    def test_written_scenario_is_read_back_before_reporting_success(self):
+        out = self.work / "scenarios" / "case"
+        result = run(
+            ["-m", "hawki_alert_analysis.ingest", str(self.logs), "--out", str(out)],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("verified: reloads from", result.stdout)
+
+    def test_scenario_that_does_not_load_back_is_a_failure_not_a_success(self):
+        # --no-copy leaves the manifest pointing at a log that never arrived.
+        # Writing the file succeeded, so without the read-back this reported
+        # success and the scenario was simply absent from the alert list.
+        out = self.work / "scenarios" / "broken"
+        result = run(
+            ["-m", "hawki_alert_analysis.ingest", str(self.logs), "--out", str(out), "--no-copy"],
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("does not load back", result.stdout)
+        self.assertIn("eve.json", result.stdout)
+
     def test_directory_with_no_readable_source_fails_loudly(self):
         empty = self.work / "empty"
         empty.mkdir()

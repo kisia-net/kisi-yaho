@@ -706,6 +706,17 @@ python -m hawki_alert_analysis.ingest capture\out --out data\scenarios\mta_001 `
     --host victim-pc --labels capture\labels.json
 ```
 
+ingest는 쓰고 끝내지 않고 **앱이 읽는 방식 그대로 다시 읽어 확인**한 뒤 결과를 알린다.
+
+```
+wrote data\scenarios\mta_001\scenario.json
+verified: reloads from data\scenarios\mta_001 with 561 alert(s).
+```
+
+이 마지막 줄이 없으면 그 시나리오는 앱에도 `tools/evaluate.py`에도 보이지 않는다. 매니페스트
+기록과 로그 복사는 각각 성공하고도 결과물이 못 쓰게 될 수 있어서(로그 파일이 안 옮겨졌거나,
+id가 기존 시나리오와 충돌하거나) 그때는 경고와 함께 **비정상 종료(exit 1)** 한다.
+
 > 채점 용어는 **변별력 있는 것만** 골랐다. `"443"`, `"http"`, `"post"` 같은 단어는 어떤 답변에도
 > 등장하므로 정답지에 넣으면 점수가 항상 만점처럼 보인다. `netsupport`, `fakeurl.htm`,
 > `45.131.214.85` 처럼 맞혔을 때만 나오는 문자열이어야 의미가 있다.

@@ -396,6 +396,47 @@ def write_scenario(
     return manifest_path
 
 
+def verify_written_scenario(out_dir: Path, scenario_id: str) -> list[str]:
+    """Read the scenario back the way the app will, and report what breaks.
+
+    Writing a manifest and copying logs can both succeed while the result is
+    still unusable — a source file that did not arrive, a trigger that resolves
+    to nothing. The failure then shows up far away, as a scenario quietly
+    absent from the alert list, so it is checked here instead.
+    """
+    from .repository import FixtureEventRepository
+
+    problems: list[str] = []
+    manifest_path = out_dir / "scenario.json"
+    if not manifest_path.is_file():
+        return [f"{manifest_path} does not exist."]
+
+    # Rooted at the parent because that is what the app points at, which also
+    # surfaces a scenario id that collides with an existing one.
+    repository = FixtureEventRepository(out_dir.parent)
+    try:
+        loaded = [
+            scenario
+            for scenario in repository._load()
+            if str(scenario.manifest.get("id", "")) == scenario_id
+        ]
+    except OSError as exc:
+        return [f"the scenario directory could not be read: {exc}"]
+
+    if not loaded:
+        problems.append(f"no scenario with id {scenario_id!r} was found under {out_dir.parent}.")
+    elif len(loaded) > 1:
+        problems.append(
+            f"{len(loaded)} scenarios share the id {scenario_id!r}; alert ids will collide."
+        )
+    elif not loaded[0].events:
+        problems.append(f"scenario {scenario_id!r} loaded but holds no events.")
+
+    for line in repository.skipped_lines[:5]:
+        problems.append(f"unreadable: {line}")
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m hawki_alert_analysis.ingest",
@@ -476,6 +517,19 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = args.out or log_dir
     path = write_scenario(log_dir, out_dir, result, copy_logs=not args.no_copy)
     print(f"\nwrote {path}")
+
+    problems = verify_written_scenario(out_dir, str(result.manifest.get("id", "")))
+    if problems:
+        print("\nwarning: the scenario was written but does not load back:")
+        for problem in problems:
+            print(f"  {problem}")
+        print(
+            "  Until this is fixed the scenario is invisible to the app and to\n"
+            "  tools/evaluate.py, which will list only the scenarios that do load."
+        )
+        return 1
+
+    print(f"verified: reloads from {out_dir} with {result.alert_count} alert(s).")
     return 0
 
 
