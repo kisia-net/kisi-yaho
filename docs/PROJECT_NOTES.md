@@ -749,6 +749,38 @@ http_method     : POST, content-type: x-www-form-urlencoded
 > `flow_id`(+7)와 공유 IP(+4)뿐이다. 호스트 기반 상관분석이 의미를 갖는 것은 다중 호스트
 > 데이터셋(AIT-LDS) 단계부터다. 이 캡처를 근거로 "호스트 상관분석이 동작한다"고 말하면 안 된다.
 
+### 실제 캡처 채점 결과 (실측, 데모 경로)
+
+```powershell
+python tools\list_alerts.py --scenario MTA-2026-02-28-NETSUPPORT
+python tools\evaluate.py --alert evt-db011fc07ebd7ee4
+```
+
+```
+[review] evt-db011fc07ebd7ee4  ET INFO HTTP traffic on port 443 (POST)
+  schema     10/11 sections  missing: attack_techniques
+  grounding  4 citations  all resolved
+  attack_techniques found 0, missed T1219, T1071.001, T1571
+  affected_hosts found 1
+  indicators found 1
+  answer     [hit] Which internal host is beaconing?
+  answer     [hit] What is the command-and-control endpoint?
+  answer     [hit] What tooling does the traffic identify itself as?
+  answer     [hit] Which request path does the check-in use?
+```
+
+- **인용 4건이 전부 실제 존재하는 이벤트를 가리킨다.** 실제 데이터에서 환각 인용 0건.
+- **답변 4/4.** 같은 정답지를 경보 3건짜리 최소 재현에 걸었을 때는 2/4였다
+  (`netsupport`, `fakeurl.htm`을 놓침). 3,852 이벤트에서 상관 이벤트가 붙으면서 그 두 값이
+  증거 안에 들어왔다 — 증강이 실제로 답을 바꾼 지점이다.
+- **ATT&CK 0/3.** Suricata 경보 단독에는 MITRE 매핑이 없어 항목 자체를 못 채운다(그래서 10/11).
+  합성 시나리오가 11/11인 이유는 거기 Wazuh 경보에 `mitre` 블록을 넣어 뒀기 때문이고
+  (`data/scenarios/*/wazuh_alerts.jsonl`), **실제 ET 규칙에는 그런 매핑이 없다.**
+  합성 데이터가 실제보다 쉬웠다는 증거이기도 하다.
+
+> 이 수치는 **데모 경로**다. 결정적 요약이지 모델 추론이 아니다. "AI가 이만큼 했다"가 아니라
+> **모델 없이도 여기까지는 나온다는 바닥값**으로 읽어야 한다. `--live` 측정은 GPU 대기 중.
+
 ### 실제 캡처에서 자산·인텔 블록은 어떻게 되나 (측정값)
 
 붙여 주신 경보 레코드로 최소 재현을 만들어 실제로 번들을 뽑아 본 결과다.
