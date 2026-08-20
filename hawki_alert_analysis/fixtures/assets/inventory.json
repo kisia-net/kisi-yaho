@@ -7,7 +7,9 @@
       "id": "asset-web-01",
       "hostname": "web-01",
       "fqdn": "web-01.dmz.example.local",
-      "ip_addresses": ["192.168.50.20"],
+      "ip_addresses": [
+        "192.168.50.20"
+      ],
       "asset_type": "server",
       "environment": "production",
       "zone": "dmz",
@@ -16,21 +18,35 @@
       "business_service": "Customer portal (portal.example.local)",
       "owner": "Platform Engineering",
       "operating_system": "Ubuntu 22.04 LTS",
-      "services": ["nginx 1.24 (tcp/80)", "openssh (tcp/22)"],
-      "accounts_of_interest": ["www-data"],
+      "services": [
+        "nginx 1.24 (tcp/80)",
+        "openssh (tcp/22)"
+      ],
+      "accounts_of_interest": [
+        "www-data"
+      ],
       "data_classification": "confidential",
-      "compliance_scope": ["PCI-DSS", "ISO-27001"],
+      "compliance_scope": [
+        "PCI-DSS",
+        "ISO-27001"
+      ],
       "backup_state": "daily snapshot, last verified 2026-08-10",
       "patch_state": "OS current; portal application 2 minor versions behind",
       "location": "Hamburg DC / rack B12",
       "last_inventoried": "2026-08-10T02:00:00+00:00",
-      "tags": ["web-tier", "external-facing", "cardholder-adjacent"]
+      "tags": [
+        "web-tier",
+        "external-facing",
+        "cardholder-adjacent"
+      ]
     },
     {
       "id": "asset-app-02",
       "hostname": "app-02",
       "fqdn": "app-02.internal.example.local",
-      "ip_addresses": ["192.168.50.25"],
+      "ip_addresses": [
+        "192.168.50.25"
+      ],
       "asset_type": "server",
       "environment": "production",
       "zone": "internal",
@@ -39,21 +55,31 @@
       "business_service": "Customer portal application tier",
       "owner": "Platform Engineering",
       "operating_system": "Ubuntu 22.04 LTS",
-      "services": ["gunicorn (tcp/8000)"],
-      "accounts_of_interest": ["portal-app"],
+      "services": [
+        "gunicorn (tcp/8000)"
+      ],
+      "accounts_of_interest": [
+        "portal-app"
+      ],
       "data_classification": "confidential",
-      "compliance_scope": ["PCI-DSS"],
+      "compliance_scope": [
+        "PCI-DSS"
+      ],
       "backup_state": "daily snapshot",
       "patch_state": "current",
       "location": "Hamburg DC / rack B12",
       "last_inventoried": "2026-08-10T02:00:00+00:00",
-      "tags": ["app-tier"]
+      "tags": [
+        "app-tier"
+      ]
     },
     {
       "id": "asset-db-01",
       "hostname": "db-01",
       "fqdn": "db-01.internal.example.local",
-      "ip_addresses": ["192.168.50.31"],
+      "ip_addresses": [
+        "192.168.50.31"
+      ],
       "asset_type": "server",
       "environment": "production",
       "zone": "restricted",
@@ -62,21 +88,34 @@
       "business_service": "Customer portal database",
       "owner": "Data Platform",
       "operating_system": "Debian 12",
-      "services": ["postgresql 16 (tcp/5432)"],
-      "accounts_of_interest": ["postgres", "portal-app"],
+      "services": [
+        "postgresql 16 (tcp/5432)"
+      ],
+      "accounts_of_interest": [
+        "postgres",
+        "portal-app"
+      ],
       "data_classification": "restricted",
-      "compliance_scope": ["PCI-DSS", "GDPR"],
+      "compliance_scope": [
+        "PCI-DSS",
+        "GDPR"
+      ],
       "backup_state": "hourly WAL archive",
       "patch_state": "current",
       "location": "Hamburg DC / rack B14",
       "last_inventoried": "2026-08-10T02:00:00+00:00",
-      "tags": ["database", "crown-jewel"]
+      "tags": [
+        "database",
+        "crown-jewel"
+      ]
     },
     {
       "id": "asset-proxy-01",
       "hostname": "proxy-01",
       "fqdn": "proxy-01.dmz.example.local",
-      "ip_addresses": ["192.168.50.10"],
+      "ip_addresses": [
+        "192.168.50.10"
+      ],
       "asset_type": "network_device",
       "environment": "production",
       "zone": "dmz",
@@ -85,21 +124,30 @@
       "business_service": "Outbound egress proxy",
       "owner": "Network Operations",
       "operating_system": "Squid on Debian 12",
-      "services": ["squid (tcp/3128)"],
+      "services": [
+        "squid (tcp/3128)"
+      ],
       "accounts_of_interest": [],
       "data_classification": "internal",
-      "compliance_scope": ["ISO-27001"],
+      "compliance_scope": [
+        "ISO-27001"
+      ],
       "backup_state": "config in git",
       "patch_state": "current",
       "location": "Hamburg DC / rack B10",
       "last_inventoried": "2026-08-10T02:00:00+00:00",
-      "tags": ["egress-control", "expected-outbound-path"]
+      "tags": [
+        "egress-control",
+        "expected-outbound-path"
+      ]
     },
     {
       "id": "asset-win-ws-07",
       "hostname": "WIN-WS-07",
       "fqdn": "win-ws-07.corp.example.local",
-      "ip_addresses": ["192.168.60.41"],
+      "ip_addresses": [
+        "192.168.60.41"
+      ],
       "asset_type": "workstation",
       "environment": "corporate",
       "zone": "internal",
@@ -109,20 +157,31 @@
       "owner": "IT Client Services",
       "operating_system": "Windows 11 24H2",
       "services": [],
-      "accounts_of_interest": ["CORP\\j.lee"],
+      "accounts_of_interest": [
+        "CORP\\j.lee"
+      ],
       "data_classification": "confidential",
-      "compliance_scope": ["ISO-27001", "GDPR"],
+      "compliance_scope": [
+        "ISO-27001",
+        "GDPR"
+      ],
       "backup_state": "OneDrive sync, last verified 2026-08-09",
       "patch_state": "OS current; Microsoft Office one update behind",
       "location": "Hamburg office / floor 3",
       "last_inventoried": "2026-08-11T06:00:00+00:00",
-      "tags": ["workstation", "finance", "macro-enabled-office"]
+      "tags": [
+        "workstation",
+        "finance",
+        "macro-enabled-office"
+      ]
     },
     {
       "id": "asset-adm-ws-14",
       "hostname": "adm-ws-14",
       "fqdn": "adm-ws-14.corp.example.local",
-      "ip_addresses": ["192.168.60.15"],
+      "ip_addresses": [
+        "192.168.60.15"
+      ],
       "asset_type": "workstation",
       "environment": "corporate",
       "zone": "internal",
@@ -132,14 +191,51 @@
       "owner": "Security Operations",
       "operating_system": "Windows 11 24H2",
       "services": [],
-      "accounts_of_interest": ["soc-analyst"],
+      "accounts_of_interest": [
+        "soc-analyst"
+      ],
       "data_classification": "internal",
-      "compliance_scope": ["ISO-27001"],
+      "compliance_scope": [
+        "ISO-27001"
+      ],
       "backup_state": "OneDrive sync",
       "patch_state": "current",
       "location": "Hamburg office",
       "last_inventoried": "2026-08-11T06:00:00+00:00",
-      "tags": ["workstation", "privileged-user"]
+      "tags": [
+        "workstation",
+        "privileged-user"
+      ]
+    },
+    {
+      "id": "asset-victim-pc",
+      "hostname": "victim-pc",
+      "fqdn": "",
+      "ip_addresses": [
+        "10.2.28.88"
+      ],
+      "asset_type": "workstation",
+      "environment": "lab",
+      "zone": "replay",
+      "exposure": "internal",
+      "criticality": "low",
+      "business_service": "None. Replay target for the malware-traffic-analysis.net 2026-02-28 exercise.",
+      "owner": "HAW-KI project (evaluation lab)",
+      "operating_system": "Windows (version not observable from the capture)",
+      "services": [],
+      "accounts_of_interest": [],
+      "data_classification": "none",
+      "compliance_scope": [],
+      "backup_state": "not applicable; capture replay only",
+      "patch_state": "unknown; not observable from network telemetry",
+      "location": "PCAP replay, not a physical host",
+      "last_inventoried": "2026-08-20T00:00:00+00:00",
+      "tags": [
+        "lab",
+        "pcap-replay",
+        "declared-not-discovered"
+      ],
+      "provenance": "Declared by hand so the assets block resolves for the collected MTA scenario. The address is the victim in a public exercise capture, not an organisation-owned machine; criticality and exposure are set to lab values so impact is not overstated."
     }
   ]
 }

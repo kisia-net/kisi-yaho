@@ -98,6 +98,8 @@ class IngestResult:
     alert_count: int = 0
     event_count: int = 0
     ignored_count: int = 0
+    # A trigger declared in a labels file that no collected event satisfies.
+    trigger_unmatched: bool = False
 
     def summary(self) -> str:
         lines = [
@@ -285,18 +287,27 @@ def build_manifest(
         manifest=manifest,
     )
 
-    trigger = labels.get("trigger")
-    if isinstance(trigger, dict) and trigger:
-        manifest["trigger"] = trigger
-        return result
+    labelled_trigger = labels.get("trigger")
+    labelled_trigger = labelled_trigger if isinstance(labelled_trigger, dict) and labelled_trigger else None
+    manifest["trigger"] = dict(labelled_trigger) if labelled_trigger else {"kind": "alert"}
 
-    # No ground truth: load what was detected and pick the most severe alert.
-    manifest["trigger"] = {"kind": "alert"}
+    # Read the sources whether or not a trigger was declared. The counts are how
+    # a collection reports itself, and skipping them for a labelled run made a
+    # healthy collection print "0 events" and trip the empty-collection warning.
     events, ignored = _load_preview(log_dir, manifest)
     result.event_count = len(events)
     result.ignored_count = ignored
     alerts = [event for event in events if event.kind == "alert"]
     result.alert_count = len(alerts)
+
+    if labelled_trigger:
+        # A declared trigger that matches nothing would otherwise surface as an
+        # AlertNotFound at load time, far from the typo that caused it.
+        result.trigger_unmatched = not any(
+            _matches_trigger(event, labelled_trigger) for event in events
+        )
+        return result
+
     if alerts:
         # Most severe wins; ties break toward the earliest, which is the more
         # likely entry point of a sequence.
@@ -310,6 +321,22 @@ def build_manifest(
             **({"rule_id": str(best.rule["id"])} if best.rule.get("id") else {}),
         }
     return result
+
+
+def _matches_trigger(event: CanonicalEvent, selector: dict[str, Any]) -> bool:
+    """Mirror of the repository's trigger selector.
+
+    Kept in step with `FixtureEventRepository._resolve_trigger`: a selector that
+    passes here must be the one that resolves at load time, or the check is
+    worse than none.
+    """
+    if selector.get("source_type") and event.source_type != selector["source_type"]:
+        return False
+    if selector.get("rule_id") and str(event.rule.get("id", "")) != str(selector["rule_id"]):
+        return False
+    if selector.get("kind") and event.kind != selector["kind"]:
+        return False
+    return True
 
 
 def _load_preview(log_dir: Path, manifest: dict[str, Any]) -> tuple[list[CanonicalEvent], int]:
@@ -417,6 +444,14 @@ def main(argv: list[str] | None = None) -> int:
 
     trigger = result.manifest.get("trigger", {})
     print(f"\ntrigger: {json.dumps(trigger, ensure_ascii=False)}")
+
+    if result.trigger_unmatched and result.event_count:
+        print(
+            "\nwarning: no collected event matches the trigger declared in the labels file.\n"
+            "  The scenario will fail to load with AlertNotFound. Check source_type, kind, and\n"
+            "  rule_id against the collected data, or drop --labels to let the most severe\n"
+            "  alert be the trigger."
+        )
 
     if result.event_count == 0:
         # Sources were readable but held nothing. Almost always the collection
