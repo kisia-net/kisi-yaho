@@ -132,6 +132,23 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(result.manifest["correlation_window_seconds"], 120)
         self.assertEqual(result.manifest["expected"], {"attack_techniques": ["T1190"]})
 
+    def test_labelled_run_still_counts_what_it_collected(self):
+        # A declared trigger used to skip the read entirely, so a healthy
+        # collection reported "0 events, 0 alerts" and tripped the warning
+        # meant for a collection that genuinely produced nothing.
+        labels = {"trigger": {"source_type": "suricata", "kind": "alert", "rule_id": "2100001"}}
+        result = build_manifest(self.dir, scenario_id="collected", labels=labels, year=2026)
+        self.assertGreater(result.event_count, 0)
+        self.assertEqual(result.alert_count, 4)
+        self.assertFalse(result.trigger_unmatched)
+
+    def test_labelled_trigger_matching_nothing_is_reported(self):
+        # Otherwise the typo surfaces as an AlertNotFound at load time, far
+        # from the file that caused it.
+        labels = {"trigger": {"source_type": "suricata", "kind": "alert", "rule_id": "9999999"}}
+        result = build_manifest(self.dir, scenario_id="collected", labels=labels, year=2026)
+        self.assertTrue(result.trigger_unmatched)
+
     def test_ingest_never_writes_into_the_source_directory(self):
         # Collected corpora are often extracted read-only, and ingest must not
         # modify the evidence it is reading.

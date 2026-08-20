@@ -1,0 +1,42 @@
+{
+  "id": "MTA-2026-02-28-NETSUPPORT",
+  "name": "NetSupport RAT check-in over plaintext HTTP on port 443",
+  "description": "Real capture from a malware-traffic-analysis.net traffic-analysis exercise, replayed through Suricata with the ET Open ruleset. The victim posts to a bare IPv4 address on port 443 in cleartext HTTP, identifying itself with the NetSupport Manager user agent. Every ground-truth term below is readable in the alert record itself; nothing here is inferred from the exercise write-up.",
+  "trigger": {
+    "source_type": "suricata",
+    "kind": "alert",
+    "rule_id": "2013926"
+  },
+  "correlation_window_seconds": 300,
+  "expected": {
+    "attack_techniques": [
+      "T1219",
+      "T1071.001",
+      "T1571"
+    ],
+    "affected_hosts": [
+      "10.2.28.88"
+    ],
+    "indicators": [
+      "45.131.214.85"
+    ],
+    "answers": [
+      {
+        "question": "Which internal host is beaconing?",
+        "expect": ["10.2.28.88"]
+      },
+      {
+        "question": "What is the command-and-control endpoint?",
+        "expect": ["45.131.214.85"]
+      },
+      {
+        "question": "What tooling does the traffic identify itself as?",
+        "expect": ["netsupport"]
+      },
+      {
+        "question": "Which request path does the check-in use?",
+        "expect": ["fakeurl.htm"]
+      }
+    ]
+  }
+}
