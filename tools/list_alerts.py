@@ -114,7 +114,12 @@ def main() -> int:
 
     scenarios = sorted({item.get("scenario_id", "") for item in alerts})
     print(f"{len(alerts)} alert(s) across {len(scenarios)} scenario(s): {', '.join(scenarios)}\n")
-    report_silent_scenarios(app, scenarios)
+    # Derived from every alert, not the filtered view: --scenario would
+    # otherwise make each scenario it excluded look like one that produced
+    # nothing.
+    report_silent_scenarios(
+        app, sorted({item.get("scenario_id", "") for item in app.ALERT_ANALYSIS.list_alerts()})
+    )
 
     if args.all:
         rows = sorted(alerts, key=lambda item: SEVERITY_ORDER.get(item.get("severity", ""), 5))
