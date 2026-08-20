@@ -73,6 +73,22 @@ class IngestCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("no scenario was written", result.stdout)
 
+    def test_missing_labels_file_is_an_error_not_a_traceback(self):
+        result = run(
+            ["-m", "hawki_alert_analysis.ingest", str(self.logs), "--labels", str(self.work / "nope.json")]
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("labels file not found", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_malformed_labels_file_names_the_problem(self):
+        bad = self.work / "bad.json"
+        bad.write_text("{ not json", encoding="utf-8")
+        result = run(["-m", "hawki_alert_analysis.ingest", str(self.logs), "--labels", str(bad)])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not valid JSON", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_missing_directory_is_rejected(self):
         result = run(["-m", "hawki_alert_analysis.ingest", str(self.work / "nope")])
         self.assertEqual(result.returncode, 2)
