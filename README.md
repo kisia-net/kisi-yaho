@@ -1,4 +1,26 @@
-# HAW-KI Front-End Prototype
+# kisi-yaho — AI 증강 SIEM
+
+AI보안 기술개발 교육과정 **네트워크반 1팀 '키시 야호~'** 개발 레포지토리입니다.
+
+보안 로그를 수집·증강해 AI가 분석하고 대응까지 제안하는 SIEM을 만들고,
+그 파이프라인이 안전한지 오픈소스 도구로 스스로 점검합니다.
+
+| 대목표 | 내용 |
+| --- | --- |
+| **A. AI 증강 SIEM 구현** | 로그 수집 → 정규화 → **증강** → AI 분석 → 대응 제안 + 사람 승인 |
+| **B. 파이프라인 보안성 검증** | 구축한 파이프라인을 garak · promptfoo 로 점검하고 가드레일 전후를 비교 |
+
+## 문서
+
+| 문서 | 내용 |
+| --- | --- |
+| [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 설계 결정, 진행 상황, 한계 |
+| [`docs/AWS_구축_가이드.md`](docs/AWS_구축_가이드.md) | AWS 환경 구축 1~6단계 (처음 쓰는 사람 기준) |
+| [`infra/terraform/README.md`](infra/terraform/README.md) | 인프라 코드 사용법 |
+
+---
+
+## 시스템 개요 — HAW-KI
 
 A minimal Flask-based front end that represents the intended LLM-assisted SOAR architecture.
 
