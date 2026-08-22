@@ -70,7 +70,7 @@ function updateThemeControl() {
     const button = byId("theme-toggle");
     if (!button) return;
     const nextTheme = currentTheme() === "dark" ? "light" : "dark";
-    const label = `Switch to ${nextTheme} mode`;
+    const label = `${nextTheme === "dark" ? "어두운" : "밝은"} 화면으로 전환`;
     button.setAttribute("aria-label", label);
     button.setAttribute("title", label);
     button.setAttribute("aria-pressed", String(currentTheme() === "dark"));
@@ -425,14 +425,14 @@ function decorateCodeBlocks(container) {
         const copy = document.createElement("button");
         copy.type = "button";
         copy.className = "code-copy";
-        copy.textContent = "Copy";
+        copy.textContent = "복사";
         copy.addEventListener("click", async () => {
             try {
                 await navigator.clipboard.writeText(code.textContent);
-                copy.textContent = "Copied";
-                setTimeout(() => { copy.textContent = "Copy"; }, 1400);
+                copy.textContent = "복사됨";
+                setTimeout(() => { copy.textContent = "복사"; }, 1400);
             } catch {
-                toast("Clipboard access failed");
+                toast("클립보드 접근에 실패했습니다");
             }
         });
         toolbar.append(label, copy);
@@ -458,7 +458,7 @@ function wrapMarkdownTables(container) {
         const wrapper = document.createElement("div");
         wrapper.className = "markdown-table-wrap";
         wrapper.setAttribute("role", "region");
-        wrapper.setAttribute("aria-label", "Scrollable table");
+        wrapper.setAttribute("aria-label", "가로 스크롤 표");
         wrapper.tabIndex = 0;
         table.parentNode.insertBefore(wrapper, table);
         wrapper.appendChild(table);
@@ -485,8 +485,8 @@ function toast(message) {
 // request used to leave placeholder text on screen indefinitely and look like
 // a page that never loaded. Say what happened instead.
 window.addEventListener("unhandledrejection", (event) => {
-    const message = event.reason?.message || String(event.reason ?? "Request failed");
-    console.error("HAW-KI request failed:", event.reason);
+    const message = event.reason?.message || String(event.reason ?? "요청 실패");
+    console.error("HAW-KI 요청 실패:", event.reason);
     toast(`Request failed: ${message}`);
 });
 async function api(url, options = {}) {
@@ -506,10 +506,10 @@ async function api(url, options = {}) {
 
     if (response.status === 401 && page !== "login") {
         location.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`;
-        throw new Error("Authentication required.");
+        throw new Error("로그인이 필요합니다.");
     }
     if (!response.ok) {
-        throw new Error(data.detail || data.error || `Request failed: ${response.status}`);
+        throw new Error(data.detail || data.error || `요청 실패: ${response.status}`);
     }
     return data;
 }
@@ -523,8 +523,8 @@ function renderAccountControls() {
     controls.className = "account-controls";
     controls.innerHTML = `
         <a class="topbar-icon-button" href="/account"
-            aria-label="Account: ${escapeHtml(state.auth.username)} (${escapeHtml(state.auth.role)})"
-            title="Account: ${escapeHtml(state.auth.username)} · ${escapeHtml(state.auth.role)}">
+            aria-label="계정: ${escapeHtml(state.auth.username)} (${escapeHtml(state.auth.role)})"
+            title="계정: ${escapeHtml(state.auth.username)} · ${escapeHtml(state.auth.role)}">
             <svg viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="12" cy="8" r="4"></circle>
                 <path d="M4.5 21a7.5 7.5 0 0 1 15 0"></path>
@@ -532,7 +532,7 @@ function renderAccountControls() {
         </a>
         ${state.auth.role === "admin" ? `
             <a class="topbar-icon-button" href="/admin/users"
-                aria-label="User management" title="User management">
+                aria-label="사용자 관리" title="사용자 관리">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                     <circle cx="9" cy="8" r="3"></circle>
                     <path d="M3.5 19a5.5 5.5 0 0 1 11 0"></path>
@@ -541,7 +541,7 @@ function renderAccountControls() {
             </a>
         ` : ""}
         <button id="logout-button" class="topbar-icon-button" type="button"
-            aria-label="Sign out" title="Sign out">
+            aria-label="로그아웃" title="로그아웃">
             <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M10 5H5v14h5"></path>
                 <path d="M14 8l4 4-4 4"></path>
@@ -574,7 +574,7 @@ function setService(name, details) {
         dot.classList.add(!configured ? "unconfigured" : online ? "online" : "offline");
     });
     document.querySelectorAll(`[data-service-label="${name}"]`).forEach((label) => {
-        label.textContent = !configured ? "Not configured" : online ? `Reachable · HTTP ${details.status_code}` : "Unreachable";
+        label.textContent = !configured ? "미설정" : online ? `연결됨 · HTTP ${details.status_code}` : "연결 안 됨";
     });
     document.querySelectorAll(`[data-service-latency="${name}"]`).forEach((label) => {
         label.textContent = details?.latency_ms != null ? `${details.latency_ms} ms` : "—";
@@ -587,10 +587,10 @@ async function loadServices() {
         Object.entries(services).forEach(([name, details]) => setService(name, details));
         const configured = Object.values(services).filter((x) => x.configured !== false);
         const online = configured.filter((x) => x.ok).length;
-        if (byId("global-health-text")) byId("global-health-text").textContent = `${online}/${configured.length} configured services reachable`;
+        if (byId("global-health-text")) byId("global-health-text").textContent = `설정된 서비스 ${configured.length}개 중 ${online}개 연결됨`;
         if (byId("status-checked-at")) byId("status-checked-at").textContent = new Date(data.checked_at).toLocaleTimeString();
     } catch (error) {
-        if (byId("global-health-text")) byId("global-health-text").textContent = "Status check failed";
+        if (byId("global-health-text")) byId("global-health-text").textContent = "상태 확인 실패";
     }
 }
 async function loadConfig() {
@@ -612,24 +612,24 @@ async function initDashboard() {
     renderNotices(data.notices);
 }
 
-const AGENT_GREETING = "Select a mode and provide the alert, evidence, indicator, or operational question. Write-capable output is staged as a proposal only.";
+const AGENT_GREETING = "모드를 고르고 경보·증거·지표 또는 궁금한 점을 적어 주세요. 실제 변경을 일으키는 결과는 제안 상태로만 올라갑니다.";
 
 const modeTitles = {
-    alert_summary: "Alert explanation",
-    log_search: "Log search",
-    file_hunt: "Suspicious file hunt",
-    velociraptor_response: "Velociraptor host response",
-    suricata_rule: "Suricata rule",
-    incident_report: "Incident report",
+    alert_summary: "경보 설명",
+    log_search: "로그 검색",
+    file_hunt: "의심 파일 추적",
+    velociraptor_response: "Velociraptor 호스트 대응",
+    suricata_rule: "Suricata 룰",
+    incident_report: "사건 보고서",
 };
 
 const modePlaceholders = {
-    alert_summary: "Select an alert or paste alert details. Ask for severity, evidence, attack context, or next investigation steps.",
-    log_search: "Describe the event or indicator to search for. Include relevant users, hosts, IP addresses, processes, or expected behavior.",
-    file_hunt: "Describe the suspicious file or indicator. Include a hash, path, filename, signer, or observed behavior.",
-    velociraptor_response: "Describe the host response required, such as evidence collection, process termination, isolation, or rollback.",
-    suricata_rule: "Describe the traffic or behavior to detect or block, including protocol, direction, addresses, ports, and action.",
-    incident_report: "Describe the incident and required report, including audience, timeline, impact, evidence, and unresolved questions.",
+    alert_summary: "경보를 고르거나 경보 내용을 붙여넣으세요. 심각도, 증거, 공격 맥락, 다음 확인 순서를 물어볼 수 있습니다.",
+    log_search: "찾으려는 이벤트나 지표를 적어 주세요. 관련 사용자, 호스트, IP, 프로세스, 예상되는 동작을 함께 적으면 좋습니다.",
+    file_hunt: "의심스러운 파일이나 지표를 적어 주세요. 해시, 경로, 파일명, 서명자, 관찰된 동작을 함께 적으면 좋습니다.",
+    velociraptor_response: "필요한 호스트 조치를 적어 주세요. 증거 수집, 프로세스 종료, 격리, 원복 등이 있습니다.",
+    suricata_rule: "탐지하거나 차단할 트래픽·행위를 적어 주세요. 프로토콜, 방향, 주소, 포트, 조치를 포함해 주세요.",
+    incident_report: "사건 내용과 필요한 보고서를 적어 주세요. 보고 대상, 시간 흐름, 영향, 증거, 아직 미해결인 부분을 포함해 주세요.",
 };
 function agentSessionId() {
     if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -649,7 +649,7 @@ function createAgentSession(mode = state.agentMode, context = {}, persist = true
     const now = new Date().toISOString();
     const session = {
         id: agentSessionId(),
-        title: "New investigation",
+        title: "새 분석",
         mode: modeTitles[mode] ? mode : "alert_summary",
         history: [],
         transcript: [],
@@ -690,7 +690,7 @@ function normalizeStoredAgentSession(value) {
         : [];
     return {
         id: value.id,
-        title: String(value.title || "Saved investigation").slice(0, 80),
+        title: String(value.title || "저장된 분석").slice(0, 80),
         mode,
         history,
         transcript,
@@ -911,7 +911,7 @@ function renderAgentHostOptions() {
     const currentHost = hostSelect?.value || "";
     if (hostSelect) {
         hostSelect.innerHTML = [
-            '<option value="">All hosts</option>',
+            '<option value="">호스트 전체</option>',
             ...hosts.map((host) => `<option value="${escapeHtml(host)}">${escapeHtml(host)}</option>`),
         ].join("");
         if (hosts.includes(currentHost)) hostSelect.value = currentHost;
@@ -948,7 +948,7 @@ function renderAgentAlertOptions(preferredAlertId = "") {
     });
 
     select.innerHTML = [
-        '<option value="">Select an alert</option>',
+        '<option value="">경보를 선택하세요</option>',
         ...filtered.map((alert) => {
             const label = `${alert.id} · ${String(alert.severity || "").toUpperCase()} · ${alert.title}`;
             return `<option value="${escapeHtml(alert.id)}">${escapeHtml(label)}</option>`;
@@ -987,7 +987,7 @@ function updateCurrentAgentSession() {
 
 function deriveAgentSessionTitle(message) {
     const clean = String(message || "").replace(/\s+/g, " ").trim();
-    if (!clean) return "New investigation";
+    if (!clean) return "새 분석";
     return clean.length > 48 ? `${clean.slice(0, 47)}…` : clean;
 }
 
@@ -1005,7 +1005,7 @@ function renderAgentHistory() {
     const container = byId("agent-history-list");
     if (!container) return;
     if (!state.agentSessions.length) {
-        container.innerHTML = `<div class="empty-state">No chat sessions yet.</div>`;
+        container.innerHTML = `<div class="empty-state">아직 대화가 없습니다.</div>`;
         return;
     }
     container.innerHTML = state.agentSessions.map((session) => `
@@ -1015,7 +1015,7 @@ function renderAgentHistory() {
                 <strong>${escapeHtml(session.title)}</strong>
                 <small>${escapeHtml(formatAgentHistoryTime(session.updatedAt))}</small>
             </button>
-            <button class="agent-history-delete" type="button" data-delete-session="${escapeHtml(session.id)}" aria-label="Delete ${escapeHtml(session.title)}" title="Delete chat">×</button>
+            <button class="agent-history-delete" type="button" data-delete-session="${escapeHtml(session.id)}" aria-label="${escapeHtml(session.title)} 삭제" title="대화 삭제">×</button>
         </div>
     `).join("");
 
@@ -1041,7 +1041,7 @@ function setAgentMode(mode, persist = true) {
     renderAgentModeContext();
     const input = byId("agent-input");
     if (input) {
-        input.placeholder = modePlaceholders[mode] || "Enter a request…";
+        input.placeholder = modePlaceholders[mode] || "요청 내용을 입력하세요…";
     }
     if (persist) updateCurrentAgentSession();
 }
@@ -1238,7 +1238,7 @@ function inspectSuricataDraft(draft, analystRequest = "") {
     const warnings = [];
 
     if (draft.commented) {
-        warnings.push("The returned rule is commented out and disabled.");
+        warnings.push("반환된 룰은 주석 처리되어 비활성 상태입니다.");
     }
     if (
         requestedAction === "blocking" &&
@@ -1273,7 +1273,7 @@ function getSuricataAction(result, analystRequest = "") {
     const warnings = inspection.warnings;
     const summary = warnings.length
         ? `Generated Suricata draft requires review: ${warnings.join(" ")}`
-        : "Review this generated rule in Structured Results before staging it for approval.";
+        : "승인 요청을 올리기 전에 오른쪽 \"증거 및 제안\" 칸에서 생성된 룰을 검토하세요.";
 
     const actions = Array.isArray(result?.actions) ? result.actions : [];
     const existing = actions.find((action) =>
@@ -1296,8 +1296,8 @@ function getSuricataAction(result, analystRequest = "") {
     return {
         type: "suricata_rule",
         title: warnings.length
-            ? "Review generated Suricata draft"
-            : "Generated Suricata rule",
+            ? "생성된 Suricata 룰 초안 검토"
+            : "생성된 Suricata 룰",
         summary,
         risk: warnings.length ? "review" : "high",
         requires_approval: true,
@@ -1305,7 +1305,7 @@ function getSuricataAction(result, analystRequest = "") {
             rule: draft.rawRule,
             deployment: "staging",
             review_warnings: warnings,
-            validation: ["suricata -T", "pcap replay", "false-positive review"],
+            validation: ["suricata -T", "pcap 재생", "오탐 검토"],
         },
     };
 }
@@ -1348,9 +1348,9 @@ function stageRuleInStructuredResults(action, messageId, button) {
     button.disabled = true;
     button.classList.add("staged");
     button.textContent = "✓";
-    button.title = "Added to Structured Results";
-    button.setAttribute("aria-label", "Added to Structured Results");
-    toast("Suricata rule added to Structured Results");
+    button.title = "증거 및 제안 칸에 추가됨";
+    button.setAttribute("aria-label", "증거 및 제안 칸에 추가됨");
+    toast("Suricata 룰을 증거 및 제안 칸에 추가했습니다");
 }
 
 function attachSuricataTransferControl(messageElement, action, staged, messageId) {
@@ -1362,11 +1362,11 @@ function attachSuricataTransferControl(messageElement, action, staged, messageId
     transfer.innerHTML = `
         <div>
             <strong>Suricata rule detected</strong>
-            <span>${staged ? "Added to Structured Results" : "Move this rule to Structured Results for review."}</span>
+            <span>${staged ? "증거 및 제안 칸에 추가됨" : "이 룰을 증거 및 제안 칸으로 옮겨 검토합니다."}</span>
         </div>
         <button class="chat-rule-transfer-button ${staged ? "staged" : ""}" type="button"
-            title="${staged ? "Added to Structured Results" : "Add to Structured Results"}"
-            aria-label="${staged ? "Added to Structured Results" : "Add Suricata rule to Structured Results"}"
+            title="${staged ? "증거 및 제안 칸에 추가됨" : "Add to Structured Results"}"
+            aria-label="${staged ? "증거 및 제안 칸에 추가됨" : "Add Suricata rule to Structured Results"}"
             ${staged ? "disabled" : ""}>${staged ? "✓" : "→"}</button>
     `;
     const button = transfer.querySelector(".chat-rule-transfer-button");
@@ -1374,7 +1374,7 @@ function attachSuricataTransferControl(messageElement, action, staged, messageId
         button.addEventListener("click", () => {
             stageRuleInStructuredResults(action, messageId, button);
             const description = transfer.querySelector("span");
-            if (description) description.textContent = "Added to Structured Results";
+            if (description) description.textContent = "증거 및 제안 칸에 추가됨";
         });
     }
     shell.appendChild(transfer);
@@ -1401,8 +1401,8 @@ function renderActionCard(action, index, originMode) {
         <div class="action-card" data-origin-mode="${escapeHtml(mode)}">
             <div class="action-card-title-row">
                 <span class="action-origin-dot mode-${escapeHtml(mode)}"
-                    title="Created by ${escapeHtml(modeLabel)}"
-                    aria-label="Created by ${escapeHtml(modeLabel)}"></span>
+                    title="작성: ${escapeHtml(modeLabel)}"
+                    aria-label="작성: ${escapeHtml(modeLabel)}"></span>
                 <strong>${escapeHtml(action.title || action.type)}</strong>
             </div>
             <p>${escapeHtml(action.summary || "")}</p>
@@ -1460,8 +1460,8 @@ function renderStructured(result) {
                 const source = `agent:${action.origin_mode || originMode}`;
                 await queueAction(action, source);
                 button.disabled = true;
-                button.textContent = "Queued";
-                button.title = "Staged for approval";
+                button.textContent = "대기 중";
+                button.title = "승인 요청됨";
             } catch (error) {
                 toast(error.message);
             }
@@ -1578,7 +1578,7 @@ async function sendAgent(message) {
     state.history.push({ role: "user", content: message });
     session.history = state.history.slice(-16);
     session.context = readAgentWorkspaceContext();
-    if (session.title === "New investigation") session.title = deriveAgentSessionTitle(message);
+    if (session.title === "새 분석") session.title = deriveAgentSessionTitle(message);
     session.updatedAt = new Date().toISOString();
     saveAgentSessions();
     renderAgentHistory();
@@ -1601,7 +1601,7 @@ async function sendAgent(message) {
         const structuredResult = suricataAction ? withoutSuricataActions(result) : result;
         addMessage(
             "assistant",
-            result.answer || "No answer returned.",
+            result.answer || "응답이 없습니다.",
             result.model,
             true,
             {
@@ -1724,9 +1724,9 @@ async function loadAlerts() {
     try {
         await loadAlertsInner();
     } catch (error) {
-        // Without this the table kept its "Loading alerts" placeholder, which
+        // Without this the table kept its "경보를 불러오는 중" placeholder, which
         // reads as a page that never finished rather than a failed request.
-        byId("alert-count").textContent = "Could not load alerts";
+        byId("alert-count").textContent = "경보를 불러오지 못했습니다";
         byId("alerts-table").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}<br><br>Check the server logs: <code>docker compose logs hawki-web</code></div>`;
     }
 }
@@ -1734,7 +1734,7 @@ async function loadAlertsInner() {
     const q = encodeURIComponent(byId("alert-query").value.trim());
     const sev = encodeURIComponent(byId("alert-severity").value); const status = encodeURIComponent(byId("alert-status").value);
     const data = await api(`/api/alerts?q=${q}&severity=${sev}&status=${status}`);
-    byId("alert-count").textContent = `${data.total} alerts`;
+    byId("alert-count").textContent = `경보 ${data.total}건`;
     byId("alerts-table").innerHTML = data.alerts.map((a) => {
         // Enrichment previews: inventory criticality and intelligence verdict
         // for the alert host, so triage order reflects more than severity.
@@ -1750,19 +1750,19 @@ function initAlerts() { byId("alert-filter-form").addEventListener("submit", (e)
 function normalizeLog(source = {}) { return { time: source["@timestamp"] || "—", host: source.host?.name || source["host.name"] || source.source?.ip || source["source.ip"] || "—", category: source.event?.category || source["event.category"] || source.rule?.name || source["rule.name"] || "event", message: source.message || source.file?.path || JSON.stringify(source) }; }
 async function runLogSearch() {
     const payload = { index: byId("log-index").value, language: byId("log-language").value, query: byId("log-query").value, start_time: byId("log-start").value, end_time: byId("log-end").value, size: Number(byId("log-size").value) };
-    byId("log-count").textContent = "Searching…";
+    byId("log-count").textContent = "검색 중…";
     try {
         const data = await api("/api/log-search", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
         if (data.kibana_url) byId("open-kibana-link").href = data.kibana_url;
-        if (data.mode === "link-only") { byId("log-count").textContent = "Kibana query prepared"; byId("log-results").innerHTML = `<div class="empty-state">${escapeHtml(data.message)}<br><br><a class="button secondary" href="${escapeHtml(data.kibana_url)}" target="_blank" rel="noopener noreferrer">Open in Kibana</a></div>`; return; }
-        byId("log-count").textContent = `${formatNumber(data.total)} matching events`;
-        byId("log-results").innerHTML = (data.results || []).map((r) => { const x = normalizeLog(r.source); return `<div class="log-row"><span>${escapeHtml(x.time)}</span><strong>${escapeHtml(x.host)}</strong><span>${escapeHtml(x.category)}</span><span>${escapeHtml(x.message)}</span></div>`; }).join("") || `<div class="empty-state">No matching events.</div>`;
-    } catch (e) { byId("log-count").textContent = "Search failed"; byId("log-results").innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+        if (data.mode === "link-only") { byId("log-count").textContent = "Kibana 질의를 준비했습니다"; byId("log-results").innerHTML = `<div class="empty-state">${escapeHtml(data.message)}<br><br><a class="button secondary" href="${escapeHtml(data.kibana_url)}" target="_blank" rel="noopener noreferrer">Open in Kibana</a></div>`; return; }
+        byId("log-count").textContent = `조건에 맞는 이벤트 ${formatNumber(data.total)}건`;
+        byId("log-results").innerHTML = (data.results || []).map((r) => { const x = normalizeLog(r.source); return `<div class="log-row"><span>${escapeHtml(x.time)}</span><strong>${escapeHtml(x.host)}</strong><span>${escapeHtml(x.category)}</span><span>${escapeHtml(x.message)}</span></div>`; }).join("") || `<div class="empty-state">조건에 맞는 이벤트가 없습니다.</div>`;
+    } catch (e) { byId("log-count").textContent = "검색 실패"; byId("log-results").innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 function initLogs() {
-    byId("log-policy-note").textContent = state.config.elasticsearch_search_enabled ? "Direct read-only Elasticsearch query-string search is enabled. KQL still opens in Kibana." : "Direct Elasticsearch search is disabled. Queries are prepared for Kibana unless the server policy is enabled.";
+    byId("log-policy-note").textContent = state.config.elasticsearch_search_enabled ? "Elasticsearch 읽기 전용 질의문 검색이 켜져 있습니다. KQL은 그대로 Kibana에서 열립니다." : "Elasticsearch 직접 검색이 꺼져 있습니다. 서버 정책을 켜기 전까지는 Kibana용 질의만 준비합니다.";
     byId("log-search-form").addEventListener("submit", (e) => {e.preventDefault(); runLogSearch();});
-    byId("copy-log-query").addEventListener("click", async () => { await navigator.clipboard.writeText(byId("log-query").value); toast("Query copied"); });
+    byId("copy-log-query").addEventListener("click", async () => { await navigator.clipboard.writeText(byId("log-query").value); toast("질의를 복사했습니다"); });
 }
 
 async function initHunts() {
@@ -1780,7 +1780,7 @@ async function initHunts() {
 }
 
 function actionCard(a, decisionButtons = false) {
-    const buttons = decisionButtons && a.status === "pending_approval" ? `<div class="approval-actions"><button class="button danger small action-decision" data-id="${escapeHtml(a.id)}" data-decision="reject">Reject</button><button class="button primary small action-decision" data-id="${escapeHtml(a.id)}" data-decision="approve">Approve</button></div>` : "";
+    const buttons = decisionButtons && a.status === "pending_approval" ? `<div class="approval-actions"><button class="button danger small action-decision" data-id="${escapeHtml(a.id)}" data-decision="reject">반려</button><button class="button primary small action-decision" data-id="${escapeHtml(a.id)}" data-decision="approve">승인</button></div>` : "";
     return `<div class="approval-card"><div class="approval-top"><strong>${escapeHtml(a.id)} · ${escapeHtml(a.title)}</strong><span class="status-text ${escapeHtml(a.status)}">${escapeHtml(a.status)}</span></div><p>${escapeHtml(a.summary)}</p><div class="approval-meta"><span class="tag">${escapeHtml(a.type)}</span><span class="tag">risk: ${escapeHtml(a.risk)}</span><span class="tag">${escapeHtml(a.created_at)}</span></div>${buttons}</div>`;
 }
 
@@ -1825,23 +1825,23 @@ function approvalMode(action) {
 
 function approvalModeLabel(mode) {
     const labels = {
-        alert_summary: "Alert explanation",
-        log_search: "Log search",
-        file_hunt: "Suspicious file hunt",
-        velociraptor_response: "Host response",
-        suricata_rule: "Suricata rule",
-        incident_report: "Incident report",
+        alert_summary: "경보 설명",
+        log_search: "로그 검색",
+        file_hunt: "의심 파일 추적",
+        velociraptor_response: "호스트 대응",
+        suricata_rule: "Suricata 룰",
+        incident_report: "사건 보고서",
     };
     return labels[mode] || approvalLabel(mode);
 }
 
 function approvalStatusLabel(status) {
     const labels = {
-        pending_approval: "Pending approval",
-        approved_staged: "Approved · staged",
+        pending_approval: "승인 대기",
+        approved_staged: "승인됨 · 대기",
         submitted: "Submitted",
         rejected: "Rejected",
-        dispatch_failed: "Dispatch failed",
+        dispatch_failed: "전송 실패",
     };
     return labels[status] || approvalLabel(status || "unknown");
 }
@@ -1866,7 +1866,7 @@ function approvalDateValue(value) {
 
 function approvalDateLabel(value) {
     const timestamp = approvalDateValue(value);
-    if (!timestamp) return "Unknown time";
+    if (!timestamp) return "시각 불명";
     return new Date(timestamp).toLocaleString([], {
         year: "numeric",
         month: "short",
@@ -1958,7 +1958,7 @@ function renderApprovalPayload(action) {
                                 value="${escapeHtml(identifiers.sid)}">
                         </label>
                         <label>
-                            <span>Revision</span>
+                            <span>개정 번호</span>
                             <input class="approval-rule-revision" data-id="${escapeHtml(action.id)}"
                                 type="number" min="1" max="65535"
                                 value="${escapeHtml(identifiers.revision)}">
@@ -1980,7 +1980,7 @@ function renderApprovalPayload(action) {
             <section class="approval-action-display">
                 <div class="approval-display-title">
                     <span class="approval-display-dot"></span>
-                    <strong>${suricata ? "Rule metadata" : "Action details"}</strong>
+                    <strong>${suricata ? "룰 정보" : "조치 상세"}</strong>
                 </div>
                 <dl class="approval-payload-grid">
                     ${entries.map(([key, value]) => `
@@ -2014,7 +2014,7 @@ function renderApprovalOutcome(action) {
     if (normalizeApprovalValue(action.decision_note)) {
         parts.push(`
             <div class="approval-outcome-row">
-                <strong>Decision note</strong>
+                <strong>결정 메모</strong>
                 <span>${escapeHtml(action.decision_note)}</span>
             </div>
         `);
@@ -2022,9 +2022,9 @@ function renderApprovalOutcome(action) {
     if (action.dispatch_result && typeof action.dispatch_result === "object") {
         const routineMessage = normalizeApprovalValue(action.dispatch_result.message);
         const hiddenRoutineMessages = new Set([
-            "Execution is disabled by server policy.",
-            "No trusted action gateway is configured.",
-            "Action rejected and not dispatched.",
+            "서버 정책에 의해 실행이 비활성화되어 있습니다.",
+            "신뢰된 조치 게이트웨이가 설정되어 있지 않습니다.",
+            "반려되어 전송하지 않았습니다.",
         ]);
         if (!hiddenRoutineMessages.has(routineMessage)) {
             parts.push(`
@@ -2077,9 +2077,9 @@ function detailedApprovalCard(action) {
                 </div>
                 <div class="approval-time-list">
                     <span>Created ${escapeHtml(createdAt)}</span>
-                    ${decidedAt ? `<span>Decided ${escapeHtml(decidedAt)}</span>` : ""}
+                    ${decidedAt ? `<span>결정 ${escapeHtml(decidedAt)}</span>` : ""}
                     ${normalizeApprovalValue(action.resubmitted_from)
-                        ? `<span>From ${escapeHtml(action.resubmitted_from)}</span>`
+                        ? `<span>이전 요청 ${escapeHtml(action.resubmitted_from)}</span>`
                         : ""}
                 </div>
             </div>
@@ -2090,27 +2090,27 @@ function detailedApprovalCard(action) {
             ${pending ? `
                 <div class="approval-decision-panel">
                     <label>
-                        <span>Decision note</span>
+                        <span>결정 메모</span>
                         <input class="approval-decision-note" data-id="${escapeHtml(action.id)}"
-                            placeholder="Optional reason or review note">
+                            placeholder="사유 또는 검토 메모 (선택)">
                     </label>
                     <div class="approval-actions">
                         <button class="button danger small action-decision"
-                            data-id="${escapeHtml(action.id)}" data-decision="reject" type="button">Reject</button>
+                            data-id="${escapeHtml(action.id)}" data-decision="reject" type="button">반려</button>
                         <button class="button primary small action-decision"
-                            data-id="${escapeHtml(action.id)}" data-decision="approve" type="button">Approve</button>
+                            data-id="${escapeHtml(action.id)}" data-decision="approve" type="button">승인</button>
                     </div>
                 </div>
             ` : `
                 <div class="approval-resend-panel">
                     <label>
-                        <span>Resubmission note</span>
+                        <span>재요청 메모</span>
                         <input class="approval-resend-note" data-id="${escapeHtml(action.id)}"
-                            placeholder="Optional note for the new approval">
+                            placeholder="재승인 요청 메모 (선택)">
                     </label>
                     <button class="button secondary small action-resend"
                         data-id="${escapeHtml(action.id)}" type="button">
-                        Resend for approval
+                        승인 재요청
                     </button>
                 </div>
             `}
@@ -2154,9 +2154,9 @@ function refreshApprovalFilterOptions(actions) {
         .filter(Boolean)
         .sort((a, b) => approvalStatusLabel(a).localeCompare(approvalStatusLabel(b)));
 
-    populateApprovalFilter("approval-tag-filter", tags, "All tags");
-    populateApprovalFilter("approval-risk-filter", risks, "All risks");
-    populateApprovalFilter("approval-status-filter", statuses, "All statuses");
+    populateApprovalFilter("approval-tag-filter", tags, "태그 전체");
+    populateApprovalFilter("approval-risk-filter", risks, "위험도 전체");
+    populateApprovalFilter("approval-status-filter", statuses, "상태 전체");
 }
 
 function filteredApprovalActions() {
@@ -2226,7 +2226,7 @@ function renderApprovalWorkspace() {
 async function loadApprovalWorkspace() {
     const container = byId("approval-list");
     container.classList.add("loading-block");
-    container.textContent = "Loading approval queue…";
+    container.textContent = "승인 대기열을 불러오는 중…";
     const data = await api("/api/actions");
     approvalWorkspaceState.actions = Array.isArray(data.actions) ? data.actions : [];
     refreshApprovalFilterOptions(approvalWorkspaceState.actions);
@@ -2341,7 +2341,7 @@ function initResponse() {
 async function validateRule() {
     const data = await api("/api/rules/validate", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({rule:byId("rule-text").value})});
     const errors = data.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join(""); const warnings = data.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("");
-    byId("rule-validation").classList.remove("empty-state"); byId("rule-validation").innerHTML = `<div class="validation-block"><strong>${data.valid ? "Basic structural validation passed" : "Validation failed"}</strong>${errors ? `<ul>${errors}</ul>` : ""}${warnings ? `<ul>${warnings}</ul>` : ""}<p class="muted">${escapeHtml(data.note)}</p></div>`;
+    byId("rule-validation").classList.remove("empty-state"); byId("rule-validation").innerHTML = `<div class="validation-block"><strong>${data.valid ? "기본 문법 검증을 통과했습니다" : "검증 실패"}</strong>${errors ? `<ul>${errors}</ul>` : ""}${warnings ? `<ul>${warnings}</ul>` : ""}<p class="muted">${escapeHtml(data.note)}</p></div>`;
     return data;
 }
 
@@ -2374,10 +2374,10 @@ function ruleInventorySearchText(rule) {
 function refreshRuleInventoryOptions() {
     const facets = suricataRuleInventoryState.facets || {};
     const options = [
-        ["rule-db-host", facets.hosts || [], "All hosts"],
-        ["rule-db-interface", facets.interfaces || [], "All interfaces"],
-        ["rule-db-state", facets.states || [], "All states"],
-        ["rule-db-tag", facets.tags || [], "All tags"],
+        ["rule-db-host", facets.hosts || [], "호스트 전체"],
+        ["rule-db-interface", facets.interfaces || [], "인터페이스 전체"],
+        ["rule-db-state", facets.states || [], "상태 전체"],
+        ["rule-db-tag", facets.tags || [], "태그 전체"],
     ];
     options.forEach(([id, values, defaultLabel]) => {
         const select = byId(id);
@@ -2467,8 +2467,8 @@ function ruleDatabaseCard(rule) {
         : "Unknown";
     const stateClass = ruleInventoryStateClass(rule.state);
     const stageLabel = rule.enabled
-        ? "Stage deployment"
-        : "Stage disable";
+        ? "배포 승인 요청"
+        : "비활성화 승인 요청";
 
     return `
         <article class="rule-database-card" data-rule-id="${escapeHtml(rule.id)}">
@@ -2485,7 +2485,7 @@ function ruleDatabaseCard(rule) {
                 </span>
             </header>
 
-            <p class="rule-database-description">${escapeHtml(rule.description || "No description.")}</p>
+            <p class="rule-database-description">${escapeHtml(rule.description || "설명 없음.")}</p>
 
             <div class="approval-tag-row">
                 <span class="approval-tag">${escapeHtml(rule.host)}</span>
@@ -2500,11 +2500,11 @@ function ruleDatabaseCard(rule) {
 
             <dl class="rule-database-meta">
                 <div><dt>SID</dt><dd>${escapeHtml(rule.sid)}</dd></div>
-                <div><dt>Revision</dt><dd>${escapeHtml(rule.revision)}</dd></div>
+                <div><dt>개정 번호</dt><dd>${escapeHtml(rule.revision)}</dd></div>
                 <div><dt>Source</dt><dd>${escapeHtml(ruleInventoryLabel(rule.source))}</dd></div>
                 <div><dt>Updated</dt><dd>${escapeHtml(updated)}</dd></div>
                 ${rule.last_action_id
-                    ? `<div><dt>Last action</dt><dd>${escapeHtml(rule.last_action_id)}</dd></div>`
+                    ? `<div><dt>최근 조치</dt><dd>${escapeHtml(rule.last_action_id)}</dd></div>`
                     : ""}
             </dl>
 
@@ -2513,13 +2513,13 @@ function ruleDatabaseCard(rule) {
                     data-id="${escapeHtml(rule.id)}" type="button">Edit</button>
                 <button class="button secondary small toggle-rule-record"
                     data-id="${escapeHtml(rule.id)}" type="button">
-                    ${rule.enabled ? "Set disabled" : "Set enabled"}
+                    ${rule.enabled ? "사용 안 함으로" : "사용함으로"}
                 </button>
                 <button class="button warning small stage-rule-record-card"
                     data-id="${escapeHtml(rule.id)}" type="button">${escapeHtml(stageLabel)}</button>
                 ${rule.state !== "active" ? `
                     <button class="button danger small delete-rule-record"
-                        data-id="${escapeHtml(rule.id)}" type="button">Delete</button>
+                        data-id="${escapeHtml(rule.id)}" type="button">삭제</button>
                 ` : ""}
             </footer>
         </article>
@@ -2558,7 +2558,7 @@ function renderRuleInventory() {
 async function loadRuleInventory() {
     const container = byId("rule-database-list");
     container.classList.add("loading-block");
-    container.textContent = "Loading rules…";
+    container.textContent = "룰을 불러오는 중…";
     const data = await api("/api/rules");
     suricataRuleInventoryState.rules = Array.isArray(data.rules) ? data.rules : [];
     suricataRuleInventoryState.facets = data.facets || {};
@@ -2575,8 +2575,8 @@ function clearRuleEditor() {
     byId("rule-intent").value = "";
     byId("rule-enabled").checked = true;
     byId("rule-validation").className = "validation-output empty-state";
-    byId("rule-validation").textContent = "Validation output will appear here.";
-    byId("save-rule-record").textContent = "Save rule";
+    byId("rule-validation").textContent = "검증 결과가 여기에 표시됩니다.";
+    byId("save-rule-record").textContent = "룰 저장";
 }
 
 function editRuleRecord(id) {
@@ -2590,7 +2590,7 @@ function editRuleRecord(id) {
     byId("rule-intent").value = rule.description || "";
     byId("rule-text").value = rule.rule;
     byId("rule-enabled").checked = Boolean(rule.enabled);
-    byId("save-rule-record").textContent = "Update rule";
+    byId("save-rule-record").textContent = "룰 수정";
     byId("rule-form").scrollIntoView({behavior: "smooth", block: "start"});
 }
 
@@ -2610,7 +2610,7 @@ function ruleEditorPayload() {
 async function saveRuleRecord() {
     const validation = await validateRule();
     if (!validation.valid) {
-        toast("Fix validation errors before saving");
+        toast("저장하기 전에 검증 오류를 고쳐 주세요");
         return null;
     }
 

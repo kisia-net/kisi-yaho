@@ -10,20 +10,20 @@
                     <path d="M4 5h16v14H4z"></path>
                     <path d="M8 9h8M8 13h5"></path>
                 </svg>
-                <span>Chat history</span>
+                <span>대화 기록</span>
             </h2>
-            <button id="new-agent-chat" class="new-chat-button" type="button" aria-label="New chat" title="New chat">
+            <button id="new-agent-chat" class="new-chat-button" type="button" aria-label="새 대화" title="새 대화">
                 <span aria-hidden="true">+</span>
             </button>
         </div>
 
-        <div id="agent-history-list" class="agent-history-list" aria-label="Saved chat sessions">
-            <div class="empty-state">No chat sessions yet.</div>
+        <div id="agent-history-list" class="agent-history-list" aria-label="저장된 대화 목록">
+            <div class="empty-state">아직 대화가 없습니다.</div>
         </div>
 
         <div class="chat-history-footer">
-            <span>Saved to your account</span>
-            <button id="clear-agent-history" type="button">Clear all</button>
+            <span>내 계정에 저장됨</span>
+            <button id="clear-agent-history" type="button">전체 삭제</button>
         </div>
     </aside>
 
@@ -34,22 +34,22 @@
                     <path d="M4 5h16v11H9l-5 4z"></path>
                     <path d="M8 9h8M8 12h5"></path>
                 </svg>
-                <span>Agent chat</span>
+                <span>에이전트 대화</span>
             </h2>
-            <span id="agent-session-state" class="session-state">New chat</span>
+            <span id="agent-session-state" class="session-state">새 대화</span>
         </div>
 
         <div id="agent-messages" class="message-list" aria-live="polite"></div>
 
-        <section class="chat-binder" aria-label="Agent request composer">
-            <div class="chat-mode-section" aria-label="Agent operation modes">
-                <div class="agent-mode-tabs" id="agent-mode-list" role="tablist" aria-label="Operation mode">
-                    <button class="agent-mode-tab active" type="button" role="tab" aria-selected="true" data-agent-mode="alert_summary" title="Alert explanation"><strong>Alert explanation</strong></button>
-                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="log_search" title="Log search"><strong>Log search</strong></button>
-                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="file_hunt" title="Suspicious file hunt"><strong>Suspicious file hunt</strong></button>
-                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="velociraptor_response" title="Host response"><strong>Host response</strong></button>
-                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="suricata_rule" title="Suricata rule"><strong>Suricata rule</strong></button>
-                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="incident_report" title="Incident report"><strong>Incident report</strong></button>
+        <section class="chat-binder" aria-label="에이전트 요청 작성">
+            <div class="chat-mode-section" aria-label="에이전트 작업 모드">
+                <div class="agent-mode-tabs" id="agent-mode-list" role="tablist" aria-label="작업 모드">
+                    <button class="agent-mode-tab active" type="button" role="tab" aria-selected="true" data-agent-mode="alert_summary" title="경보 설명"><strong>경보 설명</strong></button>
+                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="log_search" title="로그 검색"><strong>로그 검색</strong></button>
+                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="file_hunt" title="의심 파일 추적"><strong>의심 파일 추적</strong></button>
+                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="velociraptor_response" title="호스트 대응"><strong>호스트 대응</strong></button>
+                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="suricata_rule" title="Suricata 룰"><strong>Suricata 룰</strong></button>
+                    <button class="agent-mode-tab" type="button" role="tab" aria-selected="false" data-agent-mode="incident_report" title="사건 보고서"><strong>사건 보고서</strong></button>
                 </div>
             </div>
 
@@ -57,44 +57,44 @@
                 <form id="agent-form" class="composer">
                     <div id="agent-mode-context" class="composer-context">
                         <div class="mode-context-fields" data-mode-context="alert_summary">
-                            <label>Host
-                                <select id="agent-alert-host"><option value="">All hosts</option></select>
+                            <label>호스트
+                                <select id="agent-alert-host"><option value="">호스트 전체</option></select>
                             </label>
-                            <label>Search alerts
-                                <input id="agent-alert-search" type="search" placeholder="ID, title, summary">
+                            <label>경보 검색
+                                <input id="agent-alert-search" type="search" placeholder="ID, 제목, 요약">
                             </label>
-                            <label class="context-span-all">Alert
-                                <select id="agent-alert-id"><option value="">Select an alert</option></select>
+                            <label class="context-span-all">경보
+                                <select id="agent-alert-id"><option value="">경보를 선택하세요</option></select>
                             </label>
                         </div>
 
                         <div class="mode-context-fields" data-mode-context="log_search" hidden>
-                            <label>Index<input id="agent-log-index" value="logs-*"></label>
-                            <label>Start<input id="agent-log-start" type="datetime-local"></label>
-                            <label>End<input id="agent-log-end" type="datetime-local"></label>
+                            <label>인덱스<input id="agent-log-index" value="logs-*"></label>
+                            <label>시작<input id="agent-log-start" type="datetime-local"></label>
+                            <label>끝<input id="agent-log-end" type="datetime-local"></label>
                         </div>
 
                         <div class="mode-context-fields" data-mode-context="file_hunt" hidden>
-                            <label>Host<input id="agent-hunt-host" list="agent-host-options" placeholder="WIN-FIN-07"></label>
+                            <label>호스트<input id="agent-hunt-host" list="agent-host-options" placeholder="WIN-FIN-07"></label>
                         </div>
 
                         <div class="mode-context-fields" data-mode-context="velociraptor_response" hidden>
-                            <label>Host<input id="agent-response-host" list="agent-host-options" placeholder="WIN-FIN-07"></label>
-                            <label>Incident<input id="agent-response-incident" placeholder="INC-2026-1042"></label>
+                            <label>호스트<input id="agent-response-host" list="agent-host-options" placeholder="WIN-FIN-07"></label>
+                            <label>사건 번호<input id="agent-response-incident" placeholder="INC-2026-1042"></label>
                         </div>
 
                         <div class="mode-context-fields" data-mode-context="incident_report" hidden>
-                            <label>Incident<input id="agent-report-incident" placeholder="INC-2026-1042"></label>
-                            <label>Host<input id="agent-report-host" list="agent-host-options" placeholder="Optional"></label>
-                            <label>Start<input id="agent-report-start" type="datetime-local"></label>
-                            <label>End<input id="agent-report-end" type="datetime-local"></label>
+                            <label>사건 번호<input id="agent-report-incident" placeholder="INC-2026-1042"></label>
+                            <label>호스트<input id="agent-report-host" list="agent-host-options" placeholder="선택 사항"></label>
+                            <label>시작<input id="agent-report-start" type="datetime-local"></label>
+                            <label>끝<input id="agent-report-end" type="datetime-local"></label>
                         </div>
 
                         <datalist id="agent-host-options"></datalist>
                     </div>
 
-                    <textarea id="agent-input" rows="4" required placeholder="Enter a request…"></textarea>
-                    <div><span></span><button class="button primary" type="submit">Send</button></div>
+                    <textarea id="agent-input" rows="4" required placeholder="요청 내용을 입력하세요…"></textarea>
+                    <div><span></span><button class="button primary" type="submit">보내기</button></div>
                 </form>
             </div>
         </section>
@@ -108,7 +108,7 @@
                     <path d="M5 6h14v14H5z"></path>
                     <path d="M8 11h8M8 15h6"></path>
                 </svg>
-                <span>Evidence and proposals</span>
+                <span>증거 및 제안</span>
             </h2>
         </div>
         <div id="agent-structured-output" class="structured-output empty-state"></div>

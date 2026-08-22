@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,23 +13,23 @@
     <aside class="sidebar">
         <a class="brand" href="/" target="_self">
             <span class="brand-mark">H</span>
-            <span><strong>HAW-KI</strong><small>Security Operations</small></span>
+            <span><strong>HAW-KI</strong><small>보안관제 (Security Operations)</small></span>
         </a>
 
-        <nav class="nav-list" aria-label="Primary navigation">
-            <a class="nav-item {{ 'active' if active_page == 'dashboard' else '' }}" href="/" target="_self"><span>⌁</span>Dashboard</a>
-            <a class="nav-item {{ 'active' if active_page == 'agent' else '' }}" href="/agent" target="_self"><span>⌘</span>Agent</a>
-            <a class="nav-item {{ 'active' if active_page == 'alerts' else '' }}" href="/alerts" target="_self"><span>⚠</span>Alerts</a>
-            <a class="nav-item {{ 'active' if active_page == 'logs' else '' }}" href="/logs" target="_self"><span>⌕</span>Log Search</a>
-            <a class="nav-item {{ 'active' if active_page == 'hunts' else '' }}" href="/hunts" target="_self"><span>◎</span>File Hunts</a>
-            <a class="nav-item {{ 'active' if active_page == 'response' else '' }}" href="/response" target="_self"><span>◇</span>Host Response</a>
-            <a class="nav-item {{ 'active' if active_page == 'rules' else '' }}" href="/rules" target="_self"><span>≡</span>Suricata Rules</a>
-            <a class="nav-item {{ 'active' if active_page == 'actions' else '' }}" href="/actions" target="_self"><span>✓</span>Approvals</a>
-            <a class="nav-item {{ 'active' if active_page == 'audit' else '' }}" href="/audit" target="_self"><span>↺</span>Audit Trail</a>
+        <nav class="nav-list" aria-label="주 메뉴">
+            <a class="nav-item {{ 'active' if active_page == 'dashboard' else '' }}" href="/" target="_self"><span>⌁</span>대시보드</a>
+            <a class="nav-item {{ 'active' if active_page == 'agent' else '' }}" href="/agent" target="_self"><span>⌘</span>에이전트 (Agent)</a>
+            <a class="nav-item {{ 'active' if active_page == 'alerts' else '' }}" href="/alerts" target="_self"><span>⚠</span>보안 경보 (Alerts)</a>
+            <a class="nav-item {{ 'active' if active_page == 'logs' else '' }}" href="/logs" target="_self"><span>⌕</span>로그 검색</a>
+            <a class="nav-item {{ 'active' if active_page == 'hunts' else '' }}" href="/hunts" target="_self"><span>◎</span>파일 추적 (Hunts)</a>
+            <a class="nav-item {{ 'active' if active_page == 'response' else '' }}" href="/response" target="_self"><span>◇</span>호스트 대응</a>
+            <a class="nav-item {{ 'active' if active_page == 'rules' else '' }}" href="/rules" target="_self"><span>≡</span>Suricata 룰</a>
+            <a class="nav-item {{ 'active' if active_page == 'actions' else '' }}" href="/actions" target="_self"><span>✓</span>승인 대기</a>
+            <a class="nav-item {{ 'active' if active_page == 'audit' else '' }}" href="/audit" target="_self"><span>↺</span>감사 기록 (Audit)</a>
         </nav>
 
         <div class="sidebar-section">
-            <p class="sidebar-label">Reachable services</p>
+            <p class="sidebar-label">연결된 서비스</p>
             <a class="service-link" href="{{ kibana_url }}" target="_self">
                 <span class="status-dot unknown" data-service-dot="kibana"></span><span>Kibana</span><small>↗</small>
             </a>
@@ -45,14 +45,14 @@
             </a>
             {% else %}
             <div class="service-link disabled">
-                <span class="status-dot unknown" data-service-dot="suricata"></span><span>Suricata UI</span><small>unset</small>
+                <span class="status-dot unknown" data-service-dot="suricata"></span><span>Suricata UI</span><small>미설정</small>
             </div>
             {% endif %}
         </div>
 
         <div class="sidebar-footer">
             <span class="model-line"><span class="status-dot unknown" data-service-dot="llm"></span>{{ llm_model }}</span>
-            <small>Build {{ build_id }}</small>
+            <small>빌드 {{ build_id }}</small>
         </div>
     </aside>
 
@@ -63,7 +63,7 @@
                 {% block subtitle %}{% endblock %}
             </div>
             <div class="topbar-actions">
-                <button class="theme-toggle topbar-icon-button" id="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme">
+                <button class="theme-toggle topbar-icon-button" id="theme-toggle" type="button" aria-label="화면 테마 전환" title="화면 테마 전환">
                     <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
                         <circle cx="12" cy="12" r="4"></circle>
                         <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>
@@ -71,11 +71,11 @@
                     <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path>
                     </svg>
-                    <span class="sr-only" id="theme-toggle-label">Switch color theme</span>
+                    <span class="sr-only" id="theme-toggle-label">화면 테마 전환</span>
                 </button>
-                <span class="global-health"><span class="status-dot unknown" data-service-dot="llm"></span><span id="global-health-text">Checking services</span></span>
+                <span class="global-health"><span class="status-dot unknown" data-service-dot="llm"></span><span id="global-health-text">서비스 확인 중</span></span>
                 <button class="topbar-icon-button" id="refresh-services" type="button"
-                    aria-label="Refresh service status" title="Refresh service status">
+                    aria-label="서비스 상태 새로고침" title="서비스 상태 새로고침">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M20 6v5h-5"></path>
                         <path d="M4 18v-5h5"></path>

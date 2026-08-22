@@ -259,15 +259,15 @@ ALERT_REPOSITORY = build_alert_repository()
 ALERT_ANALYSIS = AlertAnalysisService(ALERT_REPOSITORY)
 
 PAGE_TITLES = {
-    "dashboard": "Operations Dashboard",
-    "agent": "Agent Workspace",
-    "alerts": "Alert Triage",
-    "logs": "Log Search",
-    "hunts": "Suspicious File Hunts",
-    "response": "Velociraptor Response",
-    "rules": "Suricata Rules",
-    "actions": "Approval Queue",
-    "audit": "Audit Trail",
+    "dashboard": "보안관제 대시보드",
+    "agent": "에이전트 작업 화면",
+    "alerts": "경보 분류 (Triage)",
+    "logs": "로그 검색",
+    "hunts": "의심 파일 추적",
+    "response": "Velociraptor 호스트 대응",
+    "rules": "Suricata 룰 관리",
+    "actions": "승인 대기열",
+    "audit": "감사 기록",
 }
 
 ALLOWED_AGENT_MODES = {
@@ -293,54 +293,54 @@ REV_PATTERN = re.compile(r"\brev\s*:\s*(\d+)\s*;")
 DEMO_INCIDENTS = [
     {
         "id": "INC-2026-1042",
-        "title": "Suspected endpoint compromise in Finance segment",
+        "title": "재무팀 구간 단말 침해 의심",
         "risk": 92,
-        "status": "Containment pending",
-        "owner": "Unassigned",
-        "updated": "7 min ago",
+        "status": "격리 승인 대기",
+        "owner": "미배정",
+        "updated": "7분 전",
     },
     {
         "id": "INC-2026-1039",
-        "title": "External brute-force activity against VPN gateway",
+        "title": "VPN 게이트웨이 대상 외부 무차별 대입 시도",
         "risk": 78,
-        "status": "Investigating",
-        "owner": "Analyst 2",
-        "updated": "28 min ago",
+        "status": "분석 중",
+        "owner": "분석가 2",
+        "updated": "28분 전",
     },
     {
         "id": "INC-2026-1035",
-        "title": "Potential malicious document execution",
+        "title": "악성 문서 실행 정황",
         "risk": 74,
-        "status": "Evidence collection",
-        "owner": "Analyst 1",
-        "updated": "1 h ago",
+        "status": "증거 수집 중",
+        "owner": "분석가 1",
+        "updated": "1시간 전",
     },
 ]
 
 DEMO_HUNTS = [
     {
         "id": "HNT-0281",
-        "name": "Unsigned executables in user-writable directories",
-        "target": "Windows workstation group",
-        "state": "Running",
+        "name": "사용자 쓰기 가능 경로의 서명 없는 실행파일",
+        "target": "Windows 업무용 PC 그룹",
+        "state": "실행 중",
         "progress": 68,
         "hits": 3,
         "artifact": "Windows.Search.FileFinder",
     },
     {
         "id": "HNT-0279",
-        "name": "Hash and path sweep for INC-2026-1042",
-        "target": "Finance segment",
-        "state": "Queued",
+        "name": "INC-2026-1042 해시·경로 일괄 점검",
+        "target": "재무팀 구간",
+        "state": "대기 중",
         "progress": 0,
         "hits": 0,
         "artifact": "Windows.Forensics.HashHunter",
     },
     {
         "id": "HNT-0273",
-        "name": "Persistence indicators in startup locations",
-        "target": "All Windows endpoints",
-        "state": "Completed",
+        "name": "시작 프로그램 경로의 지속성 지표",
+        "target": "전체 Windows 단말",
+        "state": "완료",
         "progress": 100,
         "hits": 11,
         "artifact": "Windows.Persistence.PermanentWMIEvents",
@@ -350,24 +350,24 @@ DEMO_HUNTS = [
 DEMO_NOTICES = [
     {
         "level": "critical",
-        "title": "Containment approval required",
-        "detail": "INC-2026-1042 has a host-isolation proposal waiting for analyst approval.",
+        "title": "격리 조치 승인이 필요합니다",
+        "detail": "INC-2026-1042 건의 호스트 격리 제안이 분석가 승인을 기다리고 있습니다.",
         "target": "/actions",
-        "action": "Review approval queue",
+        "action": "승인 대기열 확인",
     },
     {
         "level": "warning",
-        "title": "Suricata rule reload is pending",
-        "detail": "A staged rule has passed basic validation but has not been deployed to sensors.",
+        "title": "Suricata 룰 적용이 아직 안 됐습니다",
+        "detail": "상신된 룰이 기본 검증은 통과했지만 아직 센서에 배포되지 않았습니다.",
         "target": "/rules",
-        "action": "Review staged rules",
+        "action": "상신된 룰 확인",
     },
     {
         "level": "info",
-        "title": "Three suspicious files need attribution",
-        "detail": "The latest Velociraptor hunt returned unsigned binaries from user-writable paths.",
+        "title": "의심 파일 3건의 출처 확인이 필요합니다",
+        "detail": "최근 Velociraptor 추적에서 사용자 쓰기 가능 경로의 서명 없는 실행파일이 발견됐습니다.",
         "target": "/hunts",
-        "action": "Open hunt results",
+        "action": "추적 결과 열기",
     },
 ]
 
@@ -650,13 +650,13 @@ def login_page():
         "login.html",
         error=error,
         next_path=safe_next_path(request.args.get("next", "/")),
-        page_title="Sign in",
+        page_title="로그인",
     )
 
 
 @app.get("/account")
 def account_page():
-    return render_template("account.html", page_title="Account", active_page="account")
+    return render_template("account.html", page_title="계정", active_page="account")
 
 
 @app.post("/account/password")
@@ -673,9 +673,9 @@ def account_change_password():
         stored["password_hash"],
         current_password,
     ):
-        flash("Current password is incorrect.", "error")
+        flash("현재 비밀번호가 올바르지 않습니다.", "error")
     elif new_password != confirmation:
-        flash("The new password confirmation does not match.", "error")
+        flash("새 비밀번호 확인이 일치하지 않습니다.", "error")
     elif (password_error := validate_password(new_password)):
         flash(password_error, "error")
     else:
@@ -688,7 +688,7 @@ def account_change_password():
         )
         get_db().commit()
         append_audit("password_changed", {"user_id": int(g.user["id"])})
-        flash("Password changed.", "success")
+        flash("비밀번호를 변경했습니다.", "success")
 
     return redirect(url_for("account_page"))
 
@@ -705,7 +705,7 @@ def admin_users_page():
     ).fetchall()
     return render_template(
         "admin_users.html",
-        page_title="User Management",
+        page_title="사용자 관리",
         active_page="admin_users",
         users=[public_user(user) for user in users],
         roles=USER_ROLES,
@@ -720,9 +720,9 @@ def admin_create_user():
     role = request.form.get("role", "viewer")
 
     if not USERNAME_PATTERN.fullmatch(username):
-        flash("Username format is invalid.", "error")
+        flash("아이디 형식이 올바르지 않습니다.", "error")
     elif role not in USER_ROLES:
-        flash("Role is invalid.", "error")
+        flash("권한 값이 올바르지 않습니다.", "error")
     elif (password_error := validate_password(password)):
         flash(password_error, "error")
     else:
@@ -749,9 +749,9 @@ def admin_create_user():
                     "role": role,
                 },
             )
-            flash("User account created.", "success")
+            flash("계정을 만들었습니다.", "success")
         except sqlite3.IntegrityError:
-            flash("That username already exists.", "error")
+            flash("이미 사용 중인 아이디입니다.", "error")
 
     return redirect(url_for("admin_users_page"))
 
@@ -761,9 +761,9 @@ def admin_create_user():
 def admin_set_user_role(user_id: int):
     role = request.form.get("role", "")
     if role not in USER_ROLES:
-        flash("Role is invalid.", "error")
+        flash("권한 값이 올바르지 않습니다.", "error")
     elif user_id == g.user["id"]:
-        flash("Use another administrator to change your own administrative role.", "error")
+        flash("본인의 관리자 권한은 다른 관리자 계정으로 변경해야 합니다.", "error")
     else:
         get_db().execute(
             "UPDATE users SET role = ? WHERE id = ?",
@@ -771,7 +771,7 @@ def admin_set_user_role(user_id: int):
         )
         get_db().commit()
         append_audit("user_role_changed", {"user_id": user_id, "role": role})
-        flash("Role updated.", "success")
+        flash("권한을 변경했습니다.", "success")
     return redirect(url_for("admin_users_page"))
 
 
@@ -779,7 +779,7 @@ def admin_set_user_role(user_id: int):
 @role_required("admin")
 def admin_set_user_status(user_id: int):
     if user_id == g.user["id"]:
-        flash("You cannot disable your own account.", "error")
+        flash("본인 계정은 차단할 수 없습니다.", "error")
     else:
         active = 1 if request.form.get("active") == "1" else 0
         get_db().execute(
@@ -788,7 +788,7 @@ def admin_set_user_status(user_id: int):
         )
         get_db().commit()
         append_audit("user_status_changed", {"user_id": user_id, "active": bool(active)})
-        flash("Account status updated.", "success")
+        flash("계정 상태를 변경했습니다.", "success")
     return redirect(url_for("admin_users_page"))
 
 
@@ -805,7 +805,7 @@ def admin_reset_user_password(user_id: int):
         )
         get_db().commit()
         append_audit("user_password_reset", {"user_id": user_id})
-        flash("Password reset.", "success")
+        flash("비밀번호를 초기화했습니다.", "success")
     return redirect(url_for("admin_users_page"))
 
 

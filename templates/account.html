@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">Review your account and change your password.</p>{% endblock %}
+{% block subtitle %}<p class="page-description">내 계정 정보를 확인하고 비밀번호를 변경합니다.</p>{% endblock %}
 {% block content %}
 {% with messages = get_flashed_messages(with_categories=true) %}
 {% if messages %}
@@ -14,28 +14,28 @@
 <section class="account-grid">
     <article class="panel">
         <div class="panel-header">
-            <div><p class="panel-kicker">Identity</p><h2>Account details</h2></div>
+            <div><p class="panel-kicker">계정</p><h2>계정 정보</h2></div>
         </div>
         <div class="account-summary">
             <dl>
-                <dt>Username</dt><dd>{{ current_user.username }}</dd>
-                <dt>Role</dt><dd>{{ current_user.role }}</dd>
-                <dt>Created</dt><dd>{{ current_user.created_at }}</dd>
-                <dt>Last login</dt><dd>{{ current_user.last_login_at or "First session" }}</dd>
+                <dt>아이디</dt><dd>{{ current_user.username }}</dd>
+                <dt>권한 (Role)</dt><dd>{{ current_user.role }}</dd>
+                <dt>생성일</dt><dd>{{ current_user.created_at }}</dd>
+                <dt>최근 로그인</dt><dd>{{ current_user.last_login_at or "첫 접속" }}</dd>
             </dl>
         </div>
     </article>
 
     <article class="panel">
         <div class="panel-header">
-            <div><p class="panel-kicker">Credential</p><h2>Change password</h2></div>
+            <div><p class="panel-kicker">인증정보</p><h2>비밀번호 변경</h2></div>
         </div>
         <form class="stack-form" method="post" action="{{ url_for('account_change_password') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <label>Current password<input type="password" name="current_password" required autocomplete="current-password"></label>
-            <label>New password<input type="password" name="new_password" required minlength="12" maxlength="128" autocomplete="new-password"></label>
-            <label>Confirm new password<input type="password" name="confirm_password" required minlength="12" maxlength="128" autocomplete="new-password"></label>
-            <div class="button-row"><button class="button primary" type="submit">Change password</button></div>
+            <label>현재 비밀번호<input type="password" name="current_password" required autocomplete="current-password"></label>
+            <label>새 비밀번호<input type="password" name="new_password" required minlength="12" maxlength="128" autocomplete="new-password"></label>
+            <label>새 비밀번호 확인<input type="password" name="confirm_password" required minlength="12" maxlength="128" autocomplete="new-password"></label>
+            <div class="button-row"><button class="button primary" type="submit">비밀번호 변경</button></div>
         </form>
     </article>
 </section>

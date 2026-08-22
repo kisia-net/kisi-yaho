@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">Append-only local audit view for searches, agent requests, rule validation, and approval decisions.</p>{% endblock %}
+{% block subtitle %}<p class="page-description">검색·에이전트 요청·룰 검증·승인 결정을 기록하는 로컬 감사 화면입니다. 기록은 덧붙이기만 되고 수정·삭제되지 않습니다.</p>{% endblock %}
 {% block content %}
 <section class="panel">
-    <div class="panel-header"><div><p class="panel-kicker">Traceability</p><h2>Audit events</h2></div><button class="button secondary" id="refresh-audit" type="button">Refresh</button></div>
-    <div id="audit-list" class="audit-list loading-block">Loading audit trail…</div>
+    <div class="panel-header"><div><p class="panel-kicker">추적성</p><h2>감사 이벤트</h2></div><button class="button secondary" id="refresh-audit" type="button">새로고침</button></div>
+    <div id="audit-list" class="audit-list loading-block">감사 기록을 불러오는 중…</div>
 </section>
 {% endblock %}

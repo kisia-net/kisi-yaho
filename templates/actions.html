@@ -8,12 +8,12 @@
                 <path d="M5 6h14v14H5z"></path>
                 <path d="m8 13 2 2 5-5"></path>
             </svg>
-            <span>Action approvals</span>
+            <span>조치 승인</span>
         </h2>
         <div class="approvals-header-tools">
-            <span id="approval-total-label" class="approval-total-label">0 actions</span>
+            <span id="approval-total-label" class="approval-total-label">0건</span>
             <button id="refresh-approvals" class="approval-refresh-button" type="button"
-                aria-label="Refresh approvals" title="Refresh approvals">
+                aria-label="승인 목록 새로고침" title="승인 목록 새로고침">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M20 11a8 8 0 1 0-2.34 5.66"></path>
                     <path d="M20 4v7h-7"></path>
@@ -22,74 +22,74 @@
         </div>
     </div>
 
-    <div class="approval-summary" aria-label="Approval queue summary">
+    <div class="approval-summary" aria-label="승인 대기열 요약">
         <div class="approval-summary-item">
             <span class="approval-summary-dot status-pending"></span>
-            <span>Pending</span>
+            <span>대기 중</span>
             <strong id="approval-count-pending">0</strong>
         </div>
         <div class="approval-summary-item">
             <span class="approval-summary-dot status-approved"></span>
-            <span>Approved</span>
+            <span>승인됨</span>
             <strong id="approval-count-approved">0</strong>
         </div>
         <div class="approval-summary-item">
             <span class="approval-summary-dot status-rejected"></span>
-            <span>Rejected / failed</span>
+            <span>반려 / 실패</span>
             <strong id="approval-count-rejected">0</strong>
         </div>
     </div>
 
     <form id="approval-filters" class="approval-filterbar">
         <label class="approval-search-field">
-            <span>Search</span>
-            <input id="approval-search" type="search" placeholder="ID, title, summary, rule, host…">
+            <span>검색</span>
+            <input id="approval-search" type="search" placeholder="ID, 제목, 요약, 룰, 호스트…">
         </label>
         <label>
-            <span>Tag</span>
+            <span>태그</span>
             <select id="approval-tag-filter">
-                <option value="">All tags</option>
+                <option value="">태그 전체</option>
             </select>
         </label>
         <label>
-            <span>Risk</span>
+            <span>위험도</span>
             <select id="approval-risk-filter">
-                <option value="">All risks</option>
+                <option value="">위험도 전체</option>
             </select>
         </label>
         <label>
-            <span>Status</span>
+            <span>상태</span>
             <select id="approval-status-filter">
-                <option value="">All statuses</option>
+                <option value="">상태 전체</option>
             </select>
         </label>
         <label>
-            <span>Time</span>
+            <span>기간</span>
             <select id="approval-time-filter">
-                <option value="">All time</option>
-                <option value="24h">Last 24 hours</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
+                <option value="">전체 기간</option>
+                <option value="24h">최근 24시간</option>
+                <option value="7d">최근 7일</option>
+                <option value="30d">최근 30일</option>
             </select>
         </label>
         <label>
-            <span>Sort</span>
+            <span>정렬</span>
             <select id="approval-sort">
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-                <option value="risk_desc">Highest risk</option>
-                <option value="risk_asc">Lowest risk</option>
-                <option value="status">Status</option>
-                <option value="type">Action type</option>
+                <option value="newest">최신순</option>
+                <option value="oldest">오래된순</option>
+                <option value="risk_desc">위험도 높은순</option>
+                <option value="risk_asc">위험도 낮은순</option>
+                <option value="status">상태순</option>
+                <option value="type">조치 유형순</option>
             </select>
         </label>
-        <button id="clear-approval-filters" class="button secondary small" type="button">Clear</button>
+        <button id="clear-approval-filters" class="button secondary small" type="button">초기화</button>
     </form>
 
     <div class="approval-results-bar">
-        <span id="approval-results-label">Loading actions…</span>
+        <span id="approval-results-label">조치를 불러오는 중…</span>
     </div>
 
-    <div id="approval-list" class="approval-list loading-block">Loading approval queue…</div>
+    <div id="approval-list" class="approval-list loading-block">승인 대기열을 불러오는 중…</div>
 </section>
 {% endblock %}

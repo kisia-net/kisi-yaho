@@ -30,14 +30,14 @@
         const selected = Array.from(element.selectedOptions);
         const button = analyzeButton();
         if (!selected.length) {
-            output.textContent = "No alert evidence attached.";
+            output.textContent = "첨부된 경보 증거가 없습니다.";
             if (button) button.disabled = true;
             return;
         }
 
         const names = selected.slice(0, 3).map((option) => option.dataset.title || option.value);
-        const suffix = selected.length > 3 ? ` +${selected.length - 3} more` : "";
-        output.textContent = `${selected.length} alert${selected.length === 1 ? "" : "s"} attached: ${names.join(" · ")}${suffix}`;
+        const suffix = selected.length > 3 ? ` 외 ${selected.length - 3}건` : "";
+        output.textContent = `경보 ${selected.length}건 첨부됨: ${names.join(" · ")}${suffix}`;
         if (button) button.disabled = false;
     }
 
@@ -60,7 +60,7 @@
             const response = await nativeFetch("/api/alerts", {credentials: "same-origin"});
             let body = {};
             try { body = await response.json(); } catch { body = {}; }
-            if (!response.ok) throw new Error(body.detail || body.error || `Request failed: ${response.status}`);
+            if (!response.ok) throw new Error(body.detail || body.error || `요청 실패: ${response.status}`);
 
             const alerts = Array.isArray(body.alerts) ? body.alerts : [];
             element.innerHTML = alerts.map((alert) => {
@@ -69,10 +69,10 @@
                 const host = alert.host ? ` · ${alert.host}` : "";
                 const isSelected = desired.has(alert.id) ? " selected" : "";
                 return `<option value="${escapeHtml(alert.id)}" data-title="${escapeHtml(title)}" data-host="${escapeHtml(alert.host || "")}"${isSelected}>${escapeHtml(severity)} · ${escapeHtml(title)}${escapeHtml(host)}</option>`;
-            }).join("") || '<option disabled>No alerts available</option>';
+            }).join("") || '<option disabled>표시할 경보가 없습니다</option>';
             updateSummary();
         } catch (error) {
-            element.innerHTML = `<option disabled>Unable to load alerts: ${escapeHtml(error.message)}</option>`;
+            element.innerHTML = `<option disabled>경보를 불러오지 못했습니다: ${escapeHtml(error.message)}</option>`;
             updateSummary();
         }
     }
@@ -115,7 +115,7 @@
             mode?.click();
             const input = document.getElementById("agent-input");
             if (!input) return;
-            input.value = "Analyze the attached alert case(s). Correlate their multi-source evidence, separate confirmed observations from inference, assess confidence and severity, and identify the next verification steps.";
+            input.value = "첨부한 경보 케이스를 분석해 주세요. 여러 장비의 증거를 상관분석하고, 확인된 관찰과 추론을 구분하고, 신뢰도와 심각도를 평가하고, 다음에 확인할 것을 알려 주세요.";
             document.getElementById("agent-form")?.requestSubmit();
         });
 

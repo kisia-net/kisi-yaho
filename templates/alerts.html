@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">Review realistic alert fixtures, correlated evidence, and multi-source LLM analysis. The same interface can later be backed by live Elasticsearch alerts.</p>
+{% block subtitle %}<p class="page-description">실제 형식의 경보 데이터와 상관분석된 증거, 여러 장비를 종합한 LLM 분석을 확인합니다. 같은 화면을 나중에 실시간 Elasticsearch 경보로 그대로 바꿔 붙일 수 있습니다.</p>
 {% endblock %}
 {% block content %}
 <section class="panel">
     <form id="alert-filter-form" class="toolbar-form">
-        <label>Search<input id="alert-query" placeholder="host, technique, alert title"></label>
-        <label>Severity<select id="alert-severity"><option value="all">All</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option></select></label>
-        <label>Status<select id="alert-status"><option value="all">All</option><option value="unassigned">Unassigned</option><option value="new">New</option><option value="investigating">Investigating</option><option value="monitoring">Monitoring</option></select></label>
-        <button class="button primary" type="submit">Apply filters</button>
+        <label>검색<input id="alert-query" placeholder="호스트, 공격기법, 경보 제목"></label>
+        <label>심각도<select id="alert-severity"><option value="all">전체</option><option value="critical">심각 (Critical)</option><option value="high">높음 (High)</option><option value="medium">보통 (Medium)</option></select></label>
+        <label>상태<select id="alert-status"><option value="all">전체</option><option value="unassigned">미배정</option><option value="new">신규</option><option value="investigating">분석 중</option><option value="monitoring">관찰 중</option></select></label>
+        <button class="button primary" type="submit">필터 적용</button>
     </form>
-    <div class="table-header"><span id="alert-count">Loading alerts</span><a class="button secondary" href="/agent?mode=alert_summary">Open agent</a></div>
+    <div class="table-header"><span id="alert-count">경보를 불러오는 중</span><a class="button secondary" href="/agent?mode=alert_summary">에이전트 열기</a></div>
     <div class="data-table" id="alerts-table"></div>
 </section>
 {% endblock %}

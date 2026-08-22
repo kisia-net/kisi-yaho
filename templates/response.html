@@ -1,20 +1,20 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">Stage host-side collection, isolation, or remediation. Approval and audit are mandatory before gateway submission.</p>{% endblock %}
+{% block subtitle %}<p class="page-description">호스트에서의 증거 수집·격리·조치를 준비합니다. 게이트웨이로 제출하기 전에 승인과 감사 기록이 반드시 필요합니다.</p>{% endblock %}
 {% block content %}
 <section class="split-grid">
     <article class="panel">
-        <div class="panel-header"><div><p class="panel-kicker">Response proposal</p><h2>Velociraptor host action</h2></div><a class="button secondary" href="{{ velociraptor_url }}" target="_blank" rel="noopener noreferrer">Open Velociraptor ↗</a></div>
+        <div class="panel-header"><div><p class="panel-kicker">대응 제안</p><h2>Velociraptor 호스트 조치</h2></div><a class="button secondary" href="{{ velociraptor_url }}" target="_blank" rel="noopener noreferrer">Velociraptor 열기 ↗</a></div>
         <form class="stack-form" id="response-agent-form">
-            <label>Target host<input id="response-host" placeholder="WIN-FIN-07" required></label>
-            <label>Incident ID<input id="response-incident" placeholder="INC-2026-1042"></label>
-            <label>Requested outcome<select id="response-outcome"><option>Collect endpoint triage evidence</option><option>Isolate host after collection</option><option>Remove a validated persistence mechanism</option><option>Restore network access</option></select></label>
-            <label>Known evidence<textarea id="response-evidence" rows="6" placeholder="Confirmed process, user, hash, destination, timeline, business constraints…"></textarea></label>
-            <button class="button primary" type="submit">Develop response proposal</button>
+            <label>대상 호스트<input id="response-host" placeholder="WIN-FIN-07" required></label>
+            <label>사건 번호<input id="response-incident" placeholder="INC-2026-1042"></label>
+            <label>원하는 결과<select id="response-outcome"><option>단말 초동 증거 수집</option><option>수집 후 호스트 격리</option><option>검증된 지속성 수단 제거</option><option>네트워크 접속 복구</option></select></label>
+            <label>확인된 증거<textarea id="response-evidence" rows="6" placeholder="확인된 프로세스, 사용자, 해시, 목적지, 시간 흐름, 업무상 제약…"></textarea></label>
+            <button class="button primary" type="submit">대응 제안 작성</button>
         </form>
     </article>
     <article class="panel">
-        <div class="panel-header"><div><p class="panel-kicker">Approval state</p><h2>Velociraptor action queue</h2></div><a class="button secondary" href="/actions">All approvals</a></div>
-        <div id="response-action-list" class="action-list loading-block">Loading actions…</div>
+        <div class="panel-header"><div><p class="panel-kicker">승인 상태</p><h2>Velociraptor 조치 대기열</h2></div><a class="button secondary" href="/actions">승인 전체 보기</a></div>
+        <div id="response-action-list" class="action-list loading-block">조치를 불러오는 중…</div>
     </article>
 </section>
 {% endblock %}

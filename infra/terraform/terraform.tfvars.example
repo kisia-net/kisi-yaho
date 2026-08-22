@@ -1,0 +1,11 @@
+# 이 파일을 terraform.tfvars 로 복사한 뒤 값을 채우세요.
+#
+#   copy terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars 는 .gitignore 에 들어 있어 GitHub 에 올라가지 않습니다.
+
+budget_emails = ["팀장@example.com", "인프라담당@example.com"]
+
+# 필요하면 아래도 조정
+# monthly_budget_usd = 200
+# az_suffix          = "a"

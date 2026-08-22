@@ -1,0 +1,16 @@
+# Terraform 작업 파일 — 절대 커밋하지 않습니다.
+.terraform/
+.terraform.lock.hcl
+
+# state 에는 자원 정보와 때로는 비밀값이 그대로 들어갑니다.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# 실제 값이 담긴 변수 파일 (example 은 올려도 됩니다)
+terraform.tfvars
+*.auto.tfvars
+
+# plan 결과물
+*.tfplan
+crash.log

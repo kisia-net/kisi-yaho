@@ -1,47 +1,47 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">Correlated multi-source evidence for one alert, bundled as four metadata blocks — security alerts, raw security events, asset inventory, and threat intelligence — before it reaches the model. The test case uses native-format Suricata, Nginx, and Wazuh telemetry.</p>{% endblock %}
+{% block subtitle %}<p class="page-description">경보 한 건에 대해 여러 장비의 증거를 상관분석해, 네 개의 블록 — 보안 경보(security alerts), 원본 보안 이벤트(security events), 자산 정보(assets), 위협 인텔리전스(threat intelligence) — 으로 묶은 뒤 모델에 전달합니다. 시험 데이터는 Suricata·Nginx·Wazuh의 원본 형식 그대로입니다.</p>{% endblock %}
 {% block content %}
 <div id="alert-analysis-root" data-alert-id="{{ alert_id }}" data-csrf="{{ csrf_token() }}">
     <section class="panel">
         <div class="panel-header">
-            <div><p class="panel-kicker">Alert case</p><h2 data-case-title>Loading alert…</h2><p class="muted" data-case-id></p></div>
+            <div><p class="panel-kicker">경보 케이스</p><h2 data-case-title>경보를 불러오는 중…</h2><p class="muted" data-case-id></p></div>
             <div class="button-row">
-                <button class="button primary" type="button" data-analyze>Analyze with LLM</button>
-                <a class="button secondary" href="/agent?mode=alert_summary" data-continue-agent>Continue in Agent</a>
+                <button class="button primary" type="button" data-analyze>LLM으로 분석하기</button>
+                <a class="button secondary" href="/agent?mode=alert_summary" data-continue-agent>에이전트에서 이어서 보기</a>
             </div>
         </div>
     </section>
 
     <section class="split-grid">
         <article class="panel">
-            <div class="panel-header"><div><p class="panel-kicker">Trigger</p><h2>Alert evidence</h2></div></div>
+            <div class="panel-header"><div><p class="panel-kicker">트리거</p><h2>경보 증거</h2></div></div>
             <div class="structured-output" data-trigger></div>
         </article>
         <article class="panel">
-            <div class="panel-header"><div><p class="panel-kicker">Correlation</p><h2>Entities</h2></div></div>
+            <div class="panel-header"><div><p class="panel-kicker">상관분석</p><h2>관련 대상 (엔티티)</h2></div></div>
             <div class="structured-output" data-entities></div>
         </article>
     </section>
 
     <section class="split-grid">
         <article class="panel">
-            <div class="panel-header"><div><p class="panel-kicker">Asset context</p><h2>Affected assets</h2></div></div>
+            <div class="panel-header"><div><p class="panel-kicker">자산 정보</p><h2>영향받은 자산</h2></div></div>
             <div class="structured-output" data-assets></div>
         </article>
         <article class="panel">
-            <div class="panel-header"><div><p class="panel-kicker">Threat intelligence</p><h2>Indicator matches</h2></div></div>
+            <div class="panel-header"><div><p class="panel-kicker">위협 인텔리전스</p><h2>지표 매칭 결과</h2></div></div>
             <div class="structured-output" data-intel></div>
         </article>
     </section>
 
     <section class="panel">
-        <div class="panel-header"><div><p class="panel-kicker">Local LLM</p><h2>Case assessment</h2></div><span class="muted" data-analysis-meta>Not analyzed</span></div>
-        <div class="structured-output empty-state" data-analysis-output>Run analysis to evaluate the trigger together with related network, application, and host evidence.</div>
+        <div class="panel-header"><div><p class="panel-kicker">로컬 LLM</p><h2>사건 판단 (Assessment)</h2></div><span class="muted" data-analysis-meta>아직 분석하지 않음</span></div>
+        <div class="structured-output empty-state" data-analysis-output>분석을 실행하면 트리거 경보를 관련 네트워크·애플리케이션·호스트 증거와 함께 평가합니다.</div>
         <div class="structured-output" data-analysis-review hidden></div>
     </section>
 
     <section class="panel">
-        <div class="panel-header"><div><p class="panel-kicker">Evidence sequence</p><h2>Timeline</h2></div></div>
+        <div class="panel-header"><div><p class="panel-kicker">증거 순서</p><h2>타임라인</h2></div></div>
         <div class="structured-output" data-timeline></div>
     </section>
 </div>

@@ -1,20 +1,20 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">Track suspicious-file hunts and stage new Velociraptor collections through the agent.</p>{% endblock %}
+{% block subtitle %}<p class="page-description">의심 파일 추적 현황을 확인하고, 에이전트를 통해 새 Velociraptor 수집 작업을 준비합니다.</p>{% endblock %}
 {% block content %}
 <section class="split-grid">
     <article class="panel">
-        <div class="panel-header"><div><p class="panel-kicker">Velociraptor</p><h2>File-hunt activity</h2></div><a class="button secondary" href="{{ velociraptor_url }}" target="_blank" rel="noopener noreferrer">Open Velociraptor ↗</a></div>
-        <div id="hunt-list" class="hunt-list loading-block">Loading hunts…</div>
+        <div class="panel-header"><div><p class="panel-kicker">Velociraptor</p><h2>파일 추적 현황</h2></div><a class="button secondary" href="{{ velociraptor_url }}" target="_blank" rel="noopener noreferrer">Velociraptor 열기 ↗</a></div>
+        <div id="hunt-list" class="hunt-list loading-block">추적 작업을 불러오는 중…</div>
     </article>
     <article class="panel">
-        <div class="panel-header"><div><p class="panel-kicker">New hunt</p><h2>Agent-assisted scope</h2></div></div>
+        <div class="panel-header"><div><p class="panel-kicker">새 추적</p><h2>에이전트로 범위 잡기</h2></div></div>
         <form class="stack-form" id="hunt-agent-form">
-            <label>Target host or group<input id="hunt-target" placeholder="Finance segment"></label>
-            <label>Indicator or behavior<textarea id="hunt-indicator" rows="5" placeholder="Unsigned executable in AppData, known hash, suspicious filename, persistence path…"></textarea></label>
-            <label>Incident ID<input id="hunt-incident" placeholder="INC-2026-1042"></label>
-            <button class="button primary" type="submit">Open hunt plan in agent</button>
+            <label>대상 호스트 또는 그룹<input id="hunt-target" placeholder="재무팀 구간"></label>
+            <label>지표 또는 행위<textarea id="hunt-indicator" rows="5" placeholder="AppData 경로의 서명 없는 실행파일, 알려진 해시, 수상한 파일명, 지속성 경로…"></textarea></label>
+            <label>사건 번호<input id="hunt-incident" placeholder="INC-2026-1042"></label>
+            <button class="button primary" type="submit">에이전트에서 추적 계획 열기</button>
         </form>
-        <div class="policy-note">The front end stages a Velociraptor hunt proposal. It does not run arbitrary VQL or shell commands.</div>
+        <div class="policy-note">이 화면은 Velociraptor 추적 <strong>제안</strong>만 준비합니다. 임의의 VQL이나 셸 명령을 실행하지 않습니다.</div>
     </article>
 </section>
 {% endblock %}
