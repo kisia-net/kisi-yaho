@@ -1,6 +1,6 @@
 # kisi-yaho — AI 증강 SIEM
 
-AI보안 기술개발 교육과정 **네트워크반 1팀 '키시 야호~'** 개발 레포지토리입니다.
+AI보안 기술개발 교육과정 **네트워크반 1팀 '키시 야호~'** 개발 저장소입니다.
 
 보안 로그를 수집·증강해 AI가 분석하고 대응까지 제안하는 SIEM을 만들고,
 그 파이프라인이 안전한지 오픈소스 도구로 스스로 점검합니다.
@@ -10,13 +10,66 @@ AI보안 기술개발 교육과정 **네트워크반 1팀 '키시 야호~'** 개
 | **A. AI 증강 SIEM 구현** | 로그 수집 → 정규화 → **증강** → AI 분석 → 대응 제안 + 사람 승인 |
 | **B. 파이프라인 보안성 검증** | 구축한 파이프라인을 garak · promptfoo 로 점검하고 가드레일 전후를 비교 |
 
+---
+
+## 빠른 시작
+
+```powershell
+git clone https://github.com/kisia-net/kisi-yaho.git
+cd kisi-yaho
+copy .env.example .env      # 값은 팀장에게 문의
+docker compose up -d
+```
+
+→ <http://127.0.0.1:5000>
+
+**GPU 가 없어도 화면과 증강 결과까지는 전부 볼 수 있습니다.** AI 분석 단계만 GPU 가 필요합니다.
+AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보세요.
+
+> `.env` 에는 비밀번호와 API 키가 들어 있어 저장소에 올라가지 않습니다. 단톡방으로 공유하지 마세요.
+
+---
+
 ## 문서
 
 | 문서 | 내용 |
 | --- | --- |
-| [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 설계 결정, 진행 상황, 한계 |
+| [`docs/STATUS.md`](docs/STATUS.md) | **프로젝트 현황판** — 진행 상황, 한계, 향후 계획, 역할 분담, 시연 대본 |
+| [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | **재시작 런북** — 켜고 끄는 전체 절차, 오류별 대처표 |
+| [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 설계 결정과 근거 |
 | [`docs/AWS_구축_가이드.md`](docs/AWS_구축_가이드.md) | AWS 환경 구축 1~6단계 (처음 쓰는 사람 기준) |
 | [`infra/terraform/README.md`](infra/terraform/README.md) | 인프라 코드 사용법 |
+| [`docs/submissions/`](docs/submissions/) | 제출용 문서 원본 (HWP 붙여넣기용 docx) |
+
+---
+
+## 업데이트 기록
+
+새 항목은 **맨 위에** 추가합니다. 날짜 + 무엇이 달라졌는지 한 줄로 씁니다.
+
+### 2026-08-24 — AWS GPU 실제 연동
+
+- AWS `g6e.xlarge` (L40S 48GB) 에 GPT-OSS 20B 를 vLLM 으로 서빙하고, **실제 모델 추론으로 사건 판단을 받아냄**
+- 모델 문맥 길이 8192 → 32768 상향 (4블록 증거 번들이 8K 를 초과)
+- 분석 결과 한국어 출력 지원 (`LLM_OUTPUT_LANGUAGE`). 식별자·ATT&CK 명칭은 원문 유지
+- 사건 판단을 **검증된 `assessment` 객체에서 직접 렌더링** — 화면에 보이는 것과 검증 대상이 동일해짐
+- 모델이 JSON 키의 밑줄을 생략하는 문제를 관대한 파싱으로 흡수
+- 좁은 화면에서 판단 패널이 3단 격자에 갇히던 문제, 긴 경로·해시가 카드 폭을 밀어내던 문제 수정
+- `.gitattributes` 추가 — 줄바꿈 차이로 안 고친 파일이 modified 로 잡히던 문제 해결
+- 문서 정리: `docs/STATUS.md`, `docs/RUNBOOK.md` 신설, 제출용 docx 는 `docs/submissions/` 로 이동
+
+### 2026-08-22 — 팀 저장소 이전 및 인프라 코드화
+
+- 개인 저장소에서 `kisia-net/kisi-yaho` 로 이력을 보존한 채 이전
+- `infra/terraform/` 추가 — VPC · 보안그룹 · IAM · GPU 인스턴스 · 예산 알림을 코드로 관리
+- `lab_running` 변수 하나로 GPU 인스턴스와 NAT Gateway 를 동시에 켜고 끄는 비용 통제 장치
+- 보안그룹 **인바운드 규칙 0개** — 접근은 SSM 세션 매니저 터널로만
+- 설계서 및 진행상황 공유 문서 작성
+
+### 2026-08-21 — 웹 UI 한글화
+
+- 화면 문구 전체를 한국어로 교체 (템플릿 14개, `app.py`, JS 3개)
+- 제품명·필드명 등 식별자는 원문 유지
 
 ---
 
