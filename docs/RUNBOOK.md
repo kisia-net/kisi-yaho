@@ -10,6 +10,96 @@
 
 ---
 
+## 팀원이 저장소를 처음 받았을 때
+
+> **`setup.ps1` 은 실행하지 마세요.**
+> 그 스크립트는 **팀에서 한 사람이 최초 1회만** 돌리는 것이고, 이미 끝났습니다.
+> 다시 돌리면 S3 버킷을 새로 만들고 `backend.tf` 를 고쳐 써서,
+> **기존 인프라를 못 보는 별개의 상태**가 만들어집니다.
+> 그 상태로 `apply` 하면 VPC 와 GPU 인스턴스가 **한 벌 더** 생기고 요금도 두 배가 됩니다.
+
+### 왜 그런가 — state 라는 개념
+
+Terraform 은 "지금 AWS 에 무엇이 만들어져 있는지"를 **state** 라는 기록에 담아둡니다.
+우리 팀은 그 기록을 S3 버킷 `kisia-net1-s3` 에 두고 **모두가 같은 것을 봅니다**.
+
+| state 를 각자 노트북에 두면 | 우리 방식 (S3 공유) |
+| --- | --- |
+| A 가 만든 서버를 B 가 모름 | 누가 무엇을 만들었는지 모두가 봄 |
+| B 가 또 만듦 → 요금 두 배 | 이미 있으면 "변경 없음" 으로 나옴 |
+| 동시에 고치면 서로 덮어씀 | `use_lockfile` 이 동시 실행을 막음 |
+
+`backend.tf` 에 버킷 이름이 이미 적혀 있으므로, 팀원은 **연결만 하면 됩니다.**
+
+### 준비물 세 가지
+
+| 도구 | 확인 명령 |
+| --- | --- |
+| AWS CLI | `aws --version` |
+| Session Manager 플러그인 | `session-manager-plugin` |
+| Terraform (1.10 이상) | `terraform -version` |
+
+설치 방법은 [`AWS_구축_가이드.md`](AWS_구축_가이드.md) 0-1 절에 있습니다.
+
+### 순서
+
+**1) AWS 자격증명 연결** — 팀 AWS 계정의 본인 IAM 사용자로
+
+```powershell
+aws configure
+```
+
+리전은 `ap-northeast-2`, 출력 형식은 `json`.
+
+```powershell
+aws sts get-caller-identity
+```
+
+계정 번호가 나오면 연결된 것입니다.
+
+**2) 변수 파일 만들기**
+
+```powershell
+cd infra	erraform
+copy terraform.tfvars.example terraform.tfvars
+notepad terraform.tfvars
+```
+
+> ⚠ **`budget_emails` 값은 팀에서 통일하세요.**
+> 이 값이 사람마다 다르면 `terraform plan` 이 예산 알림을 고치겠다고 나오고,
+> 서로 번갈아 `apply` 할 때마다 설정이 왔다 갔다 합니다.
+> 팀 채널에 정해진 값을 공지해두고 그대로 붙여넣는 것이 안전합니다.
+
+**3) 기존 state 에 연결**
+
+```powershell
+terraform init
+```
+
+`Successfully configured the backend "s3"` 가 나오면 성공입니다.
+
+**4) ★ 확인 — 여기가 가장 중요합니다**
+
+```powershell
+terraform plan
+```
+
+| 결과 | 뜻 | 다음 |
+| --- | --- | --- |
+| **`No changes.`** | 기존 인프라에 제대로 연결됨 | 정상. 준비 끝 |
+| `N to add` 가 뜸 | **기존 state 를 못 보고 있음** | **절대 `apply` 하지 말 것.** 팀장에게 문의 |
+| 예산·태그만 바뀐다고 나옴 | `terraform.tfvars` 값이 팀과 다름 | 값을 맞추고 다시 `plan` |
+
+`N to add` 가 뜨는데 그대로 `apply` 하면 **인프라가 한 벌 더 생깁니다.**
+이 확인 한 번이 요금 사고를 막습니다.
+
+### 그다음
+
+여기까지 되면 아래 2단계부터 그대로 따라 하면 됩니다.
+GPU 를 켜고 끄는 것은 **한 번에 한 사람만** 하고, 팀 채널에 공지하세요.
+
+---
+
 ## 전체 그림 — 무엇을 켜는 것인가
 
 시스템은 컴퓨터 두 대에 나뉘어 있습니다. 재시작이란 이 둘을 각각 켜고 사이의 길을 다시 잇는 일입니다.
