@@ -92,6 +92,116 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 - Elasticsearch 자격증명을 브라우저에 노출하지 않음
 - 구조 개요 대화상자
 
+## 파이프라인 — 로그가 흘러가는 길
+
+```text
+① 원본 로그              ② 어댑터              ③ 표준 이벤트         ④ 상관분석          ⑤ 케이스
+Suricata eve.json  ─┐
+Wazuh alerts       ─┤
+Sysmon             ─┼─► 출처 판별 ─► 변환 ─► CanonicalEvent ─► 점수 매기기 ─► AlertCase
+ModSecurity        ─┤                          (원본은 그대로 보존)          │
+nginx / syslog     ─┘                                                        │
+                                              자산 정보 ────────────────────┤
+                                              위협 인텔리전스 ──────────────┤
+                                                                             ▼
+                                                                   4블록 증거 번들 ─► LLM/SLM
+```
+
+**실시간 스트리밍이 아니라 저장소에서 읽는 방식**입니다.
+기본값(1단계)은 `data/scenarios/` 아래 파일을 읽고,
+`ALERT_REPOSITORY=elasticsearch` 로 바꾸면 운영 인덱스에서 읽습니다.
+그 아래 단계(상관분석 · 번들 조립 · 분석)는 어느 쪽이든 같은 코드입니다.
+
+### 현재 수집되어 있는 것
+
+| 시나리오 | 경보 | 로그 출처 |
+| --- | --- | --- |
+| `MTA-2026-02-28-NETSUPPORT` | **561건** | **실제 캡처** — malware-traffic-analysis.net PCAP 을 Suricata + ET Open 으로 재생 |
+| `WEB-TRAVERSAL-001` | 6건 | 어댑터 시험용으로 작성 (nginx · ModSecurity · Suricata · Wazuh) |
+| `WIN-DROPPER-001` | 2건 | 어댑터 시험용으로 작성 (Sysmon · Wazuh) |
+| **합계** | **569건** | |
+
+`mta_001` 의 `eve.json` 은 **3,854줄 / 2.9MB** 이며, 윈도우 도메인 환경의 실제 트래픽이 통째로 들어 있습니다.
+
+| 이벤트 종류 | 건수 | | 이벤트 종류 | 건수 |
+| --- | --- | --- | --- | --- |
+| `dns` | 809 | | `fileinfo` | 307 |
+| `flow` | 795 | | `tls` | 152 |
+| **`alert`** | **561** | | `ldap` | 122 |
+| `dcerpc` | 380 | | `quic` | 40 |
+| `smb` | 328 | | `anomaly` | 30 |
+| `http` | 308 | | `krb5` 외 | 22 |
+
+경보 561건은 ET Open 룰셋이 실제로 발화시킨 것입니다.
+반면 엔드포인트(Sysmon · Wazuh) 쪽은 아직 시험용 7줄이 전부이며, 실제 로그 확보가 남은 과제입니다.
+
+### 어댑터 — 9종
+
+| 어댑터 | 읽는 것 |
+| --- | --- |
+| `SuricataAdapter` | Suricata EVE JSON (네트워크 IDS) |
+| `WazuhAdapter` | Wazuh 경보 (호스트 IDS) |
+| `SysmonAdapter` | Windows Sysmon (프로세스 · DNS · 네트워크 · 파일) |
+| `ModSecurityAdapter` | ModSecurity 감사 로그 (웹 방화벽) |
+| `NginxAdapter` · `ApacheAdapter` | 웹서버 접근 로그 |
+| `SyslogAdapter` · `AuthLogAdapter` | 리눅스 syslog, 인증 로그 |
+| `ECSAdapter` | 범용 ECS 형식 |
+
+### 출처 판별 — 이름 먼저, 안 되면 내용
+
+1차는 **파일 이름**입니다 (`eve`→suricata, `sysmon`→sysmon, `modsec`→modsecurity …).
+생산자 이름이 형식 이름보다 우선하므로 `apache_access.log` 는 "어떤 access log" 가 아니라 Apache 입니다.
+
+이름으로 모르면 **첫 줄 내용**을 봅니다.
+
+| 첫 줄에 있는 것 | 판정 |
+| --- | --- |
+| `event_type` 또는 `flow_id` | Suricata |
+| `rule` + `agent` | Wazuh |
+| `winlog` · `EventID` · 중첩된 `Event/System` | Sysmon |
+| `transaction` 또는 `audit_data` | ModSecurity |
+| `@timestamp` 또는 `event` | ECS |
+| RFC 3164 형식 | syslog |
+| `"..."` + `HTTP/` | combined access log |
+
+**어떤 어댑터도 읽지 못한 파일은 조용히 건너뛰지 않고 이름을 밝힙니다.**
+케이스에서 소리 없이 빠진 출처는, 원래 아무것도 없던 출처와 화면상 구별되지 않기 때문입니다.
+개별적으로 깨진 줄(로테이션 배너, 잘린 기록)은 파일 전체를 버리지 않고
+`FixtureEventRepository.skipped_lines` 에 개수로 집계합니다.
+
+### 상관분석 — 규칙 기반 점수
+
+AI 가 아니라 **코드가 점수를 매깁니다.** 같은 입력에 항상 같은 결과가 나와야
+증강의 효과를 실험으로 측정할 수 있기 때문입니다 (`correlate.py`).
+
+트리거 경보를 기준으로, 시간 창 안의 모든 이벤트에 점수를 매깁니다.
+
+| 조건 | 점수 | 왜 이 가중치인가 |
+| --- | --- | --- |
+| 같은 Suricata `flow_id` | **+7** | 같은 TCP 연결. 가장 강한 증거 |
+| 같은 호스트 | +5 | 한 장비에서 일어난 일 |
+| 트리거의 출발지 IP 가 등장 | +4 | 같은 주체 |
+| 트리거의 목적지 IP 가 등장 | +4 | 같은 대상 |
+| 같은 사용자 계정 | +2 | 같은 행위자 |
+| 같은 응용 프로토콜 | +1 | 약한 정황 |
+| 시간 창 안에 있음 | +1 (기본) | **시간 근접만으로는 약한 증거** |
+
+- 기본 시간 창 **300초**, 채택 기준 **2점 이상**
+- 시나리오별로 `correlation_window_seconds`, `minimum_correlation_score` 로 조정 가능
+- 점수순 → 시각순으로 정렬해 케이스에 담음
+
+시간 근접에 주는 점수는 **1점뿐**입니다. 코드 주석에도 그렇게 적혀 있습니다 —
+*"Temporal proximity alone is weak evidence."*
+붙어서 일어났다는 이유만으로는 절대 채택되지 않고, 반드시 다른 근거가 하나는 더 있어야 합니다.
+
+**왜 묶였는지가 화면에 그대로 남습니다.** 각 이벤트에 `reasons` 가 붙어
+`within 8s`, `same host`, `same user`, `shared trigger destination IP` 처럼 표시되므로
+분석가가 판단 근거를 되짚을 수 있습니다.
+
+> **알려진 제약** — 한 케이스에 담는 이벤트는 `max_events=50` 으로 잘립니다.
+> 현재 몇 건이 잘렸는지는 보고하지 않으므로, 이벤트가 많은 사건에서는
+> "손실을 보고한다"는 원칙이 지켜지지 않습니다. 개선 예정 항목입니다.
+
 ## 로그 수집과 증거 번들
 
 텔레메트리는 생산자의 원래 형식 그대로 수집한 뒤, 표준 이벤트 모델로 정규화하고,
