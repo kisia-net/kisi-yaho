@@ -65,7 +65,12 @@ ASSESSMENT_CONTRACT = """The assessment object must contain these keys:
 - evidence_gaps: array of strings naming what is missing or unverifiable
 - recommended_searches: array of objects with title, language, and value
 - recommended_response: array of strings, each an approval-required next step
-Cite event ids exactly as they appear in the bundle. Never invent an id."""
+Cite event ids exactly as they appear in the bundle. Never invent an id.
+The `answer` field is a short analyst-facing briefing, at most twelve lines: what happened,
+how confident you are, and the single most important next step. The interface renders the
+assessment object on its own, so do not restate its sections in `answer`, do not place a
+fenced code block inside `answer`, and never repeat the assessment JSON there. Writing the
+assessment twice wastes the response budget and truncates the object the interface needs."""
 
 
 def _text(value: Any) -> str:
@@ -209,10 +214,55 @@ def _entities(value: Any) -> dict[str, list[str]]:
     return result
 
 
+# gpt-oss-20b reliably emits JSON keys with the underscores removed:
+# `confirmedobservations` for `confirmed_observations`, `eventids` for
+# `event_ids`. The prompt asks for the documented spelling and the model
+# ignores it, so the reader repairs the key instead of failing the section.
+# Only a key whose squashed form matches a documented name is renamed --
+# an unrecognized key is left untouched rather than guessed at.
+_DOCUMENTED_KEYS = (
+    REQUIRED_SECTIONS
+    + OPTIONAL_SECTIONS
+    + ENTITY_KEYS
+    + (
+        "level",
+        "rationale",
+        "statement",
+        "event_ids",
+        "unknown_event_ids",
+        "indicator_ids",
+        "hypothesis",
+        "attack_chain",
+        "missing_evidence",
+        "next_searches",
+        "response_options",
+    )
+)
+_SQUASHED_KEYS = {name.replace("_", ""): name for name in _DOCUMENTED_KEYS}
+
+
+def _restore_separators(value: Any) -> Any:
+    """Rename squashed keys back to their documented spelling, recursively."""
+    if isinstance(value, list):
+        return [_restore_separators(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    restored: dict[str, Any] = {}
+    for key, item in value.items():
+        name = str(key)
+        if name not in _DOCUMENTED_KEYS:
+            canonical = _SQUASHED_KEYS.get(name.strip().lower())
+            if canonical and canonical not in value:
+                name = canonical
+        restored[name] = _restore_separators(item)
+    return restored
+
+
 def normalize_assessment(payload: Any) -> dict[str, Any]:
     """Coerce a model's assessment object into the documented shape."""
     if not isinstance(payload, dict):
         payload = {}
+    payload = _restore_separators(payload)
 
     return {
         "confirmed_observations": _string_list(payload.get("confirmed_observations")),
@@ -312,17 +362,61 @@ def _section_populated(value: Any) -> bool:
     return bool(value)
 
 
-def assessment_markdown(assessment: dict[str, Any]) -> str:
-    """Render the assessment as analyst-facing markdown.
+SECTION_TITLES = {
+    "en": {
+        "assessment": "Assessment",
+        "hypothesis": "Hypothesis",
+        "confirmed": "Confirmed observations",
+        "supporting": "Supporting evidence",
+        "contradictory": "Contradictory evidence",
+        "gaps": "Evidence gaps",
+        "techniques": "ATT&CK techniques",
+        "entities": "Affected entities",
+        "searches": "Recommended searches",
+        "response": "Recommended response",
+        "severity": "Severity",
+        "confidence": "Confidence",
+        "hosts": "Hosts",
+        "users": "Users",
+        "addresses": "Addresses",
+        "processes": "Processes",
+        "files": "Files",
+    },
+    "ko": {
+        "assessment": "판단 요약",
+        "hypothesis": "공격 가설",
+        "confirmed": "확인된 관찰",
+        "supporting": "뒷받침 증거",
+        "contradictory": "모순 증거",
+        "gaps": "증거 공백",
+        "techniques": "ATT&CK 기법",
+        "entities": "영향받는 대상",
+        "searches": "권장 검색",
+        "response": "권장 대응",
+        "severity": "심각도",
+        "confidence": "신뢰도",
+        "hosts": "호스트",
+        "users": "사용자",
+        "addresses": "주소",
+        "processes": "프로세스",
+        "files": "파일",
+    },
+}
 
-    Used when the model returns a structured assessment but no prose answer,
-    so the interface never shows an empty panel next to a populated schema.
+
+def assessment_markdown(assessment: dict[str, Any], language: str = "en") -> str:
+    """Render the reviewed assessment as analyst-facing markdown.
+
+    Rendered from the normalized object rather than from the model's prose, so
+    what the analyst reads is the same structure the schema and grounding checks
+    were run against. A model that skips a section leaves a gap here too.
     """
+    titles = SECTION_TITLES.get(language, SECTION_TITLES["en"])
     lines: list[str] = []
 
-    def section(title: str, body: list[str]) -> None:
+    def section(key: str, body: list[str]) -> None:
         if body:
-            lines.append(f"### {title}")
+            lines.append(f"### {titles[key]}")
             lines.extend(body)
             lines.append("")
 
@@ -331,50 +425,68 @@ def assessment_markdown(assessment: dict[str, Any]) -> str:
     header = []
     if assessment.get("interpretation"):
         header.append(assessment["interpretation"])
+        header.append("")
     if severity.get("level"):
-        header.append(f"**Severity:** {severity['level']} — {severity.get('rationale', '')}".rstrip(" —"))
+        header.append(
+            f"- **{titles['severity']}: {severity['level']}** — {severity.get('rationale', '')}".rstrip(" —")
+        )
     if confidence.get("level"):
-        header.append(f"**Confidence:** {confidence['level']} — {confidence.get('rationale', '')}".rstrip(" —"))
-    section("Assessment", header)
+        header.append(
+            f"- **{titles['confidence']}: {confidence['level']}** — {confidence.get('rationale', '')}".rstrip(" —")
+        )
+    section("assessment", header)
 
     if assessment.get("attack_hypothesis"):
-        section("Hypothesis", [assessment["attack_hypothesis"]])
+        section("hypothesis", [assessment["attack_hypothesis"]])
+
     section(
-        "Confirmed observations",
-        [f"- {item}" for item in assessment.get("confirmed_observations", [])],
+        "confirmed",
+        [f"{index}. {item}" for index, item in enumerate(assessment.get("confirmed_observations", []), 1)],
     )
+
+    def evidence_lines(key: str) -> list[str]:
+        rows = []
+        for entry in assessment.get(key, []):
+            ids = entry.get("event_ids") or []
+            cited = " ".join(f"`{value}`" for value in ids)
+            rows.append(f"- {entry['statement']}" + (f" — {cited}" if cited else ""))
+        return rows
+
+    section("supporting", evidence_lines("supporting_evidence"))
+    section("contradictory", evidence_lines("contradictory_evidence"))
+
+    entities = assessment.get("affected_entities", {})
+    entity_rows = []
+    for key in ENTITY_KEYS:
+        values = entities.get(key) or []
+        if values:
+            joined = ", ".join(f"`{value}`" for value in values)
+            entity_rows.append(f"- {titles[key]}: {joined}")
+    section("entities", entity_rows)
+
+    technique_rows = []
+    for item in assessment.get("attack_techniques", []):
+        evidence = item.get("evidence")
+        if isinstance(evidence, list):
+            cited = " ".join(f"`{value}`" for value in evidence)
+        else:
+            cited = str(evidence or "")
+        name = item.get("name", "")
+        technique_rows.append(f"- **{item['id']}** {name}" + (f" — {cited}" if cited else ""))
+    section("techniques", technique_rows)
+
+    section("gaps", [f"- {item}" for item in assessment.get("evidence_gaps", [])])
     section(
-        "Supporting evidence",
-        [
-            f"- {entry['statement']}"
-            + (f" ({', '.join(entry['event_ids'])})" if entry.get("event_ids") else "")
-            for entry in assessment.get("supporting_evidence", [])
-        ],
-    )
-    section(
-        "Contradictory evidence",
-        [
-            f"- {entry['statement']}"
-            + (f" ({', '.join(entry['event_ids'])})" if entry.get("event_ids") else "")
-            for entry in assessment.get("contradictory_evidence", [])
-        ],
-    )
-    section("Evidence gaps", [f"- {item}" for item in assessment.get("evidence_gaps", [])])
-    section(
-        "ATT&CK techniques",
-        [
-            f"- {item['id']} {item.get('name', '')} {item.get('evidence', '')}".rstrip()
-            for item in assessment.get("attack_techniques", [])
-        ],
-    )
-    section(
-        "Recommended searches",
+        "searches",
         [
             f"- {item.get('title') or item.get('language') or 'Search'}: `{item['value']}`"
             for item in assessment.get("recommended_searches", [])
             if item.get("value")
         ],
     )
-    section("Recommended response", [f"- {item}" for item in assessment.get("recommended_response", [])])
+    section(
+        "response",
+        [f"{index}. {item}" for index, item in enumerate(assessment.get("recommended_response", []), 1)],
+    )
 
     return "\n".join(lines).strip()

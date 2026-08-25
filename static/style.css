@@ -3477,3 +3477,45 @@ html[data-theme="light"] .message.user .message-content {
 .markdown-body {
     min-width: 0;
 }
+
+/* The assessment panel is long-form prose, not a deck of cards. The narrow-viewport
+   rule above tiles every .structured-output into three columns, which squeezed the
+   assessment into a third of the panel and left two thirds empty. Entity and intel
+   cards still tile; only the two assessment containers opt out. */
+@media (max-width: 1450px) {
+    .structured-output[data-analysis-output],
+    .structured-output[data-analysis-review] {
+        display: block;
+    }
+}
+
+/* Long unbreakable values -- a full Windows path, a sha256 hash -- were sizing the
+   entity and intel grid tracks, so the cards ran past the panel and needed a
+   horizontal scrollbar. Auto-fill lets the tracks fit the panel, min-width:0 stops
+   a grid item from refusing to shrink, and the tags wrap mid-token instead of
+   pushing the row wider. Nothing is hidden: a long value now wraps onto two lines. */
+@media (max-width: 1450px) {
+    .structured-output {
+        grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+    }
+}
+
+.structured-output > *,
+.output-item,
+.action-card,
+.approval-card {
+    min-width: 0;
+}
+
+.output-item strong,
+.output-item p,
+.action-card p {
+    overflow-wrap: anywhere;
+}
+
+.action-meta .tag,
+.approval-meta .tag {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+}

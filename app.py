@@ -163,6 +163,7 @@ CONFIG = {
     "llm_include_reasoning": env_bool("LLM_INCLUDE_REASONING", False),
     "llm_max_tokens": max(int(os.getenv("LLM_MAX_TOKENS", "2200")), 256),
     "llm_temperature": float(os.getenv("LLM_TEMPERATURE", "0.1")),
+    "llm_output_language": os.getenv("LLM_OUTPUT_LANGUAGE", "ko").strip().lower(),
     "llm_timeout": max(float(os.getenv("LLM_REQUEST_TIMEOUT", "120")), 10.0),
     "elasticsearch_url": os.getenv(
         "ELASTICSEARCH_URL", "http://127.0.0.1:9200"
@@ -1938,7 +1939,7 @@ def suricata_repair_request(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Perform one focused correction pass when a draft changes evidence semantics."""
     repair_system = (
-        f"{BASE_SYSTEM_PROMPT}\nMode: {MODE_PROMPTS['suricata_rule']}\n"
+        system_message(MODE_PROMPTS["suricata_rule"]) + "\n"
         "A previous draft failed semantic-grounding validation. Correct the rule rather than defending the draft. "
         "Every concrete header literal must be supported in the analyst request or attached structured evidence. "
         "Do not reinterpret status codes, byte counts, process IDs, timestamps, or other numeric log fields as ports. "
@@ -1999,7 +2000,7 @@ def assessment_repair_request(
         )
 
     repair_system = (
-        f"{BASE_SYSTEM_PROMPT}\nMode: {MODE_PROMPTS['alert_summary']}\n"
+        system_message(MODE_PROMPTS["alert_summary"]) + "\n"
         "A previous assessment was incomplete. Return a corrected JSON object with the same keys, completing "
         "every required section of the assessment. Do not invent observations, entities, or event ids to fill a "
         "section: if the evidence genuinely supports nothing there, say that explicitly in that section. "
@@ -2054,10 +2055,16 @@ def apply_assessment_schema(
     result["assessment"] = assessment
     result["assessment_review"] = review
 
-    # A structured assessment with no prose answer would otherwise render an
-    # empty panel, so the schema is used to write the analyst-facing text.
-    if not str(result.get("answer", "")).strip():
-        result["answer"] = assessment_markdown(assessment)
+    # The panel shows the short briefing first, then the assessment rendered
+    # from the reviewed object -- not from the model's own prose. The analyst
+    # therefore reads the same structure the schema and grounding checks ran
+    # against, and the model no longer has to write the detail twice.
+    briefing = str(result.get("answer", "")).strip()
+    detail = assessment_markdown(assessment, CONFIG["llm_output_language"])
+    if briefing and detail:
+        result["answer"] = briefing + "\n\n---\n\n" + detail
+    elif detail:
+        result["answer"] = detail
     return result
 
 
@@ -2189,6 +2196,49 @@ velociraptor_remediation, suricata_rule, and suricata_rule_disable.
 All actions must set requires_approval to true. Use empty arrays when no structured items apply.
 Do not wrap the JSON in a markdown code fence.
 """
+
+
+# Analyst-facing prose is translated; identifiers are not. Event ids, indicator
+# ids, host and user names, file paths, ATT&CK ids and JSON keys are what the
+# grounding check matches against, so a translated identifier would read as an
+# invented one and be reported as ungrounded.
+OUTPUT_LANGUAGE_DIRECTIVES = {
+    "ko": (
+        "OUTPUT LANGUAGE -- this overrides the language of every instruction above. "
+        "Write all analyst-facing prose in Korean, including every string inside the "
+        "`assessment` object: confirmed_observations, interpretation, attack_hypothesis, "
+        "the `rationale` of confidence and severity, every `statement` in supporting_evidence "
+        "and contradictory_evidence, evidence_gaps, the `title` of recommended_searches, and "
+        "recommended_response. The schema above is written in English only to describe the "
+        "shape; its descriptions are not a template for the language of your values. "
+        "Keep unchanged, never translated or transliterated: JSON keys, action `type` values, "
+        "query `language` and `value`, ATT&CK ids and their official English names, event ids, "
+        "indicator ids, host names, user names, process names, file paths, domains, IP addresses. "
+        "Where a Korean term would be ambiguous, put the English in parentheses after it. "
+        "A query object mixes both: its `title` is Korean prose and its `value` is code left "
+        "exactly as written. For example "
+        '{"title": "지속성 등록 여부 검색", "language": "vql", '
+        '"value": "SELECT * FROM Artifact.Windows.Registry WHERE Path LIKE \'%update.exe%\'"} '
+        "-- a query written in English is a defect, not a shortcut."
+    ),
+    "en": "",
+}
+
+
+_language_directive = OUTPUT_LANGUAGE_DIRECTIVES.get(CONFIG["llm_output_language"], "")
+
+
+def system_message(mode_prompt: str) -> str:
+    """Compose the system prompt, keeping the language rule last.
+
+    Position matters: appended before the mode prompt and the assessment schema,
+    an all-English contract followed it and the model answered in English. Last
+    is what it actually follows.
+    """
+    parts = [BASE_SYSTEM_PROMPT, f"Mode: {mode_prompt}"]
+    if _language_directive:
+        parts.append(_language_directive)
+    return "\n".join(parts)
 
 
 def clean_history(history: Any) -> list[dict[str, str]]:
@@ -2527,6 +2577,37 @@ def guard_suricata_generation_result(
     return guarded
 
 
+# Same squashed-key habit as the assessment object: the model answers with
+# `velociraptorcollection` instead of `velociraptor_collection`, and the action
+# would otherwise be dropped as an unknown type. Only an exact squashed match is
+# accepted -- an action type that resolves to nothing is still discarded.
+_SQUASHED_ACTION_TYPES = {
+    name.replace("_", ""): name for name in ALLOWED_ACTION_TYPES
+}
+
+
+def canonical_action_type(value: Any) -> str:
+    name = str(value or "").strip()
+    if name in ALLOWED_ACTION_TYPES:
+        return name
+    return _SQUASHED_ACTION_TYPES.get(name.lower(), "")
+
+
+def truncated_json_notice(content: str) -> str:
+    """Present an unparseable JSON answer as code, with a plain-language cause."""
+    text = content.strip()
+    if not text.startswith("{"):
+        # Not an attempt at JSON: plain prose is a legitimate answer.
+        return content
+    return (
+        "**모델 응답을 읽지 못했습니다.**\n\n"
+        "JSON 형식으로 답하다가 중간에서 끊겼습니다. 대부분 응답 길이 한도"
+        "(`LLM_MAX_TOKENS`)에 걸린 경우이며, 값을 올리고 다시 실행하면 해결됩니다.\n\n"
+        "아래는 받은 원문 그대로입니다.\n\n"
+        "```json\n" + text + "\n```"
+    )
+
+
 def parse_structured_answer(content: str) -> dict[str, Any]:
     candidate = content.strip()
     if candidate.startswith("```"):
@@ -2535,7 +2616,16 @@ def parse_structured_answer(content: str) -> dict[str, Any]:
     try:
         parsed = json.loads(candidate)
     except json.JSONDecodeError:
-        return {"answer": content, "evidence": [], "queries": [], "actions": []}
+        # A model that meant to answer in JSON and ran out of room leaves a
+        # broken object. Rendering that as markdown produced a wall of text
+        # with the escapes eaten, which reads like a different failure than
+        # the one that happened. Show it as code and name the cause instead.
+        return {
+            "answer": truncated_json_notice(content),
+            "evidence": [],
+            "queries": [],
+            "actions": [],
+        }
 
     if not isinstance(parsed, dict):
         return {"answer": content, "evidence": [], "queries": [], "actions": []}
@@ -2545,8 +2635,12 @@ def parse_structured_answer(content: str) -> dict[str, Any]:
     raw_actions = parsed.get("actions") if isinstance(parsed.get("actions"), list) else []
     actions: list[dict[str, Any]] = []
     for action in raw_actions:
-        if not isinstance(action, dict) or action.get("type") not in ALLOWED_ACTION_TYPES:
+        if not isinstance(action, dict):
             continue
+        action_type = canonical_action_type(action.get("type"))
+        if not action_type:
+            continue
+        action["type"] = action_type
         action["requires_approval"] = True
         actions.append(action)
     result = {
@@ -2711,7 +2805,7 @@ def demo_alert_assessment(context: dict[str, Any], host: str) -> dict[str, Any]:
         )
 
     return {
-        "answer": assessment_markdown(assessment),
+        "answer": assessment_markdown(assessment, CONFIG["llm_output_language"]),
         "evidence": evidence,
         "queries": assessment["recommended_searches"],
         "actions": [],
@@ -2907,7 +3001,7 @@ def call_llm(
     messages = [
         {
             "role": "system",
-            "content": f"{BASE_SYSTEM_PROMPT}\nMode: {mode_prompt}",
+            "content": system_message(mode_prompt),
         },
         *history,
         {
