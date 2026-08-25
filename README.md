@@ -39,7 +39,6 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 | [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 설계 결정과 근거 |
 | [`docs/AWS_구축_가이드.md`](docs/AWS_구축_가이드.md) | AWS 환경 구축 1~6단계 (처음 쓰는 사람 기준) |
 | [`infra/terraform/README.md`](infra/terraform/README.md) | 인프라 코드 사용법 |
-| [`docs/submissions/`](docs/submissions/) | 제출용 문서 원본 (HWP 붙여넣기용 docx) |
 
 ---
 
@@ -56,7 +55,7 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 - 모델이 JSON 키의 밑줄을 생략하는 문제를 관대한 파싱으로 흡수
 - 좁은 화면에서 판단 패널이 3단 격자에 갇히던 문제, 긴 경로·해시가 카드 폭을 밀어내던 문제 수정
 - `.gitattributes` 추가 — 줄바꿈 차이로 안 고친 파일이 modified 로 잡히던 문제 해결
-- 문서 정리: `docs/STATUS.md`, `docs/RUNBOOK.md` 신설, 제출용 docx 는 `docs/submissions/` 로 이동
+- 문서 정리: `docs/STATUS.md`, `docs/RUNBOOK.md` 신설. 제출용 docx 는 노션으로 공유하고 저장소에서 제외
 
 ### 2026-08-22 — 팀 저장소 이전 및 인프라 코드화
 
@@ -75,47 +74,45 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 
 ## 시스템 개요 — HAW-KI
 
-A minimal Flask-based front end that represents the intended LLM-assisted SOAR architecture.
+의도한 LLM 보조 SOAR 구조를 그대로 구현한 Flask 기반 웹 애플리케이션입니다.
 
-## Included features
+## 주요 기능
 
-- Multi-source log collection normalized into a canonical event model
-- Deterministic correlation into alert cases
-- Asset inventory and threat-intelligence enrichment
-- A four-block evidence bundle delivered to the local LLM/SLM
-- Local LLM chat through an OpenAI-compatible endpoint
-- Fixed security-analyst system prompt
-- Operational metrics and alert-volume visualization
-- Alert queue and incident summary
-- Service-health checks for the LLM, Elasticsearch, and Kibana
-- Safe links to Kibana and Elasticsearch
-- Optional read-only Elasticsearch search
-- No Elasticsearch credentials exposed to the browser
-- Architecture overview dialog
+- 다중 출처 로그를 하나의 표준 이벤트 모델로 정규화
+- 규칙 기반(결정적) 상관분석으로 경보 케이스 구성
+- 자산 정보와 위협 인텔리전스로 증강
+- 4블록 증거 번들을 로컬 LLM/SLM 에 전달
+- OpenAI 호환 엔드포인트를 통한 로컬 LLM 대화
+- 보안 분석가 역할이 고정된 시스템 프롬프트
+- 운영 지표와 경보 발생량 시각화
+- 경보 대기열과 사건 요약
+- LLM · Elasticsearch · Kibana 상태 점검
+- Kibana · Elasticsearch 로 가는 안전한 링크
+- 선택적 읽기 전용 Elasticsearch 검색
+- Elasticsearch 자격증명을 브라우저에 노출하지 않음
+- 구조 개요 대화상자
 
-## Log collection and the evidence bundle
+## 로그 수집과 증거 번들
 
-Telemetry is collected in native producer formats, normalized to a canonical
-event model, correlated deterministically, and enriched before anything reaches
-the model. One alert case is delivered to the LLM/SLM as a single bundle
-(`hawki.siem.evidence-bundle/v1`) holding four metadata blocks:
+텔레메트리는 생산자의 원래 형식 그대로 수집한 뒤, 표준 이벤트 모델로 정규화하고,
+결정적 규칙으로 상관분석하고, 증강한 다음에야 모델에 도달합니다.
+하나의 경보 케이스는 `hawki.siem.evidence-bundle/v1` 이라는 **단일 번들**로 LLM/SLM 에 전달되며,
+네 개의 메타데이터 블록을 담습니다.
 
-| Block | | Contents |
+| 블록 | | 담는 것 |
 | --- | --- | --- |
-| `security_alerts` | 보안경보 | The triggering detection (`role: "trigger"`) plus correlated detections |
-| `security_events` | 보안이벤트 | Correlated raw telemetry, normalized, with the untouched producer record under `event.original` |
-| `assets` | 자산정보 | Inventory records for hosts and addresses seen in the evidence |
-| `threat_intelligence` | 위협 인텔리전스 | Indicator matches for observables found in the evidence |
+| `security_alerts` | 보안경보 | 트리거가 된 탐지(`role: "trigger"`)와 상관된 탐지들 |
+| `security_events` | 보안이벤트 | 상관된 원본 텔레메트리. 정규화하되 생산자 원본은 `event.original` 에 손대지 않고 보존 |
+| `assets` | 자산정보 | 증거에 등장한 호스트와 주소의 자산대장 기록 |
+| `threat_intelligence` | 위협 인텔리전스 | 증거에서 발견된 관측값의 지표 매칭 결과 |
 
-Blocks are cross-referenced: every alert and event carries a `links` field
-naming the asset and indicator ids it touches, so the model does not have to
-re-join four independent lists.
+블록끼리는 서로 참조합니다. 모든 경보와 이벤트가 `links` 필드로 자신이 건드린 자산·지표 id 를 명시하므로,
+모델이 네 개의 독립된 목록을 스스로 다시 이어붙일 필요가 없습니다.
 
-Each block states its own evidential weight. A detection is a producer's
-opinion, asset criticality informs impact rather than likelihood, and an
-indicator match raises suspicion without proving compromise. Hosts with no
-inventory record and observables with no intelligence coverage are reported
-explicitly, because absence of data is not evidence of safety.
+**각 블록은 자신의 증거 무게를 스스로 밝힙니다.** 탐지는 생산자의 의견이고,
+자산의 업무중요도는 가능성이 아니라 영향도에 대한 정보이며, 지표 매칭은 의심을 높일 뿐 침해를 증명하지 않습니다.
+자산대장에 없는 호스트와 위협정보가 없는 관측값은 **명시적으로 보고**됩니다.
+정보가 없다는 것은 안전하다는 증거가 아니기 때문입니다.
 
 ```text
 ModSecurity ─┐
@@ -129,95 +126,91 @@ Nginx/syslog ┘                                                     │
                                                        evidence bundle ─► LLM/SLM
 ```
 
-Collection sources are swappable behind their interfaces. `FixtureEventRepository`
-is replaced by `ElasticsearchEventRepository` with one environment variable, and
-`FileAssetInventory` and `FileThreatIntelFeed` can be replaced by a CMDB and
-MISP/OpenCTI, without changing correlation, bundling, or the agent.
+수집 출처는 인터페이스 뒤에서 교체할 수 있습니다.
+`FixtureEventRepository` 는 환경변수 하나로 `ElasticsearchEventRepository` 로 바뀌고,
+`FileAssetInventory` 와 `FileThreatIntelFeed` 는 CMDB 나 MISP/OpenCTI 로 교체할 수 있습니다.
+상관분석·번들 조립·에이전트 코드는 한 줄도 바꾸지 않습니다.
 
-Relevant endpoints:
+관련 엔드포인트:
 
 ```text
-GET  /api/alerts                    triage queue with asset/intel previews
-GET  /api/alerts/{id}               full case
-GET  /api/alerts/{id}/context       the exact bundle sent to the model
-GET  /api/alerts/{id}/evidence      trigger and correlated evidence
-GET  /api/alerts/{id}/timeline      ordered sequence
-POST /api/alerts/{id}/analyze       run the local model over the bundle
-GET  /api/assets                    asset inventory
-GET  /api/threat-intel              indicator feed
+GET  /api/alerts                    자산·위협정보 미리보기가 붙은 분류 대기열
+GET  /api/alerts/{id}               케이스 전체
+GET  /api/alerts/{id}/context       모델에 실제로 보낸 번들 그대로
+GET  /api/alerts/{id}/evidence      트리거와 상관된 증거
+GET  /api/alerts/{id}/timeline      시간순 정렬
+POST /api/alerts/{id}/analyze       번들을 로컬 모델에 넣어 분석 실행
+GET  /api/assets                    자산 정보
+GET  /api/threat-intel              지표 피드
 ```
 
-Collection roots are configurable with `ALERT_FIXTURE_ROOT`,
-`ASSET_INVENTORY_ROOT`, and `THREAT_INTEL_ROOT`. Each falls back to the fixtures
-packaged in `hawki_alert_analysis/fixtures/` when the configured path is absent,
-which is what happens in the container, where a volume is mounted over `/app/data`.
+수집 경로는 `ALERT_FIXTURE_ROOT`, `ASSET_INVENTORY_ROOT`, `THREAT_INTEL_ROOT` 로 지정합니다.
+지정한 경로가 없으면 `hawki_alert_analysis/fixtures/` 에 동봉된 자료로 대체됩니다.
+컨테이너에서 `/app/data` 위에 볼륨이 마운트될 때 실제로 이 경로가 쓰입니다.
 
-`AGENT_CONTEXT_MAX_CHARS` bounds the serialized context. When a bundle exceeds
-it, evidence is reduced in order of cheapest loss — repeated boilerplate, then
-original producer records, then correlated events, then a digest — and what was
-removed is stated in the payload. The four blocks survive every step, and the
-result is always valid JSON.
+`AGENT_CONTEXT_MAX_CHARS` 는 직렬화된 문맥의 상한입니다.
+번들이 이를 넘으면 **잃는 것이 적은 순서로** 증거를 줄입니다 —
+반복되는 상용구 → 생산자 원본 기록 → 상관 이벤트 → 요약본 순이며,
+**무엇을 덜어냈는지 payload 에 명시**합니다. 네 블록은 어느 단계에서도 사라지지 않고,
+결과는 항상 유효한 JSON 입니다.
 
-## Collecting real logs
+## 실제 로그 수집하기
 
-Adapters exist for Suricata EVE, Wazuh alerts, ModSecurity audit logs, Windows
-Sysmon, Nginx and Apache combined access logs, Linux syslog, and `auth.log`,
-plus a generic ECS reader. Anything those
-understand can be ingested without writing code.
+Suricata EVE, Wazuh 경보, ModSecurity 감사 로그, Windows Sysmon,
+Nginx · Apache combined 접근 로그, Linux syslog, `auth.log` 용 어댑터가 있으며
+범용 ECS 리더도 있습니다. 이들이 이해하는 형식이라면 코드를 짜지 않고 그대로 넣을 수 있습니다.
 
-### From a directory of collected logs
+### 수집한 로그 디렉터리에서
 
 ```bash
 python -m hawki_alert_analysis.ingest /path/to/logs \
     --out data/scenarios/my_case --host web-01 --year 2026 --dry-run
 ```
 
-Source types are identified by filename, then by content. Detection reports
-what it classified and what it could not — a file no adapter reads is named
-rather than skipped quietly, because a source silently missing from a case looks
-exactly like a source that had nothing in it. Individual unparsable lines
-(rotation banners, truncated writes) are counted in
-`FixtureEventRepository.skipped_lines` instead of discarding the whole file.
+출처 종류는 파일명으로 먼저 판별하고, 그다음 내용으로 판별합니다.
+**무엇을 분류했고 무엇을 분류하지 못했는지 모두 보고**합니다.
+어떤 어댑터도 읽지 못한 파일은 조용히 건너뛰지 않고 이름을 밝힙니다.
+케이스에서 소리 없이 빠진 출처는, 원래 아무것도 없던 출처와 화면상 구별이 안 되기 때문입니다.
+개별적으로 해석되지 않는 줄(로테이션 배너, 잘린 기록)은 파일 전체를 버리지 않고
+`FixtureEventRepository.skipped_lines` 에 개수로 집계합니다.
 
-Syslog carries no year, so pass `--year`; without it the current year is assumed
-and the events are tagged `assumed-year`. Ingest never writes into the log
-directory, so read-only corpora work as-is.
+syslog 에는 연도가 없으므로 `--year` 를 주세요. 없으면 현재 연도로 가정하고
+해당 이벤트에 `assumed-year` 표시를 붙입니다.
+ingest 는 로그 디렉터리에 절대 쓰지 않으므로 읽기 전용 자료도 그대로 쓸 수 있습니다.
 
-### From a PCAP
+### PCAP 에서
 
-With Suricata installed locally:
+로컬에 Suricata 가 설치되어 있다면:
 
 ```bash
 python tools/collect_pcap.py capture.pcap --out data/scenarios/replay_case
 ```
 
-Or through Compose, with no local install:
+설치 없이 Compose 로:
 
 ```bash
 cp ~/Downloads/traffic.pcap capture/pcap/capture.pcap
 
-docker compose run --rm suricata-update      # once: fetch ET Open rules
-docker compose run --rm suricata             # replay -> capture/out/eve.json
+docker compose run --rm suricata-update      # 최초 1회: ET Open 룰셋 내려받기
+docker compose run --rm suricata             # 재생 -> capture/out/eve.json
 
 python -m hawki_alert_analysis.ingest capture/out \
     --out data/scenarios/real_001 --host web-01
 ```
 
-Suricata reads the capture and writes its own `eve.json` — the same format a
-live sensor produces, so nothing downstream can tell the difference. Nothing
-about the resulting events is synthetic.
+Suricata 가 캡처를 읽어 자신의 `eve.json` 을 씁니다.
+**실제 센서가 만드는 것과 같은 형식**이라 뒷단에서는 차이를 알 수 없습니다.
+이렇게 만들어진 이벤트에는 합성된 부분이 없습니다.
 
-Run `suricata-update` first. Without a ruleset Suricata still logs `http`,
-`dns`, `tls` and `flow` events, but raises no alerts, and a case with no alert
-has no trigger.
+`suricata-update` 를 먼저 실행하세요. 룰셋이 없으면 Suricata 는 `http`, `dns`, `tls`, `flow`
+이벤트는 남기지만 **경보를 만들지 않고**, 경보가 없는 케이스에는 트리거가 없습니다.
 
-`tools/collect_pcap.py` does not bundle Suricata; if it is missing the script
-prints installation instructions and exits rather than reporting a collection
-that did not happen.
+`tools/collect_pcap.py` 는 Suricata 를 포함하지 않습니다.
+없으면 설치 안내를 출력하고 종료합니다 — 일어나지 않은 수집을 성공한 것처럼 보고하지 않기 위해서입니다.
 
-### Ground truth
+### 정답 데이터 (ground truth)
 
-`--labels labels.json` attaches ground truth and names the trigger explicitly:
+`--labels labels.json` 으로 정답을 붙이고 트리거를 명시합니다.
 
 ```json
 {
@@ -233,126 +226,123 @@ that did not happen.
 }
 ```
 
-Scenarios remain necessary after switching to real logs, but their role changes:
-the manifest is the label layer, not the data. Evaluating whether a
-reconstruction is *correct* requires knowing the answer.
+실제 로그로 옮겨간 뒤에도 시나리오는 여전히 필요하지만 역할이 달라집니다.
+**매니페스트는 데이터가 아니라 정답지 층**이 됩니다.
+재구성이 *맞았는지* 평가하려면 답을 알고 있어야 하기 때문입니다.
 
-### Datasets
+### 데이터셋
 
-Flow-feature datasets — CIC-IDS2017, CSE-CIC-IDS2018, UNSW-NB15, KDD'99 — do not
-fit this system. They ship derived statistics per flow rather than raw producer
-records, and there is no incident to reconstruct from a feature vector.
+흐름 특징(flow feature) 데이터셋 — CIC-IDS2017, CSE-CIC-IDS2018, UNSW-NB15, KDD'99 — 은
+이 시스템에 맞지 않습니다. 원본 생산자 기록이 아니라 흐름당 파생 통계를 담고 있어서,
+특징 벡터로부터 재구성할 사건 자체가 없습니다.
 
-These do fit:
+아래는 맞습니다.
 
-| Dataset | Contents | Use |
+| 데이터셋 | 담는 것 | 쓰임 |
 | --- | --- | --- |
-| AIT Log Data Set (AIT-LDS) | Apache, auth, syslog, audit, DNS, Suricata EVE, and Wazuh in v2; multi-host, labeled attack phases | Closest match to the existing adapters; primary evaluation corpus. Check the Zenodo record for the exact per-version source list |
-| OTRF Security-Datasets (ex-Mordor) | Per-ATT&CK-technique JSON, Sysmon and Windows Security | Technique-level evaluation; read directly by the Sysmon adapter |
-| Splunk `attack_data` | Per-technique raw logs across many producers | Pick individual datasets |
-| Splunk BOTS v1–v3 | A full incident with ground-truth Q&A | Feed the Q&A into `expected.answers` as an evaluation set |
-| malware-traffic-analysis.net | PCAP plus a published write-up | Replay through `collect_pcap.py`; the write-up is the ground truth |
-| EVTX-ATTACK-SAMPLES | Per-technique Windows EVTX | Convert to JSON (evtx_dump, Chainsaw) and ingest as Sysmon |
+| AIT Log Data Set (AIT-LDS) | Apache, auth, syslog, audit, DNS, Suricata EVE, v2 에는 Wazuh 까지. 다중 호스트, 공격 단계 라벨 | 기존 어댑터와 가장 잘 맞음. 주 평가 자료. 버전별 정확한 출처 목록은 Zenodo 기록 확인 |
+| OTRF Security-Datasets (구 Mordor) | ATT&CK 기법별 JSON, Sysmon 과 Windows Security | 기법 단위 평가. Sysmon 어댑터가 바로 읽음 |
+| Splunk `attack_data` | 기법별 원본 로그, 여러 생산자 | 개별 데이터셋을 골라 사용 |
+| Splunk BOTS v1~v3 | 정답 문답이 딸린 완결된 사건 | 문답을 `expected.answers` 에 넣어 평가 세트로 활용 |
+| malware-traffic-analysis.net | PCAP 과 공개된 분석 글 | `collect_pcap.py` 로 재생. 분석 글이 정답 역할 |
+| EVTX-ATTACK-SAMPLES | 기법별 Windows EVTX | JSON 으로 변환(evtx_dump, Chainsaw) 후 Sysmon 으로 수집 |
 
-Keep corpora outside the repository — size and licensing both argue against
-committing them — and point `ALERT_FIXTURE_ROOT` at them.
+자료 모음은 **저장소 밖에 두세요.** 용량과 라이선스 모두 커밋하지 않을 이유가 됩니다.
+`ALERT_FIXTURE_ROOT` 가 그쪽을 가리키게 하면 됩니다.
 
-## Evaluating the analysis
+## 분석 결과 평가
 
 ```bash
-python tools/evaluate.py             # every scenario, deterministic demo path
-python tools/evaluate.py --live      # against the configured LLM
+python tools/evaluate.py             # 전체 시나리오, 결정적 데모 경로
+python tools/evaluate.py --live      # 설정된 LLM 에 실제로 붙여서
 python tools/evaluate.py --json report.json
 ```
 
-### Before and after enrichment
+### 증강 전후 비교
 
 ```bash
 python tools/evaluate.py --compare --live --markdown comparison.md
 ```
 
-Analyzes each alert twice and diffs the two runs. The "before" side is the
-triggering alert alone — what an un-enriched SIEM hands an analyst, with no
-correlated events, no asset context, and no threat intelligence. The "after"
-side is the full four-block bundle. The question put to the model is identical
-both times, so any difference in the answer is attributable to the evidence
-rather than to prompting.
+경보마다 두 번 분석해 두 결과를 비교합니다.
+**"전"** 은 트리거 경보 하나만 — 증강 없는 SIEM 이 분석가에게 건네는 그대로이며,
+상관 이벤트도 자산 정보도 위협 인텔리전스도 없습니다.
+**"후"** 는 4블록 번들 전체입니다.
+**모델에게 던지는 질문은 양쪽이 완전히 동일**하므로, 답의 차이는 프롬프트가 아니라 증거에서 온 것입니다.
 
-It reports what changed on both sides of the boundary: how much evidence went
-in, and what came back out — entities named, ATT&CK techniques, confirmed
-observations, cited events, schema sections filled, and recovery of any declared
-ground truth. `--markdown` writes both full answers side by side.
+경계 양쪽에서 무엇이 달라졌는지 보고합니다 — 들어간 증거의 양과 나온 결과
+(지목한 대상, ATT&CK 기법, 확인된 관찰, 인용한 이벤트, 채워진 스키마 항목, 선언된 정답 재현율).
+`--markdown` 은 두 답변 전문을 나란히 기록합니다.
 
-Three things are measured, in decreasing order of how objectively they can be
-judged: schema coverage, citation grounding, and recovery of any declared ground
-truth. The first two need no labels, so this doubles as a regression check on
-the synthetic fixture. A `--live` run exits non-zero when an assessment is
-incomplete or cites an event id that is not in the bundle, so it can gate prompt
-and bundle changes.
+세 가지를 측정하며, **객관적으로 판정 가능한 순서**대로입니다 —
+스키마 충족도, 인용 근거성, 선언된 정답 재현.
+앞의 둘은 라벨이 필요 없어서 합성 자료에 대한 회귀 검사로도 쓰입니다.
+`--live` 실행은 판단이 불완전하거나 번들에 없는 이벤트 id 를 인용하면
+**0 이 아닌 종료 코드**를 반환하므로, 프롬프트와 번들 변경을 자동으로 막는 관문이 됩니다.
 
-Ground-truth matching is deliberately shallow — it looks for expected strings in
-the assessment. That catches a missed technique or host. It does not judge
-whether the reasoning is sound, and no automatic check does.
+정답 대조는 **일부러 얕게** 만들었습니다 — 판단문에서 기대 문자열을 찾는 수준입니다.
+빠뜨린 기법이나 호스트는 잡아냅니다. 다만 **추론이 타당한지는 판정하지 않으며,
+그것을 자동으로 판정하는 검사는 없습니다.**
 
-## Structured assessment
+## 구조화된 사건 판단
 
-For `alert_summary`, the model must return an `assessment` object rather than
-prose alone. Asking for that structure in prose is followed unevenly by a small
-local model, so it is enforced as a schema: confirmed observations,
-interpretation, attack hypothesis, confidence, severity, affected entities,
-ATT&CK techniques, supporting and contradictory evidence with cited event ids,
-evidence gaps, recommended searches, and recommended response.
+`alert_summary` 모드에서 모델은 산문만이 아니라 `assessment` 객체를 반드시 반환해야 합니다.
+그 구조를 산문으로 부탁하면 작은 로컬 모델은 들쭉날쭉하게 따르므로, **스키마로 강제**합니다 —
+확인된 관찰, 해석, 공격 가설, 신뢰도, 심각도, 영향받는 대상, ATT&CK 기법,
+이벤트 id 를 인용한 뒷받침 증거와 모순 증거, 증거 공백, 권장 검색, 권장 대응.
 
-Reading is tolerant and reporting is strict. Normalization accepts a bare
-string where an object was requested and alternate key names, so a usable
-analysis is never discarded on a formatting slip. Review then reports what is
-missing and which cited event ids match nothing in the bundle — those are
-annotated, never quietly dropped, so an analyst can see when the model cited
-evidence that does not exist. An incomplete assessment triggers one correction
-pass (`ASSESSMENT_REPAIR_ENABLED`, default on), and the correction is kept only
-if it covers more than the original.
+**읽기는 관대하게, 보고는 엄격하게.**
+정규화 단계는 객체 자리에 문자열이 와도, 키 이름이 조금 달라도 받아들입니다.
+형식이 살짝 어긋났다고 쓸 만한 분석을 버리지 않기 위해서입니다.
+그다음 검토 단계가 **무엇이 빠졌는지, 인용한 이벤트 id 중 번들에 없는 것이 무엇인지** 보고합니다.
+그런 인용은 표시될 뿐 조용히 삭제되지 않습니다 —
+모델이 존재하지 않는 증거를 인용한 순간을 분석가가 볼 수 있어야 하기 때문입니다.
+불완전한 판단에는 보정 요청이 **한 번** 나가며(`ASSESSMENT_REPAIR_ENABLED`, 기본 켜짐),
+보정 결과는 원본보다 더 많이 채웠을 때만 채택됩니다.
 
-`contradictory_evidence` may legitimately be empty; that is reported as a note
-rather than counted as a missing section, so a clean case does not trigger a
-pointless correction round trip.
+`contradictory_evidence` 는 정당하게 비어 있을 수 있습니다.
+그래서 누락 항목으로 세지 않고 안내 문구로 보고합니다.
+깨끗한 사건이 의미 없는 보정 왕복을 유발하지 않도록 하기 위해서입니다.
 
-## Directory structure
+## 디렉터리 구조
 
 ```text
-soar_frontend/
+kisi-yaho/
 ├── app.py
 ├── .env.example
 ├── requirements.txt
 ├── README.md
-├── hawki_alert_analysis/     collection, correlation, enrichment, bundling
-│   ├── adapters.py           native producer formats -> canonical events
-│   ├── ingest.py             collected log directory -> scenario manifest
-│   ├── correlate.py          deterministic time/entity correlation
-│   ├── assets.py             asset inventory collection and matching
-│   ├── threat_intel.py       indicator feed collection and matching
-│   ├── bundle.py             the four-block evidence bundle
-│   ├── elastic.py           Phase 2: Elasticsearch-backed repository
-│   ├── assessment.py         structured analysis schema and review
-│   └── repository.py         source-agnostic event repository
+├── hawki_alert_analysis/     수집 · 상관분석 · 증강 · 번들 조립
+│   ├── adapters.py           생산자 원본 형식 -> 표준 이벤트
+│   ├── ingest.py             수집한 로그 디렉터리 -> 시나리오 매니페스트
+│   ├── correlate.py          시간 · 대상 기반 결정적 상관분석
+│   ├── assets.py             자산 정보 수집과 매칭
+│   ├── threat_intel.py       지표 피드 수집과 매칭
+│   ├── bundle.py             4블록 증거 번들
+│   ├── elastic.py            2단계: Elasticsearch 기반 저장소
+│   ├── assessment.py         구조화된 판단 스키마와 검토
+│   └── repository.py         출처에 무관한 이벤트 저장소
 ├── data/
-│   ├── scenarios/            native-format telemetry fixtures
-│   ├── assets/               asset inventory
-│   └── threat_intel/         indicator feed
+│   ├── scenarios/            생산자 원본 형식 텔레메트리 자료
+│   ├── assets/               자산 정보
+│   └── threat_intel/         지표 피드
+├── infra/terraform/          AWS 인프라 (GPU 서버, 네트워크, 예산)
 ├── tools/
-│   ├── collect_pcap.py       PCAP -> Suricata -> scenario
-│   └── evaluate.py           schema, grounding, and ground-truth scoring
+│   ├── collect_pcap.py       PCAP -> Suricata -> 시나리오
+│   └── evaluate.py           스키마 · 근거성 · 정답 채점
+├── docs/                     프로젝트 문서
 ├── tests/
 ├── templates/
 └── static/
 ```
 
-## Tests
+## 테스트
 
 ```bash
 python -m unittest discover -s tests
 ```
 
-## Run
+## 실행
 
 ```bash
 python -m venv .venv
@@ -360,8 +350,7 @@ source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.
 pip install -r requirements.txt
 ```
 
-Two environment variables are required, and the server refuses to start without
-them:
+**환경변수 두 가지가 반드시 필요**하며, 없으면 서버가 시작을 거부합니다.
 
 ```bash
 export FLASK_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
@@ -370,115 +359,110 @@ export HAWKI_ADMIN_PASSWORD='choose-a-strong-password'
 python app.py
 ```
 
-Open <http://127.0.0.1:5000> and sign in. The alert queue is at `/alerts`; each
-row links to `/alerts/<id>`, where **Analyze with LLM** sends the evidence
-bundle to the configured model.
+<http://127.0.0.1:5000> 을 열고 로그인합니다.
+경보 대기열은 `/alerts` 이고, 각 행은 `/alerts/<id>` 로 연결되며
+거기서 **「LLM으로 분석하기」** 가 증거 번들을 설정된 모델로 보냅니다.
 
-Without a reachable model the analysis falls back to a deterministic summary
-built from the bundle, labelled as such. To use a real one, point `LLM_API_URL`
-and `LLM_MODEL` at any OpenAI-compatible endpoint (vLLM, Ollama, llama.cpp):
+모델에 닿지 못하면 번들로부터 만든 결정적 요약으로 대체되며, **그렇다고 화면에 표시**됩니다.
+실제 모델을 쓰려면 `LLM_API_URL` 과 `LLM_MODEL` 이 OpenAI 호환 엔드포인트
+(vLLM, Ollama, llama.cpp 등)를 가리키게 하세요.
 
 ```bash
 export LLM_API_URL=http://127.0.0.1:8000/v1/chat/completions
 export LLM_MODEL=hawki-local
-export DEMO_MODE=false        # fail loudly instead of falling back
+export DEMO_MODE=false        # 조용히 대체하지 말고 실패를 드러내기
 ```
 
-### With Compose
+### Compose 로 실행
 
 ```bash
-cp .env.example .env                  # required: compose reads it through env_file
-docker compose up -d                  # web app only, ~300 MB, no GPU
-docker compose --profile llm up -d    # add vLLM (needs a GPU)
+cp .env.example .env                  # 필수: compose 가 env_file 로 읽습니다
+docker compose up -d                  # 웹 앱만, 약 300MB, GPU 불필요
+docker compose --profile llm up -d    # vLLM 추가 (GPU 필요)
 ```
 
-Services sit behind profiles so the local stage stays light. The web app does
-not depend on vLLM — it runs and reports the model as unreachable rather than
-refusing to start.
+서비스는 프로필 뒤에 두어 로컬 단계가 가볍게 유지됩니다.
+웹 앱은 vLLM 에 의존하지 않습니다 — 실행을 거부하는 대신 **모델에 닿지 못한다고 보고**합니다.
 
-To work against scenarios you ingested on the host, mount them in:
+호스트에서 수집한 시나리오로 작업하려면 마운트해서 띄웁니다.
 
 ```bash
 docker compose -f compose.yaml -f compose.dev.yaml up
 ```
 
-The interface renders Markdown with three browser libraries served from this
-origin. Install them once — the Content Security Policy allows scripts from
-`'self'` only, and the deployment plan puts the web tier on a subnet with no
-route to a CDN:
+화면의 마크다운 렌더링에는 브라우저 라이브러리 세 개를 **이 출처에서 직접** 제공합니다.
+한 번만 설치하면 됩니다 — Content Security Policy 가 `'self'` 스크립트만 허용하고,
+배포 계획상 웹 계층은 CDN 으로 나가는 경로가 없는 서브넷에 놓이기 때문입니다.
 
 ```bash
-python tools/vendor_assets.py            # install into static/vendor/
-python tools/vendor_assets.py --verify   # check against the lock file
+python tools/vendor_assets.py            # static/vendor/ 에 설치
+python tools/vendor_assets.py --verify   # 잠금 파일과 대조
 ```
 
-Without them the app still runs; Markdown falls back to escaped plain text.
+없어도 앱은 동작하며, 마크다운은 이스케이프된 평문으로 표시됩니다.
 
-Verify everything without a browser:
+브라우저 없이 전체를 검증하려면:
 
 ```bash
-python -m unittest discover -s tests    # 101 tests, no network or model needed
-python tools/evaluate.py                # score the bundled scenarios
+python -m unittest discover -s tests    # 테스트 101개, 네트워크·모델 불필요
+python tools/evaluate.py                # 동봉된 시나리오 채점
 ```
 
-## Data sources
+## 데이터 출처
 
-The default is Phase 1: alerts and events come from scenario files under
-`data/scenarios/`. Two scenarios ship with the repository — a Linux web
-exploitation case (ModSecurity, Suricata, Nginx, Wazuh) and a Windows dropper
-case (Sysmon, Wazuh).
+기본값은 1단계입니다 — 경보와 이벤트가 `data/scenarios/` 아래 시나리오 파일에서 옵니다.
+저장소에는 리눅스 웹 침해 케이스(ModSecurity, Suricata, Nginx, Wazuh),
+윈도우 드로퍼 케이스(Sysmon, Wazuh), 그리고 실제 캡처를 Suricata 로 재생한
+NetSupport RAT 케이스가 들어 있습니다.
 
-| Variable | Default | Purpose |
+| 변수 | 기본값 | 용도 |
 | --- | --- | --- |
-| `ALERT_REPOSITORY` | `fixture` | `fixture` or `elasticsearch` |
-| `ALERT_FIXTURE_ROOT` | `data/scenarios` | Scenario directory |
-| `ASSET_INVENTORY_ROOT` | `data/assets` | Asset inventory JSON |
-| `THREAT_INTEL_ROOT` | `data/threat_intel` | Indicator feed JSON |
-| `AGENT_CONTEXT_MAX_CHARS` | `24000` | Serialized context budget |
-| `ASSESSMENT_REPAIR_ENABLED` | `true` | One correction pass for incomplete assessments |
+| `ALERT_REPOSITORY` | `fixture` | `fixture` 또는 `elasticsearch` |
+| `ALERT_FIXTURE_ROOT` | `data/scenarios` | 시나리오 디렉터리 |
+| `ASSET_INVENTORY_ROOT` | `data/assets` | 자산 정보 JSON |
+| `THREAT_INTEL_ROOT` | `data/threat_intel` | 지표 피드 JSON |
+| `AGENT_CONTEXT_MAX_CHARS` | `24000` | 직렬화된 문맥 예산 |
+| `ASSESSMENT_REPAIR_ENABLED` | `true` | 불완전한 판단에 대한 1회 보정 |
 
-Each root falls back to the fixtures packaged in
-`hawki_alert_analysis/fixtures/` when the configured path is absent, which is
-what happens in the container, where a volume is mounted over `/app/data`.
+각 경로는 지정된 위치가 없으면 `hawki_alert_analysis/fixtures/` 에 동봉된 자료로 대체됩니다.
+컨테이너에서 `/app/data` 위에 볼륨이 마운트될 때가 그 경우입니다.
 
-### Phase 2: reading from Elasticsearch
+### 2단계: Elasticsearch 에서 읽기
 
 ```bash
 export ALERT_REPOSITORY=elasticsearch
 export ELASTICSEARCH_URL=https://es.internal:9200
-export ELASTICSEARCH_API_KEY=...                       # or _USERNAME/_PASSWORD
+export ELASTICSEARCH_API_KEY=...                       # 또는 _USERNAME/_PASSWORD
 export ELASTICSEARCH_ALERT_INDEX='wazuh-alerts-*,logs-*'
 export ELASTICSEARCH_EVENT_INDEX='logs-*,winlogbeat-*,packetbeat-*'
 export ELASTICSEARCH_WINDOW_SECONDS=300
 python app.py
 ```
 
-Nothing below the repository boundary changes. Elasticsearch selects candidates
-by time and entity; ranking and case assembly stay in `correlate.build_case`, so
-a case built from a live index is assembled by the same rules as one built from
-a fixture and remains comparable to it. Documents are read either as ECS or in
-their native producer shape — a Suricata, Wazuh, or Sysmon record shipped
-verbatim is normalized by its own adapter rather than requiring one convention
-across the cluster. Document `_id` becomes the event id.
+저장소 경계 아래로는 아무것도 바뀌지 않습니다.
+Elasticsearch 는 시간과 대상으로 후보를 고르기만 하고,
+순위 매김과 케이스 조립은 `correlate.build_case` 에 그대로 남습니다.
+그래서 **운영 인덱스에서 만든 케이스와 파일에서 만든 케이스가 같은 규칙으로 조립되고 서로 비교 가능**합니다.
+문서는 ECS 로도, 생산자 원본 형태로도 읽습니다 —
+Suricata · Wazuh · Sysmon 기록이 그대로 실려 왔다면 각자의 어댑터가 정규화하므로
+클러스터 전체에 하나의 관례를 강제할 필요가 없습니다. 문서 `_id` 가 이벤트 id 가 됩니다.
 
-Only `_search` is ever issued and index patterns are validated before reaching a
-URL, so the repository is read-only by construction. Use a read-only API key
-restricted to the intended indices.
+발행하는 요청은 `_search` 뿐이고 인덱스 패턴은 URL 에 닿기 전에 검증되므로,
+이 저장소는 **구조적으로 읽기 전용**입니다. 대상 인덱스로 제한된 읽기 전용 API 키를 쓰세요.
 
-An unreachable cluster yields an empty alert list rather than an error on every
-page; `/api/config` reports `alert_repository.reachable` and `last_error` so the
-emptiness explains itself.
+클러스터에 닿지 못하면 모든 페이지에서 오류를 내는 대신 빈 경보 목록을 반환합니다.
+`/api/config` 가 `alert_repository.reachable` 과 `last_error` 를 보고하므로
+**왜 비어 있는지가 스스로 설명**됩니다.
 
-`ENABLE_ES_SEARCH` is separate and governs the analyst-facing log search on
-`/logs`. It stays `false` by default, where the UI prepares a Kibana link
-instead of querying. A dedicated policy gateway should replace that endpoint
-before production use.
+`ENABLE_ES_SEARCH` 는 별개이며 `/logs` 의 분석가용 로그 검색을 제어합니다.
+기본값은 `false` 이고, 이 상태에서는 질의 대신 Kibana 링크를 준비합니다.
+실제 운영에 쓰기 전에는 전용 정책 게이트웨이가 이 엔드포인트를 대체해야 합니다.
 
-## Production notes
+## 운영 배포 시 유의사항
 
-- Put the Flask service behind Nginx or Caddy.
-- Add authentication before exposing it beyond a trusted lab network.
-- Keep vLLM and Elasticsearch inaccessible from untrusted clients.
-- Use HTTPS.
-- Add CSRF protection, persistent sessions, RBAC, audit logging, and rate limiting.
-- Treat all LLM-proposed queries and response actions as untrusted until validated.
+- Flask 서비스를 Nginx 나 Caddy 뒤에 둘 것
+- 신뢰된 실습망 밖으로 노출하기 전에 인증을 추가할 것
+- vLLM 과 Elasticsearch 는 신뢰되지 않은 클라이언트에서 접근 불가하게 유지할 것
+- HTTPS 를 쓸 것
+- CSRF 방어, 영속 세션, RBAC, 감사 로깅, 요청 제한을 추가할 것
+- **LLM 이 제안한 모든 질의와 대응 조치는 검증 전까지 신뢰하지 않을 것**
