@@ -192,3 +192,14 @@ pyrightconfig.json
 [Ss]cripts
 pyvenv.cfg
 pip-selfcheck.json
+### 2026-08-24 추가 ###
+# SQLite 는 실행 중에 -wal / -shm 곁다리 파일을 만듭니다. 계정 DB 본체와 같이
+# 저장소에 들어가면 안 되는 실행 상태입니다.
+*.sqlite3-wal
+*.sqlite3-shm
+
+# 워드/한글이 문서를 열어둔 동안 만드는 잠금 파일 (~$문서이름.docx).
+~$*
+
+# 마운트된 파일을 다른 프로세스가 열고 있을 때 생기는 자리표시 파일.
+.fuse_hidden*

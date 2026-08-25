@@ -1,0 +1,27 @@
+# Git stores text with LF and checks it out using the platform's convention.
+# Without this file a Windows checkout rewrites every line ending, and each
+# commit then shows the entire repository as modified even when nothing but
+# whitespace changed. That is exactly what happened on 2026-08-24: 87 files
+# reported as modified while only three had real edits.
+* text=auto
+
+# Telemetry fixtures are compared byte-for-byte by the tests, so they stay LF
+# on every platform regardless of who checked them out.
+*.jsonl text eol=lf
+*.json  text eol=lf
+*.log   text eol=lf
+
+# PowerShell on Windows is only reliable with CRLF scripts.
+*.ps1 text eol=crlf
+
+# Never convert binaries.
+*.docx binary
+*.hwp  binary
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.zip  binary
+*.pcap binary
+*.pcapng binary
