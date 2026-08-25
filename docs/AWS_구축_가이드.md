@@ -1,5 +1,16 @@
 # AWS 구축 가이드 — LLM 서버 1대로 "실모델 측정"까지
 
+> **2026-08-24 갱신** — 이 문서는 AWS 를 **처음 구축할 때** 보는 안내서입니다.
+> 이미 구축이 끝났다면 매일 켜고 끄는 절차는 [`RUNBOOK.md`](RUNBOOK.md) 를 보세요.
+> 아래 값들은 실제 구축 결과 확인된 내용으로 정정했습니다.
+>
+> | 문서의 원래 안내 | 확인된 값 |
+> | --- | --- |
+> | `--max-model-len` 은 8192 로 시작해 올려본다 | **32768 이 정상 동작**한다 (L40S 48GB). 8192 로는 증거 번들이 들어가지 않아 400 오류가 난다 |
+> | 터널 명령의 JSON 따옴표 | PowerShell 에서는 그대로 동작. **cmd 에서는 `--parameters portNumber=8000,localPortNumber=8000`** 형식을 쓸 것 |
+> | `docker run ... serve --model ...` | 이미지 진입점에 `serve` 가 포함되어 있어 **`serve` 를 넣으면 안 된다** |
+
+
 > 네트워크반 1팀 (키시 야호~) · AWS를 처음 쓰는 사람을 위한 단계별 안내
 >
 > **목표:** 이 문서를 끝까지 따라가면 `comparison.md` 파일에 **진짜 모델이 낸 증강 전/후 수치**가 찍힙니다.
@@ -514,7 +525,7 @@ docker run -d --name hawki-vllm \
   --model openai/gpt-oss-20b \
   --served-model-name hawki-local \
   --api-key CHANGE-ME-TO-A-LONG-RANDOM-STRING \
-  --max-model-len 8192 \
+  --max-model-len 32768 \
   --gpu-memory-utilization 0.90
 ```
 
@@ -526,7 +537,7 @@ docker run -d --name hawki-vllm \
 | `-v /opt/hawki/models:...` | **모델을 디스크에 저장.** 이거 없으면 재시작마다 40GB 재다운로드 |
 | `--served-model-name hawki-local` | 우리 `.env`의 `LLM_MODEL` 값과 **정확히 같아야** 함 |
 | `--api-key` | 터널 안이라도 인증은 걸어둡니다. `.env`의 `LLM_API_KEY`와 같아야 함 |
-| `--max-model-len 8192` | **처음엔 작게.** 아래 설명 참고 |
+| `--max-model-len 32768` | 증거 번들 + 프롬프트 + 답변이 8192 를 넘는다. L40S 48GB 에서 32768 확인 |
 
 #### ⚠️ `--max-model-len`을 8192로 시작하는 이유
 
@@ -537,7 +548,7 @@ L40S는 48GB라서 **들어가긴 합니다.** 설계 문서에서 "예산 여�
 다만 남는 공간이 빠듯해서, 문맥 길이를 처음부터 32768로 잡으면 **KV 캐시가 넘쳐 OOM**이 납니다. 그래서:
 
 ```
-8192 로 시작 → 뜨면 16384 시도 → 되면 32768 시도
+8192 로 시작 → 뜨면 16384 시도 → 되면 32768 시도  (2026-08-24 확인: 32768 정상 동작)
 ```
 
 되는 최대값을 찾아서 기록해 두세요. 그게 여러분의 "긴 로그 한 번에 넣기" 실험의 실제 상한입니다. **이 숫자 자체가 발표 자료가 됩니다.**
