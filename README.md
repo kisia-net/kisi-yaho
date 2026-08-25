@@ -36,6 +36,7 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 | --- | --- |
 | [`docs/STATUS.md`](docs/STATUS.md) | **프로젝트 현황판** — 진행 상황, 한계, 향후 계획, 역할 분담, 시연 대본 |
 | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | **재시작 런북** — 켜고 끄는 전체 절차, 오류별 대처표 |
+| [`docs/MENTORING_LOG.md`](docs/MENTORING_LOG.md) | **멘토링 기록** — 회차별 지적과 그에 대한 결정 |
 | [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 설계 결정과 근거 |
 | [`docs/AWS_구축_가이드.md`](docs/AWS_구축_가이드.md) | AWS 환경 구축 1~6단계 (처음 쓰는 사람 기준) |
 | [`infra/terraform/README.md`](infra/terraform/README.md) | 인프라 코드 사용법 |
@@ -45,6 +46,15 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 ## 업데이트 기록
 
 새 항목은 **맨 위에** 추가합니다. 날짜 + 무엇이 달라졌는지 한 줄로 씁니다.
+
+### 2026-08-25 — 멘토링 피드백 반영
+
+- `docs/MENTORING_LOG.md` 신설 — 회차별 지적과 그에 대한 결정을 기록
+- 용어 통일: **SIEM (Wazuh)**, **Network IDS (Suricata)** — 역할이 앞, 제품명은 괄호
+- 정규화를 **장비별로 나눠** 설명하는 절 추가 (웹 서버 / WAF / 네트워크 / 엔드포인트)
+- PCAP 은 SIEM 에 직접 넣는 것이 아니라 **센서에 재생시켜 로그를 만드는 입력**임을 명시
+- `STATUS.md` 에 경보 설계 방향, 공격 유형별 컨텍스트 윈도우, 「지금 결정해야 할 것」 절 추가
+- 6주차 내 인프라 구축 완료를 일정에 명시
 
 ### 2026-08-24 — AWS GPU 실제 연동
 
@@ -134,6 +144,21 @@ nginx / syslog     ─┘                                                       
 
 경보 561건은 ET Open 룰셋이 실제로 발화시킨 것입니다.
 반면 엔드포인트(Sysmon · Wazuh) 쪽은 아직 시험용 7줄이 전부이며, 실제 로그 확보가 남은 과제입니다.
+
+### 정규화 — 장비마다 다르게
+
+정규화는 **한 장비에서 나오는 로그 포맷을 표준 형태로 맞추는 일**입니다.
+장비가 다르면 정규화도 다릅니다 — 웹 서버 접근 로그와 네트워크 로그는
+담고 있는 것도, 표준 필드로 옮기는 방식도 서로 다릅니다.
+
+| 구간 | 원본 | 정규화가 하는 일 |
+| --- | --- | --- |
+| 웹 서버 | combined access log (한 줄 텍스트) | 요청 메서드 · URI · 상태 코드 · 응답 크기 · User-Agent 를 각 필드로 분리. 상태 코드는 **응답** 속성이지 포트가 아니다 |
+| WAF | ModSecurity 감사 트랜잭션 (JSON) | 발화한 CRS 룰 id 를 전부 보존하고, 요청 필드와 응답 필드를 구분 |
+| 네트워크 | Suricata EVE (JSON, 이벤트 종류별 스키마) | `flow_id` · 5-tuple · 응용 프로토콜을 표준 필드로. `alert` 와 `http` · `dns` · `tls` 를 같은 이벤트로 뭉치지 않는다 |
+| 엔드포인트 | Sysmon (Windows 이벤트) | 프로세스 · DNS · 네트워크 · 파일 이벤트를 종류별로 구분해 옮긴다 |
+
+어느 경우든 **생산자 원본은 `event.original` 에 손대지 않고 그대로 남깁니다.**
 
 ### 어댑터 — 9종
 
@@ -308,9 +333,15 @@ python -m hawki_alert_analysis.ingest capture/out \
     --out data/scenarios/real_001 --host web-01
 ```
 
-Suricata 가 캡처를 읽어 자신의 `eve.json` 을 씁니다.
+Network IDS (Suricata) 가 캡처를 읽어 자신의 `eve.json` 을 씁니다.
 **실제 센서가 만드는 것과 같은 형식**이라 뒷단에서는 차이를 알 수 없습니다.
 이렇게 만들어진 이벤트에는 합성된 부분이 없습니다.
+
+> **오해하기 쉬운 지점** — PCAP 을 SIEM 에 직접 넣는 것이 아닙니다.
+> PCAP 을 SIEM 으로 가져와 처리하는 방식은 실무에서 일반적이지 않습니다.
+> 여기서 PCAP 은 **센서에 재생시켜 로그를 만들어내기 위한 입력**일 뿐이고,
+> 수집되는 것은 어디까지나 센서가 생성한 `eve.json` 입니다.
+> 운영 환경에서는 이 자리에 라이브 센서가 들어갑니다.
 
 `suricata-update` 를 먼저 실행하세요. 룰셋이 없으면 Suricata 는 `http`, `dns`, `tls`, `flow`
 이벤트는 남기지만 **경보를 만들지 않고**, 경보가 없는 케이스에는 트리거가 없습니다.
