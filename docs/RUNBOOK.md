@@ -444,6 +444,57 @@ terraform apply -var lab_running=false
 
 ---
 
+## 서버 목록 (2026-08-28 생성)
+
+| 서버 | 인스턴스 ID | 사설 IP | 담당 | 올라갈 것 |
+| --- | --- | --- | --- | --- |
+| `siem` | `i-0d3f61f22252b1fbb` | `10.0.10.123` | 권민석 · 이효찬 | Wazuh Manager · Indexer · Dashboard · Velociraptor Server |
+| `web` | `i-0629c84bb40895441` | `10.0.1.201` | 하서휘 | nginx · ModSecurity · Wazuh Agent |
+| `vm` | `i-00cee9b7e43c531d1` | `10.0.10.235` | 엄수현 | Suricata · Sysmon for Linux · Wazuh Agent |
+| `llm` | `i-0a8d4b62ea1de7699` | — | 이승섭 (테스트) | vLLM · GPT-OSS 20B (구축 완료) |
+
+**Wazuh Manager 주소는 `10.0.10.123`** — Agent 설치할 때 이 값을 넣습니다.
+
+서버 안으로 들어가기 (셋 다 같은 방식)
+
+```powershell
+aws ssm start-session --target <인스턴스 ID>
+sudo su - ubuntu
+```
+
+Wazuh 대시보드 보기 — 터널을 열고 브라우저에서 `https://127.0.0.1:8443`
+
+```powershell
+aws ssm start-session --target i-0d3f61f22252b1fbb `
+  --document-name AWS-StartPortForwardingSession `
+  --parameters portNumber=443,localPortNumber=8443
+```
+
+### 켜고 끄기
+
+스위치가 두 개입니다. GPU 와 나머지 서버가 따로 움직입니다.
+
+```powershell
+cd <repo>\infra\terraform
+
+terraform apply -var siem_running=true                      # 서버 3대 켜기
+terraform apply -var lab_running=true                       # GPU 켜기
+terraform apply -var siem_running=false -var lab_running=false   # 전부 끄기
+```
+
+| | 켜둘 때 | 끄면 |
+| --- | --- | --- |
+| 서버 3대 + NAT | 하루 약 $9.5 | $0 |
+| GPU | 하루 약 $70,000원 | $0 |
+| 디스크 380GB | — | 월 약 $35 (계속 나감) |
+
+### 주의 — 웹 서버 공인 IP 는 바뀝니다
+
+현재 `43.201.86.15` 인데, **껐다 켜면 다른 주소가 배정됩니다.** 고정이 필요하면 Elastic IP 를 붙여야 합니다.
+공격 시나리오나 문서에 IP 를 적어두지 마시고, 켤 때마다 `terraform output web_public_ip` 로 확인하세요.
+
+---
+
 ## 오류별 대처
 
 실제로 겪었던 문제들입니다.

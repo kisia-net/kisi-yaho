@@ -66,13 +66,13 @@ resource "aws_subnet" "private" {
 # 시간당 과금이라 안 쓸 때는 통째로 지웁니다.
 
 resource "aws_eip" "nat" {
-  count  = var.lab_running ? 1 : 0
+  count  = local.nat_needed ? 1 : 0
   domain = "vpc"
   tags   = { Name = "${var.project_prefix}-nat-eip" }
 }
 
 resource "aws_nat_gateway" "nat" {
-  count         = var.lab_running ? 1 : 0
+  count         = local.nat_needed ? 1 : 0
   allocation_id = aws_eip.nat[0].id
   subnet_id     = aws_subnet.public.id
   depends_on    = [aws_internet_gateway.igw]
@@ -86,7 +86,7 @@ resource "aws_route_table" "private" {
   # NAT 이 있을 때만 바깥으로 나가는 길이 생깁니다.
   # NAT 이 없으면 이 서브넷은 완전히 고립됩니다.
   dynamic "route" {
-    for_each = var.lab_running ? [1] : []
+    for_each = local.nat_needed ? [1] : []
     content {
       cidr_block     = "0.0.0.0/0"
       nat_gateway_id = aws_nat_gateway.nat[0].id

@@ -67,3 +67,69 @@ variable "project_prefix" {
   default     = "siem"
   description = "자원 이름 앞에 붙는 말"
 }
+
+# =============================================================================
+# 서버 3대 (SIEM · 웹 · 센서 VM) — servers.tf 에서 씁니다
+# =============================================================================
+
+# ★ 두 번째로 중요한 변수 ★
+#   lab_running 은 GPU 만, 이건 나머지 서버들만 켜고 끕니다.
+#   따로 둔 이유: SIEM 만 만지는 날에 GPU까지 켜지면 돈이 아깝습니다.
+variable "siem_running" {
+  type        = bool
+  default     = false
+  description = "SIEM · 웹 · 센서 VM 을 켤지. 작업 끝나면 false."
+}
+
+variable "siem_instance_type" {
+  type        = string
+  default     = "t3.xlarge" # 4 vCPU / 16GB — Indexer 가 JVM 힙을 크게 먹습니다
+  description = "SIEM 서버 크기. t3.large 로 내리면 인덱싱 중 죽을 수 있습니다."
+}
+
+variable "web_instance_type" {
+  type        = string
+  default     = "t3.small"
+  description = "웹 서버 크기. nginx + ModSecurity 면 충분합니다."
+}
+
+variable "vm_instance_type" {
+  type        = string
+  default     = "t3.large" # Suricata 가 ET Open 룰만 1.5GB 가까이 씁니다
+  description = "센서 VM 크기."
+}
+
+variable "siem_volume_gb" {
+  type        = number
+  default     = 100
+  description = "SIEM 디스크. 로그가 쌓이는 곳이라 넉넉히."
+}
+
+variable "vm_volume_gb" {
+  type        = number
+  default     = 50
+  description = "센서 VM 디스크. eve.json 이 쌓입니다."
+}
+
+# ⚠ 트래픽 미러링은 맨 마지막에 켜세요.
+#   서버 셋이 다 서고 SIEM 에 로그가 올라오는 걸 확인한 뒤에 true 로.
+variable "mirroring_enabled" {
+  type        = bool
+  default     = false
+  description = "웹 서버 트래픽을 센서 VM 으로 복사할지."
+}
+
+# 웹 서버를 인터넷 전체에 열지, 우리 IP 만 열지.
+#   true  → 실제 봇 스캔이 들어옵니다. 진짜 공격 로그가 쌓이지만 관리가 필요합니다.
+#   false → team_ip_cidrs 에 적은 주소만. 안전하지만 우리가 만든 로그뿐입니다.
+variable "web_open_to_internet" {
+  type        = bool
+  default     = false
+  description = "웹 서버를 0.0.0.0/0 에 열지 여부."
+}
+
+variable "team_ip_cidrs" {
+  type        = list(string)
+  default     = ["0.0.0.0/32"] # 일부러 아무것도 아닌 값. tfvars 에서 채우세요.
+  description = "web_open_to_internet=false 일 때 허용할 팀원 IP. 예: [\"1.2.3.4/32\"]"
+}
