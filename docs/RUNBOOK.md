@@ -490,7 +490,7 @@ terraform apply -var siem_running=false -var lab_running=false   # 전부 끄기
 
 ### 주의 — 웹 서버 공인 IP 는 바뀝니다
 
-현재 `43.201.86.15` 인데, **껐다 켜면 다른 주소가 배정됩니다.** 고정이 필요하면 Elastic IP 를 붙여야 합니다.
+**껐다 켜면 매번 다른 주소가 배정됩니다.** 고정이 필요하면 Elastic IP 를 붙여야 합니다.
 공격 시나리오나 문서에 IP 를 적어두지 마시고, 켤 때마다 `terraform output web_public_ip` 로 확인하세요.
 
 ---
