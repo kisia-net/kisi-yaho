@@ -55,8 +55,19 @@ resource "aws_security_group" "siem" {
 # --- 웹 서버 -------------------------------------------------------------------
 # 여기만 인터넷에 열립니다. 공격 대상이 되는 것이 역할입니다.
 #
-#  var.web_open_to_internet = false 로 두면 우리 IP 만 들어옵니다.
-#  true 로 하면 실제 봇 스캔이 들어와서 진짜 공격 로그가 쌓입니다 — 대신 관리 필요.
+#  현재 0.0.0.0/0 전체 개방입니다 (web_open_to_internet = true).
+#
+#  ★ 이건 의도된 설정입니다 ★
+#    SIEM 프로젝트에서 "공격받는 웹 서버" 가 있어야 실제 공격 로그가 생깁니다.
+#    다만 교육용 AWS 계정 지침상 전체 개방은 사전 확인 대상이므로,
+#    담당자께 알린 뒤 사용합니다.
+#
+#  전체 개방을 유지하는 조건 네 가지 — 하나라도 못 지키면 team_ip_cidrs 로 되돌리세요.
+#    1. 작업할 때만 켠다 (siem_running=false 가 기본)
+#    2. ModSecurity + OWASP CRS 를 nginx 와 함께 올린다
+#    3. 이 서버에는 실제 개인정보나 팀 비밀값을 두지 않는다
+#    4. 이 서버의 IAM 권한은 SSM 통신 하나뿐으로 유지한다
+#       (털려도 새 인스턴스를 못 만들게 하는 마지막 방어선)
 
 resource "aws_security_group" "web" {
   name        = "${var.project_prefix}-sg-web"

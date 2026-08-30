@@ -124,7 +124,7 @@ variable "mirroring_enabled" {
 #   false → team_ip_cidrs 에 적은 주소만. 안전하지만 우리가 만든 로그뿐입니다.
 variable "web_open_to_internet" {
   type        = bool
-  default     = false
+  default     = true
   description = "웹 서버를 0.0.0.0/0 에 열지 여부."
 }
 
