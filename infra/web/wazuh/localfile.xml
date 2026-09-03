@@ -1,0 +1,33 @@
+<!-- =============================================================================
+     localfile.xml — /var/ossec/etc/ossec.conf 의 <ossec_config> 안에 붙입니다
+     =============================================================================
+
+     계층도(rev.4) 2번 칸 그대로입니다.
+
+         웹 서버(nginx) ┐
+                        ├─ Wazuh Agent ─(1514/tcp 암호화)─▶ Wazuh Manager
+         웹 방화벽(ModSecurity) ┘                              10.0.10.123
+
+     Agent 는 "무엇을 읽어서 보낼지" 를 모릅니다. 아래 두 블록이 그것을 알려주는
+     유일한 설정이고, 이게 없으면 Agent 는 붙어 있지만 웹 로그는 한 줄도 안 갑니다.
+     ("Agent active 인데 경보가 없다" 의 8할이 이 설정 누락입니다.)
+============================================================================== -->
+
+<!-- nginx 접근 로그. Wazuh 내장 web-accesslog 디코더가 읽습니다. -->
+<localfile>
+  <log_format>apache</log_format>
+  <location>/var/log/nginx/access.log</location>
+</localfile>
+
+<!-- nginx 오류 로그. 502/504 같은 것이 여기 남습니다. -->
+<localfile>
+  <log_format>syslog</log_format>
+  <location>/var/log/nginx/error.log</location>
+</localfile>
+
+<!-- ModSecurity 감사 로그. Serial + JSON 이라 한 줄에 JSON 하나입니다.
+     Concurrent 로 두면 파일이 트랜잭션마다 쪼개져 이 경로가 무의미해집니다. -->
+<localfile>
+  <log_format>json</log_format>
+  <location>/var/log/modsec_audit.json</location>
+</localfile>
