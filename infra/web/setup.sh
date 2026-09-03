@@ -139,8 +139,13 @@ NGINX
 chmod 0640 /var/log/modsec_audit.json
 
 echo "== 6. 취약 포털 앱 + 미끼 + 더미 DB"
-install -d /var/www/kisiyaho/pages
-cp -r "$REPO_DIR/app/portal/." /var/www/kisiyaho/
+# 앱은 /portal/ 경로로 접근합니다(시나리오·공격 URL 이 전부 /portal/... 임).
+# 그래서 파일을 웹 루트 바로 밑이 아니라 portal/ 하위에 둡니다:
+#   root /var/www/kisiyaho  +  요청 /portal/index.php
+#     → /var/www/kisiyaho/portal/index.php
+install -d /var/www/kisiyaho
+rm -rf /var/www/kisiyaho/portal
+cp -r "$REPO_DIR/app/portal" /var/www/kisiyaho/portal
 install -d /var/www/kisiyaho-decoy/etc
 cp "$REPO_DIR/decoy/etc/passwd" /var/www/kisiyaho-decoy/etc/passwd
 chown -R www-data:www-data /var/www/kisiyaho /var/www/kisiyaho-decoy
@@ -171,9 +176,9 @@ systemctl restart nginx
 
 echo
 echo "== 완료. 확인:"
-echo "  curl -s localhost/portal/index.php?page=about | head"
-echo "  curl -s 'localhost/../../../../etc/passwd'                 # WAF 가 잡는지"
-echo "  tail -n1 /var/log/modsec_audit.json | python3 -m json.tool | head"
-echo "  tail -n1 /var/log/nginx/access.log"
-echo
+echo "  curl -s localhost/portal/index.php?page=about | head    # 포털 HTML 이 나오면 OK"
+echo "  # WAF 가 잡는지 — --path-as-is 로 ../ 를 그대로 보내야 함(안 붙이면 curl 이 정리해버림)"
+echo "  curl -s --path-as-is -o /dev/null -w '%{http_code}\\n' 'localhost/portal/index.php?page=../../../../etc/passwd'"
+echo "  sudo tail -n1 /var/log/modsec_audit.json | python3 -m json.tool | head   # 감사 로그(root 소유라 sudo)"
+echo "  sudo tail -n1 /var/log/nginx/access.log"
 echo "  그다음 Wazuh Agent: sudo bash $REPO_DIR/wazuh/install-agent.sh"
