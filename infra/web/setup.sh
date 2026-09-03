@@ -85,19 +85,55 @@ fi
 cp /usr/local/src/ModSecurity/unicode.mapping /etc/nginx/modsec/ 2>/dev/null || true
 
 echo "== 5. 우리 설정 파일 배치 (이 저장소)"
+# 소스로 빌드한 nginx 는 apt 판과 달리 conf.d·sites-*·snippets 폴더를
+# 만들어 주지 않습니다. 먼저 전부 만든 뒤에 파일을 넣습니다.
+install -d /etc/nginx/conf.d /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/snippets
 install -m0644 "$REPO_DIR/modsec/main.conf"      /etc/nginx/modsec/main.conf
 install -m0644 "$REPO_DIR/modsec/overrides.conf" /etc/nginx/modsec/overrides.conf
 install -m0644 "$REPO_DIR/nginx/log_format.conf" /etc/nginx/conf.d/log_format.conf
-install -d /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/snippets
 install -m0644 "$REPO_DIR/nginx/portal.conf"     /etc/nginx/sites-available/portal
 ln -sf /etc/nginx/sites-available/portal /etc/nginx/sites-enabled/portal
 rm -f /etc/nginx/sites-enabled/default
 
 # nginx.conf 에 modsec 모듈 load 와 sites-enabled include 가 없으면 넣습니다.
-grep -q "ngx_http_modsecurity_module.so" /etc/nginx/nginx.conf || \
-  sed -i '1i load_module /usr/lib/nginx/modules/ngx_http_modsecurity_module.so;' /etc/nginx/nginx.conf
-grep -q "sites-enabled" /etc/nginx/nginx.conf || \
-  sed -i '/http {/a \    include /etc/nginx/conf.d/*.conf;\n    include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf
+# portal.conf 가 include 하는 fastcgi-php 스니펫. apt 판 nginx 에는 기본으로
+# 있지만 소스 빌드에는 없어서 직접 만듭니다. fastcgi.conf 는 소스 install 이
+# /etc/nginx/fastcgi.conf 로 넣어 줍니다.
+cat > /etc/nginx/snippets/fastcgi-php.conf <<'SNIP'
+fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+try_files $fastcgi_script_name =404;
+set $path_info $fastcgi_path_info;
+fastcgi_param PATH_INFO $path_info;
+fastcgi_index index.php;
+include fastcgi.conf;
+SNIP
+
+# nginx.conf 를 깨끗하게 새로 씁니다. 소스판 기본 nginx.conf 에는
+# server_name localhost 인 server 블록이 들어 있어, curl localhost 요청이
+# 우리 포털(default_server)이 아니라 그 기본 서버로 가 버립니다. 그걸 피하려고
+# 통째로 교체합니다. (modsec 모듈 load 도 여기서 겁니다.)
+cat > /etc/nginx/nginx.conf <<'NGINX'
+load_module /usr/lib/nginx/modules/ngx_http_modsecurity_module.so;
+
+user  www-data;
+worker_processes  auto;
+pid  /run/nginx.pid;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+NGINX
 
 : > /var/log/modsec_audit.json
 chmod 0640 /var/log/modsec_audit.json
