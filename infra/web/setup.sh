@@ -135,8 +135,13 @@ http {
 }
 NGINX
 
+# ModSecurity 는 nginx 워커(www-data) 안에서 돌므로, 감사 로그를 www-data 가
+# 쓸 수 있어야 합니다. root 소유 0640 으로 두면 www-data 가 못 써서 로그가
+# 한 줄도 안 남습니다(차단은 되는데 audit.json 이 비는 증상).
 : > /var/log/modsec_audit.json
-chmod 0640 /var/log/modsec_audit.json
+: > /var/log/modsec_debug.log
+chown www-data:www-data /var/log/modsec_audit.json /var/log/modsec_debug.log
+chmod 0640 /var/log/modsec_audit.json /var/log/modsec_debug.log
 
 echo "== 6. 취약 포털 앱 + 미끼 + 더미 DB"
 # 앱은 /portal/ 경로로 접근합니다(시나리오·공격 URL 이 전부 /portal/... 임).
