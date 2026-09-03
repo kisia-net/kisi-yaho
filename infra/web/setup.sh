@@ -36,7 +36,10 @@ fi
 echo "== 1. 빌드 의존성"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y git build-essential libpcre3-dev zlib1g-dev libssl-dev \
+# libpcre2-dev 는 ModSecurity 3.0.13+ 가 요구합니다(PCRE2). 없으면 빌드가
+# "fatal error: pcre2.h: No such file or directory" 로 멈춥니다.
+# libpcre3-dev(PCRE1) 는 nginx 소스가 요구해서 함께 둡니다.
+apt-get install -y git build-essential libpcre2-dev libpcre3-dev zlib1g-dev libssl-dev \
   libtool automake autoconf libxml2-dev libyajl-dev pkgconf libcurl4-openssl-dev \
   liblmdb-dev libgeoip-dev php8.1-fpm php8.1-sqlite3 sqlite3 curl gnupg
 
