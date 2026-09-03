@@ -133,3 +133,12 @@ variable "team_ip_cidrs" {
   default     = ["0.0.0.0/32"] # 일부러 아무것도 아닌 값. tfvars 에서 채우세요.
   description = "web_open_to_internet=false 일 때 허용할 팀원 IP. 예: [\"1.2.3.4/32\"]"
 }
+
+# 웹 서버가 설치 파일(infra/web)을 받아올 S3 버킷.
+# 팀 state 버킷(backend.tf 의 bucket)을 그대로 재사용하면 됩니다.
+# 다른 버킷을 쓰면 이 값을 그 이름으로 바꾸세요.
+variable "web_artifact_bucket" {
+  type        = string
+  default     = "kisia-net1-s3"
+  description = "web 서버가 setup.sh 등 설치 파일을 내려받는 S3 버킷 이름."
+}
