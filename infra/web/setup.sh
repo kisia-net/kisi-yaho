@@ -155,6 +155,11 @@ install -d /var/www/kisiyaho-decoy/etc
 cp "$REPO_DIR/decoy/etc/passwd" /var/www/kisiyaho-decoy/etc/passwd
 chown -R www-data:www-data /var/www/kisiyaho /var/www/kisiyaho-decoy
 install -m0644 "$REPO_DIR/app/portal.pool.conf" /etc/php/8.1/fpm/pool.d/portal.conf
+# php 기본 풀(www.conf)도 같은 소켓 /run/php/php8.1-fpm.sock 을 씁니다.
+# 우리 portal 풀과 소켓이 겹치면 php-fpm 이 "Address already in use" 로
+# 아예 못 뜹니다(로그인 요청이 502 가 되는 원인). 기본 풀을 비활성화합니다.
+[ -f /etc/php/8.1/fpm/pool.d/www.conf ] && \
+  mv /etc/php/8.1/fpm/pool.d/www.conf /etc/php/8.1/fpm/pool.d/www.conf.disabled
 bash "$REPO_DIR/app/seed.sh"
 
 echo "== 7. systemd 유닛"
@@ -174,7 +179,10 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now php8.1-fpm
+systemctl enable php8.1-fpm
+# enable --now 는 이미 떠 있으면(또는 실패 상태면) 재시작하지 않으므로,
+# www.conf 제거를 반영하려면 명시적으로 restart 합니다.
+systemctl restart php8.1-fpm
 nginx -t
 systemctl enable --now nginx
 systemctl restart nginx
