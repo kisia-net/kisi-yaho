@@ -38,7 +38,10 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | **재시작 런북** — 켜고 끄는 전체 절차, 오류별 대처표 |
 | [`docs/MENTORING_LOG.md`](docs/MENTORING_LOG.md) | **멘토링 기록** — 회차별 지적과 그에 대한 결정 |
 | [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 설계 결정과 근거 |
-| [`docs/AWS_구축_가이드.md`](docs/AWS_구축_가이드.md) | AWS 환경 구축 1~6단계 (처음 쓰는 사람 기준) |
+| [`docs/AWS_구축_가이드.md`](docs/AWS_구축_가이드.md) | **팀원용** — 담당 서버 접속과 설치 (Terraform 불필요) |
+| [`docs/ROLES.md`](docs/ROLES.md) · [`docs/역할분담_요약.md`](docs/역할분담_요약.md) | 역할 분담 (상세 / 요약) |
+| [`docs/diagrams/`](docs/diagrams/) | 네트워크 구성도 · 계층도 |
+| [`docs/팀장전용_인프라_운영.md`](docs/팀장전용_인프라_운영.md) | 팀장 전용 — Terraform · GPU · 계정/키 · 비용 |
 | [`infra/terraform/README.md`](infra/terraform/README.md) | 인프라 코드 사용법 |
 
 ---
