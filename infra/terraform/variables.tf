@@ -142,3 +142,8 @@ variable "web_artifact_bucket" {
   default     = "kisia-net1-s3"
   description = "web 서버가 setup.sh 등 설치 파일을 내려받는 S3 버킷 이름."
 }
+variable "frontend_instance_type" {
+  type        = string
+  default     = "t3.small" # Flask + gunicorn. 도커 빌드에 스왑을 켜면 충분합니다
+  description = "프론트엔드(HAW-KI 웹 앱) 서버 크기."
+}

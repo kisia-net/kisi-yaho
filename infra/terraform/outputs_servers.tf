@@ -8,7 +8,8 @@ output "server_ids" {
     siem = aws_instance.siem.id
     web  = aws_instance.web.id
     vm   = aws_instance.vm.id
-    llm  = aws_instance.llm.id
+    llm      = aws_instance.llm.id
+    frontend = aws_instance.frontend.id
   }
 }
 
@@ -17,7 +18,8 @@ output "server_private_ips" {
   value = {
     siem = aws_instance.siem.private_ip
     web  = aws_instance.web.private_ip
-    vm   = aws_instance.vm.private_ip
+    vm       = aws_instance.vm.private_ip
+    frontend = aws_instance.frontend.private_ip
   }
 }
 
@@ -38,4 +40,9 @@ output "connect_siem" {
 output "tunnel_wazuh_dashboard" {
   description = "Wazuh 대시보드 터널 — 열고 나서 https://127.0.0.1:8443"
   value       = "aws ssm start-session --target ${aws_instance.siem.id} --document-name AWS-StartPortForwardingSession --parameters portNumber=443,localPortNumber=8443"
+}
+
+output "tunnel_frontend" {
+  description = "프론트엔드 터널 — 열고 나서 http://127.0.0.1:5000"
+  value       = "aws ssm start-session --target ${aws_instance.frontend.id} --document-name AWS-StartPortForwardingSession --parameters portNumber=5000,localPortNumber=5000"
 }

@@ -128,3 +128,31 @@ resource "aws_security_group" "vm" {
 
   tags = { Name = "${var.project_prefix}-sg-vm" }
 }
+
+# --- 프론트엔드 ---------------------------------------------------------------
+# 인터넷 인바운드 0개. 브라우저는 SSM 포트 포워딩으로 붙습니다.
+# 5000 은 VPC 안에서만 열어, SIEM 서버가 API 로 호출할 수 있게 합니다.
+
+resource "aws_security_group" "frontend" {
+  name        = "${var.project_prefix}-sg-frontend"
+  description = "HAW-KI web app. Reachable inside the VPC only; browsers use SSM tunneling."
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 5000
+    to_port     = 5000
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+    description = "Web app, from inside the VPC only"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Outbound for package install, SSM messaging, SIEM and LLM calls"
+  }
+
+  tags = { Name = "${var.project_prefix}-sg-frontend" }
+}
