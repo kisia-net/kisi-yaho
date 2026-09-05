@@ -41,6 +41,16 @@ resource "aws_security_group" "siem" {
     description = "Velociraptor client to server"
   }
 
+  # 프론트엔드가 경보를 조회하는 통로. Wazuh Indexer(OpenSearch) 는
+  # 기본이 HTTPS + 자체 서명 인증서입니다.
+  ingress {
+    from_port   = 9200
+    to_port     = 9200
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+    description = "Wazuh Indexer, queried by the frontend app"
+  }
+
   egress {
     from_port   = 0
     to_port     = 0

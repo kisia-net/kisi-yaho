@@ -61,14 +61,17 @@ resource "aws_iam_role_policy" "web_artifact_read" {
         Action   = ["s3:ListBucket"]
         Resource = ["arn:aws:s3:::${var.web_artifact_bucket}"]
         Condition = {
-          StringLike = { "s3:prefix" = ["web/*"] }
+          StringLike = { "s3:prefix" = ["web/*", "app/*"] }
         }
       },
       {
         Sid      = "GetWebObjects"
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
-        Resource = ["arn:aws:s3:::${var.web_artifact_bucket}/web/*"]
+        Resource = [
+          "arn:aws:s3:::${var.web_artifact_bucket}/web/*",
+          "arn:aws:s3:::${var.web_artifact_bucket}/app/*", # 프론트엔드 서버가 받아가는 앱 코드
+        ]
       }
     ]
   })
