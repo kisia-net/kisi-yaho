@@ -4,11 +4,12 @@
 #
 #  ★ 발표에서 말할 부분 ★
 #
-#  이 보안 그룹에는 ingress(들어오는 규칙) 블록이 하나도 없습니다.
 #  인터넷에서 이 서버로 들어올 수 있는 포트는 0개입니다.
 #
-#    · SSH(22)   — 열지 않음. SSM Session Manager 로 접속합니다.
-#    · vLLM(8000) — 열지 않음. SSM 포트 포워딩으로 터널을 뚫습니다.
+#    · SSH(22)    — 열지 않음. SSM Session Manager 로 접속합니다.
+#    · vLLM(8000) — 인터넷에는 닫혀 있고, VPC 안에서만 열립니다.
+#                   프론트엔드 서버(10.0.10.176)가 모델을 호출해야 하기 때문입니다.
+#                   노트북에서 볼 때는 여전히 SSM 터널을 씁니다.
 #
 #  "우리 LLM 서버는 인터넷에서 접근 가능한 포트가 하나도 없습니다."
 
@@ -17,7 +18,15 @@ resource "aws_security_group" "llm" {
   description = "LLM server. No inbound rules at all - access is via SSM only."
   vpc_id      = aws_vpc.main.id
 
-  # ingress 없음 (의도적)
+  # 인터넷에서 오는 인바운드는 여전히 0개입니다.
+  # 아래는 VPC 내부(10.0.0.0/16)에서만 허용되는 규칙입니다.
+  ingress {
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+    description = "vLLM OpenAI API, called by the frontend app inside the VPC"
+  }
 
   egress {
     from_port   = 0

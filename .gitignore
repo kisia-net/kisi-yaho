@@ -207,3 +207,5 @@ pip-selfcheck.json
 # 제출·배포용 문서(docx)는 노션으로 공유합니다. 저장소에는 두지 않고
 # 각자 로컬에만 보관합니다. 최신 내용은 docs/ 의 마크다운 문서가 기준입니다.
 docs/submissions/
+
+Claude outputs/
