@@ -1,6 +1,21 @@
 ### dotenv ###
 .env
 
+# Deployment secrets. The `.env` rule above matches that name exactly, so the
+# timestamped copies taken before a config change -- .env.pre-wazuh-api-<stamp>
+# and the like -- were not covered, and they hold the same indexer password,
+# Flask secret and API keys as the original. A deployed host that becomes a
+# git checkout lists them as untracked, which is one `git add -A` away from
+# publishing them. The .env.example copies are templates and stay tracked.
+.env.*
+!.env.example
+!.env.example.*
+
+# TLS material staged on the deployment host. Certificates are harmless;
+# whatever private key sits beside them is not, and they arrive as a directory
+# nobody has to think about.
+certs/
+
 ### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/
