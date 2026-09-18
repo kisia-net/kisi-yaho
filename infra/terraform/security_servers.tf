@@ -26,6 +26,14 @@ resource "aws_security_group" "siem" {
   }
 
   ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+    description = "Wazuh Dashboard HTTPS, called from inside the VPC"
+  }
+
+  ingress {
     from_port   = 55000
     to_port     = 55000
     protocol    = "tcp"
