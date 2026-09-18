@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block subtitle %}
+<p class="page-description">
+    Review Wazuh-monitored endpoints and their current operational state.
+</p>
+{% endblock %}
+
+{% block content %}
+<section class="panel" id="hosts-root">
+    <div class="panel-header">
+        <div>
+            <p class="panel-kicker">Wazuh Server API</p>
+            <h2>Monitored hosts</h2>
+        </div>
+
+        <span class="muted" data-host-summary>
+            Loading…
+        </span>
+    </div>
+
+    <div class="host-list" data-host-list>
+        <div class="loading-block">
+            Loading Wazuh agents…
+        </div>
+    </div>
+</section>
+
+<script src="{{ url_for('static', filename='hosts.js', v=asset_version) }}"></script>
+{% endblock %}

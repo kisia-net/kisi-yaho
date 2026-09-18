@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .bundle import BUNDLE_SCHEMA
+from .live_bundle import LIVE_BUNDLE_SCHEMA, build_live_evidence_bundle
 from .repository import EventRepository
 
 
@@ -10,26 +11,77 @@ class AlertAnalysisService:
     def __init__(self, repository: EventRepository):
         self.repository = repository
 
-    def list_alerts(self, *, severity: str = "all", status: str = "all", query: str = "") -> list[dict[str, Any]]:
+    def list_alerts(
+        self,
+        *,
+        min_level: int = 0,
+        severity: str = "all",
+        status: str = "all",
+        query: str = "",
+    ) -> list[dict[str, Any]]:
         alerts = self.repository.list_alerts()
-        if severity != "all":
-            alerts = [item for item in alerts if str(item.get("severity", "")).lower() == severity]
+
+        if min_level > 0:
+            filtered = []
+            for item in alerts:
+                try:
+                    level = int(item.get("rule_level"))
+                except (TypeError, ValueError):
+                    continue
+                if level >= min_level:
+                    filtered.append(item)
+            alerts = filtered
+
+        # Legacy fixture compatibility only.
+        elif severity != "all":
+            alerts = [
+                item
+                for item in alerts
+                if str(item.get("severity", "")).lower()
+                == severity
+            ]
+
         if status != "all":
-            alerts = [item for item in alerts if str(item.get("status", "")).lower() == status]
+            alerts = [
+                item
+                for item in alerts
+                if str(item.get("status", "")).lower()
+                == status
+            ]
+
         if query:
             needle = query.lower()
             alerts = [
-                item for item in alerts
-                if needle in " ".join(str(value).lower() for value in item.values())
+                item
+                for item in alerts
+                if needle
+                in " ".join(
+                    str(value).lower()
+                    for value in item.values()
+                )
             ]
+
         return alerts
 
     def get_case(self, alert_id: str):
         return self.repository.build_alert_case(alert_id)
 
     def evidence_bundle(self, alert_id: str, *, max_related: int = 30) -> dict[str, Any]:
-        """The exact four-block metadata bundle delivered to the LLM/SLM."""
-        return self.get_case(alert_id).to_llm_context(max_related=max_related)
+        """Build the evidence package appropriate to the active repository."""
+
+        if (
+            callable(getattr(self.repository, "get_alert_record", None))
+            and callable(getattr(self.repository, "get_alert_context", None))
+        ):
+            return build_live_evidence_bundle(
+                self.repository,
+                alert_id,
+                max_context=max_related,
+            )
+
+        return self.get_case(alert_id).to_llm_context(
+            max_related=max_related
+        )
 
     def list_assets(self) -> list[dict[str, Any]]:
         inventory = getattr(self.repository, "asset_inventory", None)
@@ -62,13 +114,30 @@ class AlertAnalysisService:
         }
 
     def default_analysis_request(self) -> str:
+        if (
+            callable(getattr(self.repository, "get_alert_record", None))
+            and callable(getattr(self.repository, "get_alert_context", None))
+        ):
+            return (
+                "Analyze the supplied native Wazuh evidence as a SOC analyst. "
+                "TRIGGER is the detection that opened the investigation and CTX-* "
+                "records are bounded supporting events selected deterministically. "
+                "Separate directly observed facts from inference. Cite supporting "
+                "and contradictory evidence only with TRIGGER or supplied CTX-* "
+                "identifiers. Treat Wazuh rule metadata as producer metadata, not "
+                "proof of compromise. Retrieval relevance scores explain why an "
+                "event was selected; they are not security severity or model "
+                "confidence. Do not assume asset criticality, exposure, threat "
+                "intelligence, exploitation, persistence, credential compromise, "
+                "or malware execution when those facts are not supplied. Map to "
+                "ATT&CK only when supported by the evidence; otherwise leave the "
+                "mapping empty. State evidence gaps and recommend the next bounded "
+                "search or collection steps."
+            )
+
         return (
-            "Analyze this alert case as a SOC analyst. The bundle contains four metadata blocks: security "
-            "alerts, correlated raw security events, asset inventory context, and threat intelligence. Use all "
-            "four. Reconstruct the most plausible sequence from the multi-source evidence, and separate confirmed "
-            "observations from inference. Identify supporting and contradictory evidence, affected entities, "
-            "likely ATT&CK techniques, confidence, severity rationale that accounts for asset criticality and "
-            "exposure, evidence gaps, and the next searches or collection steps. Do not treat temporal "
-            "correlation alone as proof of causation, and do not treat a threat-intelligence match as proof of "
-            "compromise."
+            "Analyze this alert case as a SOC analyst. Use the supplied detections, "
+            "correlated events, asset context, and threat intelligence. Separate "
+            "confirmed observations from inference, cite evidence ids exactly, "
+            "state evidence gaps, and recommend the next searches or collection steps."
         )

@@ -1,49 +1,134 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">경보 한 건에 대해 여러 장비의 증거를 상관분석해, 네 개의 블록 — 보안 경보(security alerts), 원본 보안 이벤트(security events), 자산 정보(assets), 위협 인텔리전스(threat intelligence) — 으로 묶은 뒤 모델에 전달합니다. 시험 데이터는 Suricata·Nginx·Wazuh의 원본 형식 그대로입니다.</p>{% endblock %}
+
+{% block subtitle %}
+<p class="page-description">
+    Review the selected Wazuh detection and its source evidence.
+</p>
+{% endblock %}
+
 {% block content %}
-<div id="alert-analysis-root" data-alert-id="{{ alert_id }}" data-csrf="{{ csrf_token() }}">
+<div id="alert-analysis-root"
+     data-alert-id="{{ alert_id }}"
+     data-csrf="{{ csrf_token() }}">
+
     <section class="panel">
         <div class="panel-header">
-            <div><p class="panel-kicker">경보 케이스</p><h2 data-case-title>경보를 불러오는 중…</h2><p class="muted" data-case-id></p></div>
+            <div>
+                <p class="panel-kicker">Wazuh alert</p>
+                <h2 data-case-title>Loading alert…</h2>
+                <p class="muted" data-case-id hidden></p>
+            </div>
+
             <div class="button-row">
-                <button class="button primary" type="button" data-analyze>LLM으로 분석하기</button>
-                <a class="button secondary" href="/agent?mode=alert_summary" data-continue-agent>에이전트에서 이어서 보기</a>
+                <button class="button primary"
+                        type="button"
+                        data-analyze>
+                    Analyze with LLM
+                </button>
+
+                <a class="button secondary"
+                   href="/agent?mode=alert_summary"
+                   data-continue-agent>
+                    Continue in agent
+                </a>
             </div>
         </div>
     </section>
 
-    <section class="split-grid">
-        <article class="panel">
-            <div class="panel-header"><div><p class="panel-kicker">트리거</p><h2>경보 증거</h2></div></div>
-            <div class="structured-output" data-trigger></div>
-        </article>
-        <article class="panel">
-            <div class="panel-header"><div><p class="panel-kicker">상관분석</p><h2>관련 대상 (엔티티)</h2></div></div>
-            <div class="structured-output" data-entities></div>
-        </article>
-    </section>
-
-    <section class="split-grid">
-        <article class="panel">
-            <div class="panel-header"><div><p class="panel-kicker">자산 정보</p><h2>영향받은 자산</h2></div></div>
-            <div class="structured-output" data-assets></div>
-        </article>
-        <article class="panel">
-            <div class="panel-header"><div><p class="panel-kicker">위협 인텔리전스</p><h2>지표 매칭 결과</h2></div></div>
-            <div class="structured-output" data-intel></div>
-        </article>
-    </section>
-
     <section class="panel">
-        <div class="panel-header"><div><p class="panel-kicker">로컬 LLM</p><h2>사건 판단 (Assessment)</h2></div><span class="muted" data-analysis-meta>아직 분석하지 않음</span></div>
-        <div class="structured-output empty-state" data-analysis-output>분석을 실행하면 트리거 경보를 관련 네트워크·애플리케이션·호스트 증거와 함께 평가합니다.</div>
-        <div class="structured-output" data-analysis-review hidden></div>
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Observed detection</p>
+                <h2>Detection evidence</h2>
+            </div>
+        </div>
+
+        <div class="structured-output" data-trigger></div>
     </section>
 
+    <section class="panel"
+             data-enrichment-section
+             hidden>
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Deterministic context</p>
+                <h2>Analyst context</h2>
+            </div>
+
+            <span class="muted">
+                24h history around trigger
+            </span>
+        </div>
+
+        <div class="analyst-context-grid"
+             data-analyst-context>
+        </div>
+    </section>
+
+    <section class="panel"
+             data-pivots-section
+             hidden>
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Deterministic investigation</p>
+                <h2>Investigation pivots</h2>
+            </div>
+        </div>
+
+        <div class="button-row investigation-pivots"
+             data-investigation-pivots>
+        </div>
+    </section>
+
+    <!--
+      Compatibility targets for the current case renderer.
+      These are intentionally not presented until they are backed
+      by real live correlation/enrichment sources.
+    -->
     <section class="panel">
-        <div class="panel-header"><div><p class="panel-kicker">증거 순서</p><h2>타임라인</h2></div></div>
-        <div class="structured-output" data-timeline></div>
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Correlated evidence</p>
+                <h2>Investigation context</h2>
+            </div>
+
+            <span class="muted" data-context-meta></span>
+        </div>
+
+        <div class="structured-output"
+             data-investigation-context>
+            <div class="empty-state">
+                Loading related evidence…
+            </div>
+        </div>
+    </section>
+
+
+    <div hidden aria-hidden="true">
+        <div data-entities></div>
+        <div data-assets></div>
+        <div data-intel></div>
+        <div data-timeline></div>
+    </div>
+
+    <section class="panel" data-analysis-section hidden>
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">LLM analysis</p>
+                <h2>Assessment</h2>
+            </div>
+
+            <span class="muted" data-analysis-meta></span>
+        </div>
+
+        <div class="structured-output"
+             data-analysis-output></div>
+
+        <div class="structured-output"
+             data-analysis-review
+             hidden></div>
     </section>
 </div>
+
 <script src="{{ url_for('static', filename='alert_analysis.js', v=asset_version) }}"></script>
 {% endblock %}

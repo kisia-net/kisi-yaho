@@ -39,7 +39,6 @@ REQUIRED_SECTIONS = (
     "confidence",
     "severity",
     "affected_entities",
-    "attack_techniques",
     "supporting_evidence",
     "evidence_gaps",
     "recommended_searches",
@@ -48,7 +47,10 @@ REQUIRED_SECTIONS = (
 # Expected, but legitimately empty: a case can genuinely have no disconfirming
 # evidence. Emptiness is reported as a note instead of counting as missing, so
 # a well-formed assessment of a clean case does not trigger a correction pass.
-OPTIONAL_SECTIONS = ("contradictory_evidence",)
+OPTIONAL_SECTIONS = (
+    "contradictory_evidence",
+    "attack_techniques",
+)
 
 ENTITY_KEYS = ("hosts", "users", "addresses", "processes", "files")
 
@@ -291,22 +293,46 @@ def normalize_assessment(payload: Any) -> dict[str, Any]:
 
 
 def bundle_reference_ids(bundle: Any) -> tuple[set[str], set[str]]:
-    """Event ids and indicator ids an assessment is allowed to cite."""
+    """Evidence and indicator ids an assessment is allowed to cite."""
+
     event_ids: set[str] = set()
     indicator_ids: set[str] = set()
+
     if not isinstance(bundle, dict):
         return event_ids, indicator_ids
 
-    metadata = bundle.get("metadata") if isinstance(bundle.get("metadata"), dict) else {}
+    # Wazuh-native live evidence package.
+    trigger = bundle.get("trigger")
+    if isinstance(trigger, dict) and trigger.get("evidence_id"):
+        event_ids.add(str(trigger["evidence_id"]))
+
+    context = bundle.get("investigation_context")
+    if isinstance(context, list):
+        for item in context:
+            if isinstance(item, dict) and item.get("evidence_id"):
+                event_ids.add(str(item["evidence_id"]))
+
+    if event_ids:
+        return event_ids, indicator_ids
+
+    # Legacy fixture/case evidence bundle.
+    metadata = (
+        bundle.get("metadata")
+        if isinstance(bundle.get("metadata"), dict)
+        else {}
+    )
+
     for block_name in ("security_alerts", "security_events"):
         block = metadata.get(block_name)
         items = block.get("items") if isinstance(block, dict) else []
+
         for item in items if isinstance(items, list) else []:
             if isinstance(item, dict) and item.get("id"):
                 event_ids.add(str(item["id"]))
 
     intel = metadata.get("threat_intelligence")
     items = intel.get("items") if isinstance(intel, dict) else []
+
     for item in items if isinstance(items, list) else []:
         if isinstance(item, dict) and item.get("id"):
             indicator_ids.add(str(item["id"]))
@@ -383,23 +409,23 @@ SECTION_TITLES = {
         "files": "Files",
     },
     "ko": {
-        "assessment": "판단 요약",
-        "hypothesis": "공격 가설",
-        "confirmed": "확인된 관찰",
-        "supporting": "뒷받침 증거",
-        "contradictory": "모순 증거",
-        "gaps": "증거 공백",
-        "techniques": "ATT&CK 기법",
-        "entities": "영향받는 대상",
-        "searches": "권장 검색",
-        "response": "권장 대응",
-        "severity": "심각도",
-        "confidence": "신뢰도",
-        "hosts": "호스트",
-        "users": "사용자",
-        "addresses": "주소",
-        "processes": "프로세스",
-        "files": "파일",
+        "assessment": "Assessment",
+        "hypothesis": "Attack hypothesis",
+        "confirmed": "Confirmed observations",
+        "supporting": "Supporting evidence",
+        "contradictory": "Contradictory evidence",
+        "gaps": "Evidence gaps",
+        "techniques": "ATT&CK techniques",
+        "entities": "Affected entities",
+        "searches": "Recommended searches",
+        "response": "Recommended response",
+        "severity": "Severity",
+        "confidence": "Confidence",
+        "hosts": "Hosts",
+        "users": "Users",
+        "addresses": "Addresses",
+        "processes": "Processes",
+        "files": "Files",
     },
 }
 

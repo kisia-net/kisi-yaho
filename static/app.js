@@ -90,9 +90,8 @@ function restoreTheme() {
 }
 
 function initSidebarNavigation() {
-    document.querySelectorAll(".sidebar a[href]").forEach((link) => {
-        link.removeAttribute("target");
-        link.removeAttribute("rel");
+    document.querySelectorAll(".nav-list .nav-item[href]").forEach((link) => {
+        link.setAttribute("target", "_self");
     });
 }
 
@@ -597,20 +596,183 @@ async function loadConfig() {
     try { state.config = await api("/api/config"); } catch { state.config = {}; }
 }
 
-function renderNotices(notices) {
-    byId("notice-list").innerHTML = notices.map((n) => `
-        <div class="notice-item"><span class="notice-bar ${escapeHtml(n.level)}"></span>
-        <div><strong>${escapeHtml(n.title)}</strong><p>${escapeHtml(n.detail)}</p></div>
-        <a class="button secondary small" href="${escapeHtml(n.target)}">${escapeHtml(n.action)}</a></div>`).join("");
+function renderDashboardAlerts(alerts) {
+    const target = byId("dashboard-alert-list");
+    if (!target) return;
+
+    target.classList.remove("loading-block");
+
+    target.innerHTML = (alerts || []).map((alert) => {
+        const timestamp = Date.parse(alert.time);
+        const time = Number.isFinite(timestamp)
+            ? new Date(timestamp).toLocaleString()
+            : (alert.time || "—");
+
+        return `
+            <a class="dashboard-alert-row"
+               href="/alerts/${encodeURIComponent(alert.id)}">
+
+                <span class="dashboard-alert-time">
+                    ${escapeHtml(time)}
+                </span>
+
+                <span class="wazuh-level">
+                    ${alert.rule_level !== undefined &&
+                      alert.rule_level !== null
+                        ? `L${escapeHtml(String(alert.rule_level))}`
+                        : "—"}
+                </span>
+
+                <div>
+                    <strong>
+                        ${escapeHtml(alert.title || "Wazuh alert")}
+                    </strong>
+
+                    <p>
+                        ${escapeHtml(alert.host || "—")}
+                        ${alert.rule_id
+                            ? ` · Rule ${escapeHtml(alert.rule_id)}`
+                            : ""}
+                    </p>
+                </div>
+            </a>
+        `;
+    }).join("") || `
+        <div class="empty-state">
+            No recent Wazuh alerts.
+        </div>
+    `;
 }
+
+function renderDashboardVisuals(visuals) {
+    const activityTarget = byId("dashboard-activity-chart");
+    const levelTarget = byId("dashboard-level-chart");
+
+    const activity = visuals?.activity || [];
+    const levels = visuals?.levels || [];
+
+    if (activityTarget) {
+        if (!activity.length) {
+            activityTarget.innerHTML =
+                `<div class="empty-state">No alert activity was returned.</div>`;
+        } else {
+            const maxCount = Math.max(
+                1,
+                ...activity.map((item) => Number(item.count) || 0)
+            );
+
+            const width = 720;
+            const height = 190;
+            const baseline = 150;
+            const slot = width / activity.length;
+            const barWidth = Math.max(5, slot - 5);
+
+            const bars = activity.map((item, index) => {
+                const count = Number(item.count) || 0;
+                const barHeight = Math.round(
+                    (count / maxCount) * 118
+                );
+
+                const x = Math.round(index * slot + 2);
+                const y = baseline - barHeight;
+
+                const parsed = Date.parse(item.time || "");
+                const label = Number.isFinite(parsed)
+                    ? new Date(parsed).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                    })
+                    : "";
+
+                const showLabel =
+                    index === 0 ||
+                    index === activity.length - 1 ||
+                    index % 6 === 0;
+
+                return `
+                    <g>
+                        <title>${escapeHtml(label)} · ${count} alerts</title>
+
+                        <rect class="activity-bar"
+                              x="${x}"
+                              y="${y}"
+                              width="${barWidth}"
+                              height="${Math.max(1, barHeight)}"
+                              rx="2">
+                        </rect>
+
+                        ${showLabel
+                            ? `<text class="activity-axis-label"
+                                     x="${x}"
+                                     y="174">${escapeHtml(label)}</text>`
+                            : ""}
+                    </g>
+                `;
+            }).join("");
+
+            activityTarget.innerHTML = `
+                <svg class="activity-svg"
+                     viewBox="0 0 ${width} ${height}"
+                     role="img"
+                     aria-label="Wazuh detection activity during the last 24 hours">
+                    <line class="activity-baseline"
+                          x1="0"
+                          y1="${baseline}"
+                          x2="${width}"
+                          y2="${baseline}">
+                    </line>
+
+                    ${bars}
+                </svg>
+            `;
+        }
+    }
+
+    if (levelTarget) {
+        if (!levels.length) {
+            levelTarget.innerHTML =
+                `<div class="empty-state">No Wazuh rule levels were returned.</div>`;
+        } else {
+            const maxCount = Math.max(
+                1,
+                ...levels.map((item) => Number(item.count) || 0)
+            );
+
+            levelTarget.innerHTML = levels.map((item) => `
+                <div class="level-distribution-row">
+                    <strong>L${escapeHtml(item.level)}</strong>
+
+                    <progress max="${maxCount}"
+                              value="${Number(item.count) || 0}">
+                    </progress>
+
+                    <span>${escapeHtml(item.count)}</span>
+                </div>
+            `).join("");
+        }
+    }
+}
+
 async function initDashboard() {
     const data = await api("/api/dashboard");
-    byId("metric-critical").textContent = data.stats.critical_alerts;
-    byId("metric-incidents").textContent = data.stats.open_incidents;
-    byId("metric-actions").textContent = data.stats.pending_actions;
-    byId("metric-hunts").textContent = data.stats.active_hunts;
-    renderNotices(data.notices);
+    const stats = data.stats || {};
+
+    byId("metric-alerts-24h").textContent =
+        formatNumber(stats.alerts_24h || 0);
+
+    byId("metric-level8-24h").textContent =
+        formatNumber(stats.level_8_plus_24h || 0);
+
+    byId("metric-archive-24h").textContent =
+        formatNumber(stats.archive_events_24h || 0);
+
+    byId("metric-actions").textContent =
+        formatNumber(stats.pending_actions || 0);
+
+    renderDashboardAlerts(data.recent_alerts || []);
+    renderDashboardVisuals(data.visuals || {});
 }
+
 
 const AGENT_GREETING = "모드를 고르고 경보·증거·지표 또는 궁금한 점을 적어 주세요. 실제 변경을 일으키는 결과는 제안 상태로만 올라갑니다.";
 
@@ -1262,50 +1424,46 @@ function inspectSuricataDraft(draft, analystRequest = "") {
 }
 
 function getSuricataAction(result, analystRequest = "") {
-    // A rule may be placed in a plaintext fence and may be commented out as a
-    // draft. Both are eligible for transfer to Structured Results for review.
-    // The original generated text is preserved; this function never silently
-    // activates or rewrites the rule.
-    const draft = extractSuricataDraft(result?.answer);
-    const inspection = inspectSuricataDraft(draft, analystRequest);
-    if (!inspection) return null;
+    const actions = Array.isArray(result?.actions)
+        ? result.actions
+        : [];
 
-    const warnings = inspection.warnings;
-    const summary = warnings.length
-        ? `Generated Suricata draft requires review: ${warnings.join(" ")}`
-        : "승인 요청을 올리기 전에 오른쪽 \"증거 및 제안\" 칸에서 생성된 룰을 검토하세요.";
-
-    const actions = Array.isArray(result?.actions) ? result.actions : [];
-    const existing = actions.find((action) =>
+    const verified = actions.find((action) =>
         action?.type === "suricata_rule" &&
         typeof action?.payload?.rule === "string" &&
-        action.payload.rule.trim() === draft.rawRule
+        action.payload.rule.trim() &&
+        action?.payload?.verification_status === "passed" &&
+        action?.payload?.verification?.verification === "PASS"
     );
-    if (existing) {
-        return {
-            ...existing,
-            summary,
-            payload: {
-                ...existing.payload,
-                rule: draft.rawRule,
-                review_warnings: warnings,
-            },
-        };
+
+    if (!verified) return null;
+
+    const warnings = [];
+
+    const requestedAction = String(
+        verified?.payload?.requested_action || ""
+    ).toLowerCase();
+
+    const enforcementMode = String(
+        verified?.payload?.live_enforcement_mode || ""
+    ).toLowerCase();
+
+    if (
+        ["drop", "reject"].includes(requestedAction) &&
+        enforcementMode === "detection_only"
+    ) {
+        warnings.push(
+            "현재 센서는 detection-only이며 실제 차단은 검증되지 않았습니다."
+        );
     }
 
     return {
-        type: "suricata_rule",
-        title: warnings.length
-            ? "생성된 Suricata 룰 초안 검토"
-            : "생성된 Suricata 룰",
-        summary,
-        risk: warnings.length ? "review" : "high",
-        requires_approval: true,
+        ...verified,
+        summary: verified.summary ||
+            "Deterministically verified Suricata rule.",
         payload: {
-            rule: draft.rawRule,
-            deployment: "staging",
+            ...verified.payload,
             review_warnings: warnings,
-            validation: ["suricata -T", "pcap 재생", "오탐 검토"],
         },
     };
 }
@@ -1411,7 +1569,7 @@ function renderActionCard(action, index, originMode) {
                 <span class="tag">${escapeHtml(action.type)}</span>
                 <span class="tag">risk: ${escapeHtml(action.risk || "unknown")}</span>
             </div>
-            <button class="button warning small queue-agent-action" data-index="${index}" type="button">Stage for approval</button>
+            <button class="button warning small queue-agent-action" data-index="${index}" type="button">${action?.type === "suricata_rule" ? "Save to Rules" : "Stage for approval"}</button>
         </div>
     `;
 }
@@ -1457,8 +1615,26 @@ function renderStructured(result) {
         button.addEventListener("click", async () => {
             const action = actionItems[Number(button.dataset.index)];
             try {
-                const source = `agent:${action.origin_mode || originMode}`;
+                if (action?.type === "suricata_rule") {
+                    const data =
+                        await importVerifiedSuricataRule(action);
+
+                    button.disabled = true;
+                    button.textContent = data.reused
+                        ? "Already in Rules"
+                        : "Saved to Rules";
+                    button.title = (
+                        "Suricata Rules에서 검토 후 "
+                        + "배포 승인 요청을 진행하세요."
+                    );
+                    return;
+                }
+
+                const source =
+                    `agent:${action.origin_mode || originMode}`;
+
                 await queueAction(action, source);
+
                 button.disabled = true;
                 button.textContent = "대기 중";
                 button.title = "승인 요청됨";
@@ -1566,6 +1742,43 @@ async function queueAction(action, source) {
     toast(`${data.action.id} staged for approval`);
     return data.action;
 }
+
+async function importVerifiedSuricataRule(action) {
+    const spec = action?.payload?.detection_spec;
+
+    if (
+        !spec ||
+        spec.schema !== "hawki.detection-spec/v1"
+    ) {
+        throw new Error(
+            "Verified DetectionSpec is missing."
+        );
+    }
+
+    const data = await api(
+        "/api/rules/import-verified",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                spec,
+            }),
+        }
+    );
+
+    const ruleId = data?.rule?.id || "Suricata rule";
+
+    toast(
+        data.reused
+            ? `${ruleId} is already in the rule inventory`
+            : `${ruleId} saved to the rule inventory`
+    );
+
+    return data;
+}
+
 
 async function sendAgent(message) {
     let session = currentAgentSession();
@@ -1721,48 +1934,423 @@ async function initAgent() {
     saveAgentSessions();
 }
 async function loadAlerts() {
+    const count = byId("alert-count");
+    const table = byId("alerts-table");
+
+    if (!count || !table) return;
+
     try {
         await loadAlertsInner();
     } catch (error) {
-        // Without this the table kept its "경보를 불러오는 중" placeholder, which
-        // reads as a page that never finished rather than a failed request.
-        byId("alert-count").textContent = "경보를 불러오지 못했습니다";
-        byId("alerts-table").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}<br><br>Check the server logs: <code>docker compose logs hawki-web</code></div>`;
+        count.textContent = "Failed to load alerts";
+        table.innerHTML = `
+            <div class="empty-state">
+                ${escapeHtml(error.message)}
+                <br><br>
+                Check the server logs:
+                <code>docker compose logs hawki-web</code>
+            </div>
+        `;
     }
 }
-async function loadAlertsInner() {
-    const q = encodeURIComponent(byId("alert-query").value.trim());
-    const sev = encodeURIComponent(byId("alert-severity").value); const status = encodeURIComponent(byId("alert-status").value);
-    const data = await api(`/api/alerts?q=${q}&severity=${sev}&status=${status}`);
-    byId("alert-count").textContent = `경보 ${data.total}건`;
-    byId("alerts-table").innerHTML = data.alerts.map((a) => {
-        // Enrichment previews: inventory criticality and intelligence verdict
-        // for the alert host, so triage order reflects more than severity.
-        const enrichment = [
-            a.asset_criticality ? `<span class="tag">asset: ${escapeHtml(a.asset_criticality)}</span>` : "",
-            a.threat_verdict ? `<span class="tag">intel: ${escapeHtml(a.threat_verdict)}</span>` : "",
-        ].join("");
-        return `<div class="alert-row"><strong>${escapeHtml(a.id)}</strong><span class="severity ${escapeHtml(a.severity)}">${escapeHtml(a.severity)}</span><div><strong>${escapeHtml(a.title)}</strong><p class="muted">${escapeHtml(a.summary)}</p>${enrichment ? `<div class="action-meta">${enrichment}</div>` : ""}</div><span>${escapeHtml(a.host)}</span><span>${escapeHtml(a.mitre)}</span><span>${escapeHtml(a.status)}</span><a class="button secondary small" href="/alerts/${encodeURIComponent(a.id)}">Analyze</a></div>`;
-    }).join("") || `<div class="empty-state">No alerts match the filters.</div>`;
-}
-function initAlerts() { byId("alert-filter-form").addEventListener("submit", (e) => {e.preventDefault(); loadAlerts();}); loadAlerts(); }
 
-function normalizeLog(source = {}) { return { time: source["@timestamp"] || "—", host: source.host?.name || source["host.name"] || source.source?.ip || source["source.ip"] || "—", category: source.event?.category || source["event.category"] || source.rule?.name || source["rule.name"] || "event", message: source.message || source.file?.path || JSON.stringify(source) }; }
-async function runLogSearch() {
-    const payload = { index: byId("log-index").value, language: byId("log-language").value, query: byId("log-query").value, start_time: byId("log-start").value, end_time: byId("log-end").value, size: Number(byId("log-size").value) };
-    byId("log-count").textContent = "검색 중…";
-    try {
-        const data = await api("/api/log-search", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
-        if (data.kibana_url) byId("open-kibana-link").href = data.kibana_url;
-        if (data.mode === "link-only") { byId("log-count").textContent = "Kibana 질의를 준비했습니다"; byId("log-results").innerHTML = `<div class="empty-state">${escapeHtml(data.message)}<br><br><a class="button secondary" href="${escapeHtml(data.kibana_url)}" target="_blank" rel="noopener noreferrer">Open in Kibana</a></div>`; return; }
-        byId("log-count").textContent = `조건에 맞는 이벤트 ${formatNumber(data.total)}건`;
-        byId("log-results").innerHTML = (data.results || []).map((r) => { const x = normalizeLog(r.source); return `<div class="log-row"><span>${escapeHtml(x.time)}</span><strong>${escapeHtml(x.host)}</strong><span>${escapeHtml(x.category)}</span><span>${escapeHtml(x.message)}</span></div>`; }).join("") || `<div class="empty-state">조건에 맞는 이벤트가 없습니다.</div>`;
-    } catch (e) { byId("log-count").textContent = "검색 실패"; byId("log-results").innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+async function loadAlertsInner() {
+    const queryInput = byId("alert-query");
+    const levelInput = byId("alert-min-level");
+    const count = byId("alert-count");
+    const table = byId("alerts-table");
+
+    if (!queryInput || !levelInput || !count || !table) {
+        return;
+    }
+
+    const q = encodeURIComponent(queryInput.value.trim());
+    const minLevel = encodeURIComponent(levelInput.value || "0");
+
+    const data = await api(
+        `/api/alerts?q=${q}&min_level=${minLevel}`
+    );
+
+    const level = Number(levelInput.value || 0);
+
+    count.textContent =
+        `${formatNumber(data.total)} recent alerts loaded` +
+        (level > 0 ? ` · Wazuh level ≥ ${level}` : "");
+
+    table.innerHTML = (data.alerts || []).map((a) => {
+        const timestamp = Date.parse(a.time);
+        const time = Number.isFinite(timestamp)
+            ? new Date(timestamp).toLocaleString()
+            : (a.time || "—");
+
+        const ruleParts = [
+            a.rule_id ? `Rule ${a.rule_id}` : "",
+            a.mitre && a.mitre !== "—"
+                ? `MITRE ${a.mitre}`
+                : "",
+            a.decoder
+                ? `Decoder ${a.decoder}`
+                : "",
+        ].filter(Boolean);
+
+        return `
+            <div class="alert-row">
+                <span class="alert-time">
+                    ${escapeHtml(time)}
+                </span>
+
+                <span class="wazuh-level">
+                    ${a.rule_level !== undefined && a.rule_level !== null
+                        ? `L${escapeHtml(String(a.rule_level))}`
+                        : "—"}
+                </span>
+
+                <div class="alert-description">
+                    <strong>${escapeHtml(a.title || "Wazuh alert")}</strong>
+
+                    ${a.summary
+                        ? `<p class="muted">${escapeHtml(a.summary)}</p>`
+                        : ""}
+
+                    ${a.groups?.length
+                        ? `<div class="action-meta">
+                               ${a.groups.slice(0, 4).map(
+                                   (group) =>
+                                       `<span class="tag">${escapeHtml(group)}</span>`
+                               ).join("")}
+                           </div>`
+                        : ""}
+                </div>
+
+                <span>${escapeHtml(a.host || "—")}</span>
+
+                <div class="alert-rule-meta">
+                    ${ruleParts.map(
+                        (value) => `<span>${escapeHtml(value)}</span>`
+                    ).join("")}
+                </div>
+
+                <a class="button secondary small"
+                   href="/alerts/${encodeURIComponent(a.id)}">
+                    Open
+                </a>
+            </div>
+        `;
+    }).join("") || `
+        <div class="empty-state">
+            No alerts match the filters.
+        </div>
+    `;
 }
+
+function initAlerts() {
+    const form = byId("alert-filter-form");
+
+    /*
+     * Alert list and alert detail pages share page="alerts".
+     * The detail page does not contain this form.
+     */
+    if (!form) return;
+
+    form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        loadAlerts();
+    });
+
+    loadAlerts();
+}
+
+function formatLogEndpoint(ip, port) {
+    if (!ip) return "";
+    return port ? `${ip}:${port}` : ip;
+}
+
+function normalizeLog(source = {}) {
+    const rule = source.rule || {};
+    const agent = source.agent || {};
+    const decoder = source.decoder || {};
+    const data = source.data || {};
+    const eventdata = data.eventdata || {};
+    const system = data.system || {};
+
+    const eventId = String(system.eventID || "");
+    const host = agent.name || agent.ip || "—";
+
+    let category =
+        rule.description ||
+        (Array.isArray(rule.groups)
+            ? rule.groups.join(", ")
+            : "Wazuh event");
+
+    let message = "";
+    let detail = "";
+
+    if (decoder.name === "sysmon-linux" || eventId) {
+        if (eventId === "1") {
+            category = "Sysmon Process Create";
+
+            message =
+                eventdata.image ||
+                "Process created";
+
+            detail = [
+                eventdata.user
+                    ? `User: ${eventdata.user}`
+                    : "",
+                eventdata.processId
+                    ? `PID: ${eventdata.processId}`
+                    : "",
+                eventdata.commandLine
+                    ? `Command: ${eventdata.commandLine}`
+                    : "",
+                eventdata.parentImage
+                    ? `Parent: ${eventdata.parentImage}`
+                    : "",
+            ].filter(Boolean).join(" · ");
+        } else if (eventId === "3") {
+            category = "Sysmon Network Connection";
+
+            const sourceEndpoint = formatLogEndpoint(
+                eventdata.sourceIp,
+                eventdata.sourcePort
+            );
+
+            const destinationEndpoint = formatLogEndpoint(
+                eventdata.destinationIp,
+                eventdata.destinationPort
+            );
+
+            message =
+                sourceEndpoint || destinationEndpoint
+                    ? `${sourceEndpoint || "?"} → ${destinationEndpoint || "?"}`
+                    : "Network connection";
+
+            detail = [
+                eventdata.image
+                    ? `Process: ${eventdata.image}`
+                    : "",
+                eventdata.user
+                    ? `User: ${eventdata.user}`
+                    : "",
+                eventdata.protocol
+                    ? `Protocol: ${String(eventdata.protocol).toUpperCase()}`
+                    : "",
+                eventdata.initiated
+                    ? `Initiated: ${eventdata.initiated}`
+                    : "",
+            ].filter(Boolean).join(" · ");
+        }
+    }
+
+    if (!message) {
+        message =
+            source.data?.url ||
+            source.data?.srcip ||
+            rule.description ||
+            source.full_log ||
+            JSON.stringify(source);
+    }
+
+    const ruleMeta = [
+        rule.id
+            ? `Rule ${rule.id}`
+            : "",
+        rule.level !== undefined && rule.level !== null
+            ? `Level ${rule.level}`
+            : "",
+        eventId
+            ? `Event ID ${eventId}`
+            : "",
+    ].filter(Boolean);
+
+    return {
+        time: source.timestamp || source["@timestamp"] || "—",
+        host,
+        category,
+        message,
+        detail,
+        ruleMeta,
+        raw: source.full_log || "",
+    };
+}
+
+function renderLogResult(result) {
+    const x = normalizeLog(result.source || {});
+
+    const metadata = [
+        ...x.ruleMeta,
+        x.detail,
+    ].filter(Boolean);
+
+    const rawEvent = x.raw && x.raw !== x.message
+        ? `
+            <details class="log-raw">
+                <summary>Raw event</summary>
+                <pre>${escapeHtml(x.raw)}</pre>
+            </details>
+        `
+        : "";
+
+    return `
+        <div class="log-row">
+            <span>${escapeHtml(x.time)}</span>
+
+            <strong>${escapeHtml(x.host)}</strong>
+
+            <span>${escapeHtml(x.category)}</span>
+
+            <div class="log-message">
+                <div>${escapeHtml(x.message)}</div>
+
+                ${metadata.length
+                    ? `<div class="log-meta">${escapeHtml(metadata.join(" · "))}</div>`
+                    : ""}
+
+                ${rawEvent}
+            </div>
+        </div>
+    `;
+}
+
+async function runLogSearch() {
+    const index = byId("log-index");
+    const language = byId("log-language");
+    const query = byId("log-query");
+    const start = byId("log-start");
+    const end = byId("log-end");
+    const size = byId("log-size");
+    const count = byId("log-count");
+    const results = byId("log-results");
+
+    if (
+        !index ||
+        !language ||
+        !query ||
+        !start ||
+        !end ||
+        !size ||
+        !count ||
+        !results
+    ) {
+        return;
+    }
+
+    const pageParams = new URLSearchParams(window.location.search);
+
+    const payload = {
+        index: index.value,
+        language: language.value,
+        query: query.value,
+        start_time: start.value,
+        end_time: end.value,
+        size: Number(size.value),
+        pivot: pageParams.get("pivot") || "",
+        source_alert_id: pageParams.get("from_alert") || "",
+        source_agent_id: pageParams.get("from_agent") || "",
+    };
+
+    count.textContent = "Searching…";
+
+    try {
+        const data = await api("/api/log-search", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const dashboardLink = byId("open-wazuh-link");
+
+        if (data.wazuh_dashboard_url && dashboardLink) {
+            dashboardLink.href = data.wazuh_dashboard_url;
+        }
+
+        count.textContent =
+            `${formatNumber(data.total)} matching events`;
+
+        results.innerHTML =
+            (data.results || [])
+                .map(renderLogResult)
+                .join("") ||
+            `<div class="empty-state">No events match the query.</div>`;
+    } catch (error) {
+        count.textContent = "Search failed";
+
+        results.innerHTML = `
+            <div class="empty-state">
+                ${escapeHtml(error.message)}
+            </div>
+        `;
+    }
+}
+
 function initLogs() {
-    byId("log-policy-note").textContent = state.config.elasticsearch_search_enabled ? "Elasticsearch 읽기 전용 질의문 검색이 켜져 있습니다. KQL은 그대로 Kibana에서 열립니다." : "Elasticsearch 직접 검색이 꺼져 있습니다. 서버 정책을 켜기 전까지는 Kibana용 질의만 준비합니다.";
-    byId("log-search-form").addEventListener("submit", (e) => {e.preventDefault(); runLogSearch();});
-    byId("copy-log-query").addEventListener("click", async () => { await navigator.clipboard.writeText(byId("log-query").value); toast("질의를 복사했습니다"); });
+    const form = byId("log-search-form");
+    if (!form) return;
+
+    const policy = byId("log-policy-note");
+    const params = new URLSearchParams(window.location.search);
+
+    if (policy) {
+        policy.textContent = state.config.wazuh_search_enabled
+            ? "Read-only Wazuh Indexer search is enabled."
+            : "Wazuh Indexer search is disabled by server policy.";
+    }
+
+    const fields = {
+        index: "log-index",
+        query: "log-query",
+        start: "log-start",
+        end: "log-end",
+        size: "log-size",
+    };
+
+    Object.entries(fields).forEach(([parameter, elementId]) => {
+        const value = params.get(parameter);
+        const element = byId(elementId);
+
+        if (value !== null && element) {
+            element.value = value;
+        }
+    });
+
+    const pivotLabels = {
+        same_source_ip: "Same source IP",
+        same_agent: "Same Wazuh agent",
+        same_rule: "Same Wazuh rule",
+        raw_window: "Raw archive window",
+        host_alerts: "Host alert history",
+        host_raw: "Host raw telemetry",
+        host_fim: "Host FIM detections",
+    };
+
+    const pivot = params.get("pivot");
+
+    if (pivot && policy && pivotLabels[pivot]) {
+        policy.textContent +=
+            ` Investigation pivot: ${pivotLabels[pivot]}.`;
+    }
+
+    form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        runLogSearch();
+    });
+
+    byId("copy-log-query")?.addEventListener(
+        "click",
+        async () => {
+            const input = byId("log-query");
+            if (!input) return;
+
+            await navigator.clipboard.writeText(input.value);
+            toast("Query copied");
+        }
+    );
+
+    if (params.get("run") === "1") {
+        runLogSearch();
+    }
 }
 
 async function initHunts() {
@@ -2749,7 +3337,7 @@ async function init() {
     initTheme();
     await loadAuth();
     byId("refresh-services")?.addEventListener("click", loadServices);
-    // Pages need the config. They do not need to know whether Kibana is up, so
+    // Pages need the config. Wazuh service reachability is checked separately, so
     // the reachability probe runs alongside rather than delaying the content.
     await loadConfig();
     loadServices();

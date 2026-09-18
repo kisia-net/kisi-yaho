@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block subtitle %}
+<p class="page-description">
+    Review Wazuh endpoint identity, operating system state, and recent detections.
+</p>
+{% endblock %}
+
+{% block content %}
+<div id="host-detail-root"
+     data-agent-id="{{ agent_id }}">
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Wazuh endpoint</p>
+                <h2 data-host-title>Loading host…</h2>
+                <p class="muted" data-host-subtitle></p>
+            </div>
+
+            <a class="button secondary" href="/hosts">
+                All hosts
+            </a>
+        </div>
+
+        <div class="host-facts" data-host-facts></div>
+    </section>
+
+    <section class="panel"
+             data-host-pivots-section
+             hidden>
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Deterministic investigation</p>
+                <h2>Host pivots</h2>
+            </div>
+        </div>
+
+        <div class="button-row investigation-pivots"
+             data-host-pivots>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Syscollector</p>
+                <h2>Operating system</h2>
+            </div>
+        </div>
+
+        <div class="host-facts" data-host-system></div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Wazuh security state</p>
+                <h2>Host security posture</h2>
+            </div>
+        </div>
+
+        <div class="host-security-grid"
+             data-host-security>
+            <div class="loading-block">
+                Loading security posture…
+            </div>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Wazuh Indexer</p>
+                <h2>Detection evidence</h2>
+            </div>
+
+            <div class="host-detection-summary">
+                <strong data-host-alert-count>—</strong>
+                <span>detections · 24h</span>
+            </div>
+        </div>
+
+        <div class="host-alert-list" data-host-alerts>
+            <div class="loading-block">
+                Loading recent detections…
+            </div>
+        </div>
+    </section>
+</div>
+
+<script src="{{ url_for('static', filename='hosts.js', v=asset_version) }}"></script>
+{% endblock %}

@@ -916,10 +916,10 @@ class SysmonAdapter:
 
 
 class ECSAdapter:
-    """Normalize an already ECS-like Elasticsearch document.
+    """Normalize an already ECS-like Wazuh Indexer document.
 
     This adapter is the bridge for the later live repository: the alert-analysis
-    engine does not need to change when fixtures are replaced by Elasticsearch.
+    engine does not need to change when fixtures are replaced by Wazuh Indexer.
     """
 
     source_type = "ecs"

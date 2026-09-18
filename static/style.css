@@ -3519,3 +3519,785 @@ html[data-theme="light"] .message.user .message-content {
     overflow-wrap: anywhere;
     word-break: break-all;
 }
+
+/* SIEM table containment */
+#alerts-table,
+.log-results {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.alert-row > *,
+.log-row > * {
+    min-width: 0;
+}
+
+.alert-row strong,
+.alert-row span,
+.alert-row p,
+.log-row strong,
+.log-row span,
+.log-message {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.log-row {
+    grid-template-columns:
+        minmax(145px, 165px)
+        minmax(110px, 150px)
+        minmax(180px, 260px)
+        minmax(0, 1fr);
+}
+
+.log-message {
+    min-width: 0;
+    white-space: normal;
+}
+
+.log-meta {
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: .92em;
+    overflow-wrap: anywhere;
+}
+
+.log-raw {
+    margin-top: 7px;
+    min-width: 0;
+}
+
+.log-raw summary {
+    cursor: pointer;
+    color: var(--muted);
+}
+
+.log-raw pre {
+    max-width: 100%;
+    max-height: 240px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+@media (max-width: 900px) {
+    .log-row {
+        grid-template-columns:
+            minmax(130px, 160px)
+            minmax(100px, 130px)
+            minmax(0, 1fr);
+    }
+
+    .log-message {
+        grid-column: 1 / -1;
+    }
+}
+
+/* Alert evidence readability */
+#alert-analysis-root .structured-output > .output-item {
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin-bottom: 10px;
+}
+
+#alert-analysis-root .structured-output > .output-item p {
+    margin: 4px 0;
+}
+
+#alert-analysis-root .structured-output > .output-item p > strong:first-child {
+    display: inline-block;
+    min-width: 145px;
+}
+
+.investigation-event {
+    position: relative;
+}
+
+.investigation-event > p:first-child {
+    font-size: .78rem;
+}
+
+.investigation-event .muted {
+    font-size: .7rem;
+}
+
+#alert-analysis-root .log-raw {
+    margin-top: 10px;
+}
+
+#alert-analysis-root .log-raw summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--muted);
+}
+
+#alert-analysis-root .log-raw pre {
+    margin-top: 8px;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+#alert-analysis-root .structured-output strong {
+    color: var(--text);
+}
+
+#alert-analysis-root .structured-output code {
+    overflow-wrap: anywhere;
+}
+
+/* Phase 5: Wazuh-native SOC surfaces */
+.alert-toolbar,
+#alert-filter-form {
+    grid-template-columns: minmax(280px, 2.5fr) minmax(170px, 1fr) auto;
+}
+
+.alert-row {
+    grid-template-columns:
+        minmax(145px, 165px)
+        58px
+        minmax(280px, 1.5fr)
+        minmax(110px, 140px)
+        minmax(150px, 220px)
+        auto;
+}
+
+.wazuh-level {
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.alert-time {
+    color: var(--muted);
+}
+
+.alert-rule-meta {
+    display: grid;
+    gap: 3px;
+    color: var(--muted);
+    font-size: .92em;
+}
+
+.dashboard-alert-list {
+    display: grid;
+}
+
+.dashboard-alert-row {
+    display: grid;
+    grid-template-columns: minmax(135px, 165px) 52px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+    color: inherit;
+    text-decoration: none;
+}
+
+.dashboard-alert-row:hover {
+    background: rgba(67, 92, 134, .055);
+}
+
+.dashboard-alert-row:last-child {
+    border-bottom: 0;
+}
+
+.dashboard-alert-row p {
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: .63rem;
+}
+
+.dashboard-alert-time {
+    color: var(--muted);
+    font-size: .62rem;
+}
+
+/* Phase 5C: deterministic investigation pivots */
+.investigation-pivots {
+    padding: 14px 15px;
+}
+
+/* Phase 6: host-centric investigation */
+.host-list,
+.host-alert-list {
+    display: grid;
+}
+
+.host-row {
+    display: grid;
+    grid-template-columns:
+        80px
+        minmax(160px, 1fr)
+        minmax(220px, 1fr)
+        minmax(150px, 190px);
+    gap: 12px;
+    align-items: center;
+    padding: 12px 15px;
+    border-bottom: 1px solid var(--line);
+    color: inherit;
+    text-decoration: none;
+}
+
+.host-row:hover,
+.host-alert-row:hover {
+    background: rgba(67, 92, 134, .055);
+}
+
+.host-row p,
+.host-alert-row p {
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: .63rem;
+}
+
+.host-status {
+    font-weight: 750;
+    text-transform: uppercase;
+}
+
+.host-status.active {
+    color: var(--success);
+}
+
+.host-facts {
+    display: grid;
+    grid-template-columns:
+        repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1px;
+    background: var(--line);
+}
+
+.host-fact {
+    min-width: 0;
+    padding: 13px 15px;
+    background: var(--panel);
+}
+
+.host-fact span {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--muted);
+    font-size: .62rem;
+}
+
+.host-fact strong {
+    overflow-wrap: anywhere;
+}
+
+.host-alert-row {
+    display: grid;
+    grid-template-columns:
+        minmax(145px, 170px)
+        55px
+        minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    padding: 11px 15px;
+    border-bottom: 1px solid var(--line);
+    color: inherit;
+    text-decoration: none;
+}
+
+/* Phase 6C: host security posture */
+.host-security-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.host-security-card {
+    min-width: 0;
+    padding: 15px;
+    border-right: 1px solid var(--line);
+}
+
+.host-security-card:last-child {
+    border-right: 0;
+}
+
+.host-security-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.host-security-heading span {
+    color: var(--muted);
+    font-size: .61rem;
+    text-transform: uppercase;
+}
+
+.host-security-name {
+    margin: 0 0 11px;
+    overflow-wrap: anywhere;
+}
+
+.host-security-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.host-security-metric {
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+}
+
+.host-security-metric span {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: .59rem;
+}
+
+.host-security-metric strong {
+    font-size: .8rem;
+}
+
+@media (max-width: 1100px) {
+    .host-security-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .host-security-card {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+    }
+}
+
+/* Phase 7A: SOC visualization */
+.dashboard-visual-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);
+    gap: 14px;
+}
+
+.dashboard-chart {
+    min-height: 210px;
+    padding: 12px 15px;
+}
+
+.activity-svg {
+    display: block;
+    width: 100%;
+    min-height: 185px;
+}
+
+.activity-bar {
+    fill: currentColor;
+    opacity: .68;
+}
+
+.activity-bar:hover {
+    opacity: 1;
+}
+
+.activity-baseline {
+    stroke: currentColor;
+    opacity: .16;
+}
+
+.activity-axis-label {
+    fill: currentColor;
+    opacity: .55;
+    font-size: 11px;
+}
+
+.dashboard-level-chart {
+    display: grid;
+    gap: 9px;
+    padding: 14px 15px;
+}
+
+.level-distribution-row {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr) 58px;
+    gap: 9px;
+    align-items: center;
+}
+
+.level-distribution-row progress {
+    width: 100%;
+}
+
+.level-distribution-row span {
+    color: var(--muted);
+    text-align: right;
+}
+
+@media (max-width: 1050px) {
+    .dashboard-visual-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Phase 7B: deterministic scenario enrichment */
+.analyst-context-grid {
+    display: grid;
+    grid-template-columns:
+        repeat(auto-fit, minmax(150px, 1fr));
+    background: var(--line);
+    gap: 1px;
+}
+
+.analyst-context-card {
+    min-width: 0;
+    padding: 14px 15px;
+    background: var(--panel);
+}
+
+.analyst-context-card span {
+    display: block;
+    margin-bottom: 7px;
+    color: var(--muted);
+    font-size: .61rem;
+}
+
+.analyst-context-card strong {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 1.18rem;
+}
+
+.analyst-context-card small {
+    display: block;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+/* Phase 7C: host posture visualization */
+
+.host-detection-summary {
+    display: grid;
+    justify-items: end;
+    line-height: 1.1;
+}
+
+.host-detection-summary strong {
+    font-size: 1.15rem;
+}
+
+.host-detection-summary span {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: .6rem;
+}
+
+.host-security-heading > div:first-child {
+    display: grid;
+    gap: 3px;
+}
+
+.posture-score {
+    display: grid;
+    justify-items: end;
+    align-content: start;
+    line-height: 1;
+}
+
+.posture-score strong {
+    font-size: 1.35rem;
+}
+
+.posture-score span {
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: .58rem;
+}
+
+.posture-bars {
+    display: grid;
+    gap: 10px;
+    margin: 13px 0;
+}
+
+.posture-bar-row {
+    display: grid;
+    gap: 5px;
+}
+
+.posture-bar-label {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: .65rem;
+}
+
+.posture-bar-label span {
+    color: var(--muted);
+}
+
+.posture-bar-row progress {
+    display: block;
+    width: 100%;
+    height: 8px;
+}
+
+.fim-state {
+    display: grid;
+    gap: 4px;
+    padding: 13px;
+    margin: 13px 0;
+    border: 1px solid var(--line);
+}
+
+.fim-state span,
+.fim-state small {
+    color: var(--muted);
+}
+
+.fim-state span {
+    font-size: .62rem;
+}
+
+.fim-state strong {
+    font-size: 1.35rem;
+}
+
+.fim-state small {
+    font-size: .58rem;
+}
+
+/* Phase 7D: global interface cleanup */
+.nav-badge {
+    margin-left: auto;
+    padding: 2px 5px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: .5rem;
+    font-weight: 650;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+
+/* Shared analyst metadata treatment */
+.panel-kicker {
+    margin-bottom: 4px;
+    font-size: .58rem;
+    font-weight: 700;
+    letter-spacing: .075em;
+    text-transform: uppercase;
+}
+
+.muted,
+.log-meta,
+.alert-rule-meta,
+.dashboard-alert-time {
+    line-height: 1.4;
+}
+
+.panel-header {
+    gap: 16px;
+}
+
+.panel-header > div {
+    min-width: 0;
+}
+
+.panel-header h2 {
+    overflow-wrap: anywhere;
+}
+
+.structured-output pre,
+.log-raw pre {
+    max-width: 100%;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* Responsive SOC surfaces */
+@media (max-width: 900px) {
+    .alert-row {
+        grid-template-columns: 120px 48px minmax(0, 1fr);
+    }
+
+    .alert-row > :nth-child(4),
+    .alert-row > :nth-child(5) {
+        grid-column: 3;
+    }
+
+    .alert-row > :last-child {
+        grid-column: 3;
+        justify-self: start;
+    }
+
+    .host-row {
+        grid-template-columns: 72px minmax(0, 1fr);
+    }
+
+    .host-row > :nth-child(3),
+    .host-row > :nth-child(4) {
+        grid-column: 2;
+    }
+
+    .host-alert-row {
+        grid-template-columns: 125px 48px minmax(0, 1fr);
+    }
+
+    .investigation-pivots {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 620px) {
+    .alert-row,
+    .host-alert-row {
+        grid-template-columns: 48px minmax(0, 1fr);
+    }
+
+    .alert-row > :first-child,
+    .host-alert-row > :first-child {
+        grid-column: 1 / -1;
+    }
+
+    .alert-row > :nth-child(n+3) {
+        grid-column: 2;
+    }
+
+    .host-alert-row > :nth-child(3) {
+        grid-column: 2;
+    }
+
+    .host-facts,
+    .analyst-context-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Phase 7D: maturity markers */
+.nav-badge {
+    margin-left: auto;
+    padding: 2px 5px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: .5rem;
+    font-weight: 650;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+
+/* Phase 7D: shared analyst metadata */
+.panel-kicker {
+    margin-bottom: 4px;
+    font-size: .58rem;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+}
+
+.panel-header {
+    gap: 16px;
+}
+
+.panel-header > div {
+    min-width: 0;
+}
+
+.panel-header h2,
+.panel-header p {
+    overflow-wrap: anywhere;
+}
+
+.muted,
+.log-meta,
+.alert-rule-meta,
+.dashboard-alert-time {
+    line-height: 1.4;
+}
+
+.structured-output pre,
+.log-raw pre {
+    max-width: 100%;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.output-item,
+.investigation-event,
+.analyst-context-card,
+.host-fact,
+.host-security-card {
+    min-width: 0;
+}
+
+.wazuh-level {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Phase 7D: responsive SOC surfaces */
+@media (max-width: 900px) {
+    .alert-row {
+        grid-template-columns:
+            minmax(120px, 145px)
+            50px
+            minmax(0, 1fr);
+    }
+
+    .alert-row > :nth-child(4),
+    .alert-row > :nth-child(5),
+    .alert-row > :last-child {
+        grid-column: 3;
+    }
+
+    .host-row {
+        grid-template-columns:
+            72px
+            minmax(0, 1fr);
+    }
+
+    .host-row > :nth-child(3),
+    .host-row > :nth-child(4) {
+        grid-column: 2;
+    }
+
+    .host-alert-row {
+        grid-template-columns:
+            minmax(125px, 150px)
+            50px
+            minmax(0, 1fr);
+    }
+
+    .investigation-pivots,
+    .button-row {
+        flex-wrap: wrap;
+    }
+
+    .dashboard-visual-grid,
+    .host-security-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 620px) {
+    .alert-row,
+    .host-alert-row {
+        grid-template-columns:
+            48px
+            minmax(0, 1fr);
+    }
+
+    .alert-row > :first-child,
+    .host-alert-row > :first-child {
+        grid-column: 1 / -1;
+    }
+
+    .alert-row > :nth-child(n+3),
+    .host-alert-row > :nth-child(3) {
+        grid-column: 2;
+    }
+
+    .host-facts,
+    .analyst-context-grid {
+        grid-template-columns: 1fr;
+    }
+}

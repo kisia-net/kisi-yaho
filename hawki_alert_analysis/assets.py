@@ -3,7 +3,7 @@
 This is one of the four metadata blocks delivered to the LLM/SLM. Only the
 repository implementation knows where inventory records come from; the rest of
 HAW-KI works against `Asset` objects, so a live CMDB, Wazuh agent inventory, or
-Elasticsearch asset index can replace the file-backed inventory later without
+Wazuh Indexer asset index can replace the file-backed inventory later without
 touching the enrichment or bundle code.
 
 Design rule: enrichment attaches business context, it does not infer attack
