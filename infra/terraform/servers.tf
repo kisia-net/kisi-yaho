@@ -15,7 +15,7 @@
 locals {
   # 프라이빗 서버가 패키지를 받으려면 NAT 이 있어야 합니다.
   # GPU 를 안 켜도 SIEM 만 켜면 NAT 이 올라오도록 조건을 넓힙니다.
-  nat_needed = var.lab_running || var.siem_running
+  nat_needed = var.lab_running || var.siem_running || (var.redteam_enabled && var.redteam_running)
 }
 
 data "aws_ami" "ubuntu" {

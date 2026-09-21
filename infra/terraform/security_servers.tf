@@ -136,6 +136,16 @@ resource "aws_security_group" "vm" {
     description     = "VXLAN encapsulated mirrored traffic from the web server"
   }
 
+  # 프론트엔드 → 센서 VM 8787. 콘솔에서 직접 추가돼 코드에 없던 규칙을 2026-09-21 코드로 옮김.
+  # description 이 없는 상태로 AWS 에 존재하므로 일부러 비워둡니다(값을 넣으면 규칙이 재생성됨).
+  # 용도: 확인 필요 (Suricata 룰 적재·검증 게이트웨이로 추정) — 확인되면 이 주석을 갱신하세요.
+  ingress {
+    from_port       = 8787
+    to_port         = 8787
+    protocol        = "tcp"
+    security_groups = [aws_security_group.frontend.id]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
