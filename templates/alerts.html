@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block subtitle %}
 <p class="page-description">
-    Review Wazuh security alerts, correlated evidence, and investigation context.
+    Wazuh 보안 경보와 연관 증거, 조사 맥락을 확인합니다.
 </p>
 {% endblock %}
 
@@ -9,31 +9,31 @@
 <section class="panel">
     <form id="alert-filter-form" class="toolbar-form">
         <label>
-            Search
-            <input id="alert-query" placeholder="Agent, IP, rule, group, MITRE, or detection">
+            검색
+            <input id="alert-query" placeholder="에이전트, IP, 룰, 그룹, MITRE, 탐지명">
         </label>
 
         <label>
-            Minimum Wazuh level
+            최소 Wazuh 레벨
             <select id="alert-min-level">
-                <option value="0">All levels</option>
-                <option value="3">Level 3+</option>
-                <option value="5">Level 5+</option>
-                <option value="8">Level 8+</option>
-                <option value="10">Level 10+</option>
-                <option value="12">Level 12+</option>
+                <option value="0">전체 레벨</option>
+                <option value="3">레벨 3 이상</option>
+                <option value="5">레벨 5 이상</option>
+                <option value="8">레벨 8 이상</option>
+                <option value="10">레벨 10 이상</option>
+                <option value="12">레벨 12 이상</option>
             </select>
         </label>
 
         <button class="button primary" type="submit">
-            Apply filters
+            필터 적용
         </button>
     </form>
 
     <div class="table-header">
-        <span id="alert-count">Loading alerts…</span>
+        <span id="alert-count">경보를 불러오는 중…</span>
         <a class="button secondary" href="/agent?mode=alert_summary">
-            Open agent
+            AI 분석 열기
         </a>
     </div>
 

@@ -361,16 +361,16 @@ SIEM = SiemService(
 )
 
 PAGE_TITLES = {
-    "dashboard": "Security Operations Dashboard",
-    "agent": "Agent Workspace",
-    "alerts": "Security Alerts",
-    "hosts": "Hosts",
-    "logs": "Log Search",
-    "hunts": "File Hunts",
-    "response": "Host Response",
-    "rules": "Suricata Rules",
-    "actions": "Approval Queue",
-    "audit": "Audit Log",
+    "dashboard": "보안 관제 대시보드",
+    "agent": "AI 분석 작업공간",
+    "alerts": "보안 경보",
+    "hosts": "호스트",
+    "logs": "로그 검색",
+    "hunts": "파일 추적",
+    "response": "호스트 대응",
+    "rules": "Suricata 룰",
+    "actions": "승인 대기열",
+    "audit": "감사 로그",
 }
 
 ALLOWED_AGENT_MODES = {
@@ -1034,7 +1034,12 @@ def apply_security_headers(response):
         "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
         "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     )
-    if response.mimetype == "text/html" or request.path.startswith("/static/"):
+    if request.path.startswith("/static/fonts/"):
+        # Font files never change under the same name (a new version gets a
+        # new directory), and re-downloading them on every page is the one
+        # static asset where no-store costs noticeable load time.
+        response.headers["Cache-Control"] = "public, max-age=2592000, immutable"
+    elif response.mimetype == "text/html" or request.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"

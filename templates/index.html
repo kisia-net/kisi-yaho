@@ -3,27 +3,27 @@
 {% block content %}
 <section class="metric-grid compact" id="dashboard-metrics">
     <article class="metric-card">
-        <span>Alerts · 24h</span>
+        <span>경보 · 최근 24시간</span>
         <strong id="metric-alerts-24h">—</strong>
-        <small>Wazuh detections</small>
+        <small>Wazuh 탐지 건수</small>
     </article>
 
     <article class="metric-card">
-        <span>Level 8+ · 24h</span>
+        <span>레벨 8 이상 · 최근 24시간</span>
         <strong id="metric-level8-24h">—</strong>
-        <small>Wazuh rule level threshold</small>
+        <small>Wazuh 룰 레벨 기준</small>
     </article>
 
     <article class="metric-card">
-        <span>Raw events · 24h</span>
+        <span>원시 이벤트 · 최근 24시간</span>
         <strong id="metric-archive-24h">—</strong>
-        <small>Wazuh archive telemetry</small>
+        <small>Wazuh 아카이브 수집량</small>
     </article>
 
     <article class="metric-card">
-        <span>Pending approvals</span>
+        <span>승인 대기</span>
         <strong id="metric-actions">—</strong>
-        <small>Write-capable proposals awaiting review</small>
+        <small>검토를 기다리는 변경 조치 제안</small>
     </article>
 </section>
 
@@ -32,27 +32,28 @@
         <div class="panel-header">
             <div>
                 <p class="panel-kicker">Wazuh</p>
-                <h2>Recent alerts</h2>
+                <h2>최근 경보</h2>
             </div>
 
             <a class="button secondary small" href="/alerts">
-                View all
+                전체 보기
             </a>
         </div>
 
         <div id="dashboard-alert-list"
              class="dashboard-alert-list loading-block">
-            Loading recent alerts…
+            최근 경보를 불러오는 중…
         </div>
     </article>
 
     <article class="panel">
         <div class="panel-header"><div><p class="panel-kicker">연결 상태</p><h2>서비스 접속 가능 여부</h2></div><span id="status-checked-at" class="muted">확인 전</span></div>
         <div class="service-grid" id="dashboard-services">
+            {% set service_names = {'llm': 'LLM (vLLM)', 'wazuh_indexer': 'Wazuh Indexer', 'wazuh_dashboard': 'Wazuh Dashboard', 'velociraptor': 'Velociraptor', 'suricata': 'Suricata'} %}
             {% for name in ['llm', 'wazuh_indexer', 'wazuh_dashboard', 'velociraptor', 'suricata'] %}
             <div class="service-card" data-service-card="{{ name }}">
                 <span class="status-dot unknown" data-service-dot="{{ name }}"></span>
-                <div><strong>{{ name|replace('_', ' ')|title }}</strong><small data-service-label="{{ name }}">확인 중</small></div>
+                <div><strong>{{ service_names.get(name, name) }}</strong><small data-service-label="{{ name }}">확인 중</small></div>
                 <span class="latency" data-service-latency="{{ name }}">—</span>
             </div>
             {% endfor %}
@@ -75,28 +76,28 @@
     <article class="panel dashboard-activity-panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Detection activity</p>
-                <h2>Last 24 hours</h2>
+                <p class="panel-kicker">탐지 추이</p>
+                <h2>최근 24시간</h2>
             </div>
         </div>
 
         <div id="dashboard-activity-chart"
              class="dashboard-chart loading-block">
-            Loading detection activity…
+            탐지 추이를 불러오는 중…
         </div>
     </article>
 
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Wazuh detection metadata</p>
-                <h2>Rule level distribution</h2>
+                <p class="panel-kicker">Wazuh 탐지 메타데이터</p>
+                <h2>룰 레벨 분포</h2>
             </div>
         </div>
 
         <div id="dashboard-level-chart"
              class="dashboard-level-chart loading-block">
-            Loading rule levels…
+            룰 레벨을 불러오는 중…
         </div>
     </article>
 </section>

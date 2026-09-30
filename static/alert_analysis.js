@@ -10,9 +10,33 @@
         const response = await fetch(url, options);
         let body = {};
         try { body = await response.json(); } catch { body = {}; }
-        if (!response.ok) throw new Error(body.detail || body.error || `Request failed: ${response.status}`);
+        if (!response.ok) throw new Error(body.detail || body.error || `요청 실패: ${response.status}`);
         return body;
     }
+
+    // Display-only labels for machine values; the values themselves are untouched.
+    const ENTITY_LABELS = {
+        hosts: "호스트",
+        users: "사용자",
+        source_ips: "출발지 IP",
+        destination_ips: "목적지 IP",
+        files: "파일",
+        processes: "프로세스",
+    };
+
+    const VERDICT_LABELS = {
+        malicious: "악성",
+        suspicious: "의심",
+        benign: "정상",
+        unknown: "알 수 없음",
+    };
+
+    const formatDateTime = (value) => {
+        const date = new Date(value);
+        return Number.isNaN(date.getTime())
+            ? String(value ?? "—")
+            : date.toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    };
 
     function markdown(value) {
         if (typeof window.renderMarkdown === "function") return window.renderMarkdown(value);
@@ -20,52 +44,56 @@
     }
 
     function formatEvent(event) {
-        const source = event.source_type || event.source_dataset || "event";
+        const source = event.source_type || event.source_dataset || "이벤트";
         const host = event.host?.name || event.destination?.ip || "—";
         const reasons = event.correlation?.reasons || [];
         return `<div class="output-item">
             <div class="action-meta">
                 <span class="tag">${escapeHtml(source)}</span>
-                <span class="tag">${escapeHtml(new Date(event["@timestamp"]).toLocaleString())}</span>
+                <span class="tag">${escapeHtml(formatDateTime(event["@timestamp"]))}</span>
                 ${reasons.map((item) => `<span class="tag">${escapeHtml(item)}</span>`).join("")}
             </div>
-            <strong>${escapeHtml(event.message || event.rule?.name || "Event")}</strong>
+            <strong>${escapeHtml(event.message || event.rule?.name || "이벤트")}</strong>
             <p class="muted">${escapeHtml(host)}</p>
         </div>`;
     }
 
     function formatAsset(asset) {
         const facts = [
-            ["Business criticality", asset.criticality],
-            ["Exposure", asset.exposure],
-            ["Network zone", asset.zone],
-            ["Data classification", asset.data_classification],
-            ["Owner", asset.owner],
+            ["업무 중요도", asset.criticality],
+            ["노출 수준", asset.exposure],
+            ["네트워크 구역", asset.zone],
+            ["데이터 등급", asset.data_classification],
+            ["담당자", asset.owner],
         ].filter(([, value]) => value);
         const matchedOn = asset.match?.matched_on || [];
         return `<div class="output-item">
             <div class="action-meta">
-                ${asset.match?.on_trigger_alert ? `<span class="tag">Present in trigger alert</span>` : ""}
+                ${asset.match?.on_trigger_alert ? `<span class="tag">트리거 경보에 포함</span>` : ""}
                 ${facts.map(([label, value]) => `<span class="tag">${escapeHtml(label)}: ${escapeHtml(value)}</span>`).join("")}
             </div>
             <strong>${escapeHtml(asset.hostname || asset.id)}</strong>
             <p class="muted">${escapeHtml(asset.business_service || "—")}</p>
-            <p class="muted">Matched on: ${escapeHtml(matchedOn.join(", ") || "—")}</p>
+            <p class="muted">일치 기준: ${escapeHtml(matchedOn.join(", ") || "—")}</p>
         </div>`;
     }
 
     function formatIndicator(indicator) {
         const match = indicator.match || {};
+        const verdictKey = String(indicator.verdict || "").toLowerCase();
+        const verdictLabel = indicator.verdict
+            ? VERDICT_LABELS[verdictKey] || indicator.verdict
+            : "판정 없음";
         return `<div class="output-item">
             <div class="action-meta">
-                <span class="tag">${escapeHtml(indicator.verdict || "No verdict")}</span>
-                <span class="tag">Confidence ${escapeHtml(indicator.confidence ?? 0)}</span>
-                ${match.on_trigger_alert ? `<span class="tag">Present in trigger alert</span>` : ""}
-                ${match.indicator_expired ? `<span class="tag">Expired indicator</span>` : ""}
+                <span class="tag">${escapeHtml(verdictLabel)}</span>
+                <span class="tag">신뢰도 ${escapeHtml(indicator.confidence ?? 0)}</span>
+                ${match.on_trigger_alert ? `<span class="tag">트리거 경보에 포함</span>` : ""}
+                ${match.indicator_expired ? `<span class="tag">만료된 지표</span>` : ""}
             </div>
             <strong>${escapeHtml(match.matched_value || indicator.value)}</strong>
             <p class="muted">${escapeHtml(indicator.description || "")}</p>
-            <p class="muted">${escapeHtml(indicator.feed || "Feed")} · ${escapeHtml((indicator.categories || []).join(", ") || "No category")}</p>
+            <p class="muted">${escapeHtml(indicator.feed || "피드")} · ${escapeHtml((indicator.categories || []).join(", ") || "분류 없음")}</p>
         </div>`;
     }
 
@@ -81,17 +109,17 @@
         const ungrounded = review.ungrounded_event_ids || [];
         const notes = review.notes || [];
         const tags = [
-            `<span class="tag">${review.complete ? "All required fields present" : `Missing fields: ${missing.length}`}</span>`,
-            `<span class="tag">Evidence citations: ${escapeHtml(review.citations ?? 0)}</span>`,
-            ungrounded.length ? `<span class="tag">Ungrounded citations: ${ungrounded.length}</span>` : "",
-            review.repair_attempted ? `<span class="tag">One repair attempt performed</span>` : "",
+            `<span class="tag">${review.complete ? "필수 항목 모두 포함" : `누락 항목: ${missing.length}`}</span>`,
+            `<span class="tag">증거 인용: ${escapeHtml(review.citations ?? 0)}</span>`,
+            ungrounded.length ? `<span class="tag">근거 없는 인용: ${ungrounded.length}</span>` : "",
+            review.repair_attempted ? `<span class="tag">보정 1회 수행</span>` : "",
         ].join("");
 
         panel.hidden = false;
         panel.innerHTML = `<div class="output-item">
             <div class="action-meta">${tags}</div>
-            ${missing.length ? `<p class="muted">Unreported fields: ${escapeHtml(missing.join(", "))}</p>` : ""}
-            ${ungrounded.length ? `<p class="muted">Referenced events not present in evidence bundle: ${escapeHtml(ungrounded.join(", "))}</p>` : ""}
+            ${missing.length ? `<p class="muted">보고되지 않은 항목: ${escapeHtml(missing.join(", "))}</p>` : ""}
+            ${ungrounded.length ? `<p class="muted">증거 묶음에 없는 참조 이벤트: ${escapeHtml(ungrounded.join(", "))}</p>` : ""}
             ${notes.map((note) => `<p class="muted">${escapeHtml(note)}</p>`).join("")}
         </div>`;
     }
@@ -99,31 +127,31 @@
     function renderCase(root, data) {
         const caseData = data.case;
         const trigger = caseData.trigger || {};
-        root.querySelector("[data-case-title]").textContent = caseData.title || trigger.message || "Alert case";
+        root.querySelector("[data-case-title]").textContent = caseData.title || trigger.message || "경보 케이스";
         root.querySelector("[data-case-id]").textContent = `${caseData.case_id} · ${caseData.scenario_id}`;
         root.querySelector("[data-trigger]").innerHTML = formatEvent(trigger);
 
         const entities = caseData.entities || {};
         root.querySelector("[data-entities]").innerHTML = Object.entries(entities)
             .filter(([, values]) => Array.isArray(values) && values.length)
-            .map(([key, values]) => `<div class="output-item"><strong>${escapeHtml(key.replaceAll("_", " "))}</strong><div class="action-meta">${values.map((v) => `<span class="tag">${escapeHtml(v)}</span>`).join("")}</div></div>`)
-            .join("") || `<div class="empty-state">No correlated entities.</div>`;
+            .map(([key, values]) => `<div class="output-item"><strong>${escapeHtml(ENTITY_LABELS[key] || key.replaceAll("_", " "))}</strong><div class="action-meta">${values.map((v) => `<span class="tag">${escapeHtml(v)}</span>`).join("")}</div></div>`)
+            .join("") || `<div class="empty-state">상관된 개체가 없습니다.</div>`;
 
         const assets = caseData.assets || [];
         const unresolved = caseData.unresolved_assets || [];
         root.querySelector("[data-assets]").innerHTML = [
             assets.map(formatAsset).join(""),
             unresolved.length
-                ? `<div class="output-item"><strong>Not found in asset inventory</strong><div class="action-meta">${unresolved.map((value) => `<span class="tag">${escapeHtml(value)}</span>`).join("")}</div><p class="muted">The entity may be external, unmanaged, or absent from inventory. This indicates missing context, not safety.</p></div>`
+                ? `<div class="output-item"><strong>자산 목록에 없음</strong><div class="action-meta">${unresolved.map((value) => `<span class="tag">${escapeHtml(value)}</span>`).join("")}</div><p class="muted">외부 개체이거나 관리되지 않거나 자산 목록에 등록되지 않은 개체일 수 있습니다. 이는 맥락이 부족하다는 뜻이며 안전하다는 뜻이 아닙니다.</p></div>`
                 : "",
-        ].join("") || `<div class="empty-state">No associated asset information.</div>`;
+        ].join("") || `<div class="empty-state">연관된 자산 정보가 없습니다.</div>`;
 
         const intel = caseData.threat_intelligence || [];
         const stats = caseData.threat_intelligence_stats || {};
         root.querySelector("[data-intel]").innerHTML = [
             intel.map(formatIndicator).join(""),
-            `<div class="output-item"><p class="muted">Observables checked: ${escapeHtml(stats.observables_checked || 0)} · Without intelligence: ${escapeHtml(stats.observables_without_intelligence_count || 0)}. Intelligence matches increase suspicion but do not prove compromise.</p></div>`,
-        ].join("") || `<div class="empty-state">No matching threat indicators.</div>`;
+            `<div class="output-item"><p class="muted">확인한 관측값: ${escapeHtml(stats.observables_checked || 0)} · 위협 정보 없음: ${escapeHtml(stats.observables_without_intelligence_count || 0)}. 위협 정보 일치는 의심을 높이지만 침해를 입증하지는 않습니다.</p></div>`,
+        ].join("") || `<div class="empty-state">일치하는 위협 지표가 없습니다.</div>`;
 
         root.querySelector("[data-timeline]").innerHTML = (caseData.timeline || []).map(formatEvent).join("");
         const host = trigger.host?.name || trigger.destination?.ip || "";
@@ -182,38 +210,38 @@
             "";
 
         const fields = [
-            ["Time", evidence.timestamp],
-            ["Agent", agent.name],
-            ["Agent ID", agent.id],
-            ["Agent IP", agent.ip],
-            ["Manager", manager.name],
-            ["Rule ID", rule.id],
-            ["Wazuh rule level", rule.level],
-            ["Rule description", rule.description],
-            ["Rule groups", joinValues(rule.groups)],
-            ["Decoder", decoder.name],
-            ["Decoder parent", decoder.parent],
-            ["Log source", evidence.location],
-            ["Source IP", sourceIp],
-            ["Source port", sourcePort],
-            ["Destination IP", destinationIp],
-            ["Destination port", destinationPort],
-            ["Protocol",
+            ["시각", evidence.timestamp ? formatDateTime(evidence.timestamp) : ""],
+            ["에이전트", agent.name],
+            ["에이전트 ID", agent.id],
+            ["에이전트 IP", agent.ip],
+            ["매니저", manager.name],
+            ["룰 ID", rule.id],
+            ["Wazuh 룰 레벨", rule.level],
+            ["룰 설명", rule.description],
+            ["룰 그룹", joinValues(rule.groups)],
+            ["디코더", decoder.name],
+            ["상위 디코더", decoder.parent],
+            ["로그 소스", evidence.location],
+            ["출발지 IP", sourceIp],
+            ["출발지 포트", sourcePort],
+            ["목적지 IP", destinationIp],
+            ["목적지 포트", destinationPort],
+            ["프로토콜",
                 decoder.name === "web-accesslog" ? "" : protocol
             ],
-            ["HTTP method",
+            ["HTTP 메서드",
                 decoder.name === "web-accesslog" ? data.protocol : ""
             ],
             ["URL", data.url],
-            ["HTTP status", data.id],
-            ["Sysmon Event ID", system.eventID],
-            ["Process", eventdata.image],
-            ["Process ID", eventdata.processId],
-            ["User", eventdata.user],
-            ["Command line", eventdata.commandLine],
+            ["HTTP 상태 코드", data.id],
+            ["Sysmon 이벤트 ID", system.eventID],
+            ["프로세스", eventdata.image],
+            ["프로세스 ID", eventdata.processId],
+            ["사용자", eventdata.user],
+            ["명령줄", eventdata.commandLine],
             ["MITRE ATT&CK ID", joinValues(mitre.id)],
-            ["MITRE tactic", joinValues(mitre.tactic)],
-            ["MITRE technique", joinValues(mitre.technique)],
+            ["MITRE 전술", joinValues(mitre.tactic)],
+            ["MITRE 기법", joinValues(mitre.technique)],
         ].filter(([, value]) =>
             value !== undefined &&
             value !== null &&
@@ -231,7 +259,7 @@
             </div>
             ${evidence.full_log ? `
                 <details class="log-raw">
-                    <summary>Raw event</summary>
+                    <summary>원시 이벤트</summary>
                     <pre>${escapeHtml(String(evidence.full_log))}</pre>
                 </details>
             ` : ""}
@@ -351,7 +379,7 @@
 
         if (safeIp) {
             links.push({
-                label: "Same source IP · 24h",
+                label: "동일 출발지 IP · 24시간",
                 href: investigationLogUrl({
                     index: "wazuh-alerts-*",
                     query:
@@ -368,7 +396,7 @@
 
         if (safeAgentId) {
             links.push({
-                label: "Same agent · 24h",
+                label: "동일 에이전트 · 24시간",
                 href: investigationLogUrl({
                     index: "wazuh-alerts-*",
                     query: `agent.id:"${safeAgentId}"`,
@@ -382,7 +410,7 @@
 
         if (safeRuleId) {
             links.push({
-                label: "Same rule · 24h",
+                label: "동일 룰 · 24시간",
                 href: investigationLogUrl({
                     index: "wazuh-alerts-*",
                     query: `rule.id:"${safeRuleId}"`,
@@ -396,7 +424,7 @@
 
         if (safeAgentId) {
             links.push({
-                label: "Raw events · ±5m",
+                label: "원시 이벤트 · ±5분",
                 href: investigationLogUrl({
                     index: "wazuh-archives-*",
                     query: `agent.id:"${safeAgentId}"`,
@@ -437,41 +465,41 @@
 
         const cards = [
             {
-                label: "Source activity",
+                label: "출발지 활동",
                 value: data.source_ip
                     ? sameSource.count ?? 0
                     : "—",
                 detail: data.source_ip
                     ? data.source_ip
-                    : "No structured source IP",
+                    : "구조화된 출발지 IP 없음",
             },
             {
-                label: "Rules from source",
+                label: "출발지의 룰",
                 value: data.source_ip
                     ? sameSource.distinct_rules ?? 0
                     : "—",
-                detail: "Distinct Wazuh rules",
+                detail: "고유 Wazuh 룰 수",
             },
             {
-                label: "Hosts reached",
+                label: "도달한 호스트",
                 value: data.source_ip
                     ? sameSource.distinct_agents ?? 0
                     : "—",
-                detail: "Distinct monitored agents",
+                detail: "고유 모니터링 에이전트 수",
             },
             {
-                label: "Same rule",
+                label: "동일 룰",
                 value: data.same_rule_count ?? 0,
                 detail: data.rule_id
-                    ? `Rule ${data.rule_id}`
-                    : "No rule identifier",
+                    ? `룰 ${data.rule_id}`
+                    : "룰 식별자 없음",
             },
             {
-                label: "Host detections",
+                label: "호스트 탐지",
                 value: data.same_agent_count ?? 0,
                 detail: data.agent_id
-                    ? `Agent ${data.agent_id}`
-                    : "No agent identifier",
+                    ? `에이전트 ${data.agent_id}`
+                    : "에이전트 식별자 없음",
             },
         ];
 
@@ -496,12 +524,12 @@
 
         if (meta) {
             meta.textContent =
-                `${events.length} related events · ±${context.window_seconds || 0}s`;
+                `관련 이벤트 ${events.length}건 · ±${context.window_seconds || 0}초`;
         }
 
         if (!events.length) {
             target.innerHTML =
-                `<div class="empty-state">No related evidence was selected.</div>`;
+                `<div class="empty-state">선택된 관련 증거가 없습니다.</div>`;
             return;
         }
 
@@ -521,26 +549,26 @@
 
             const eventLabel =
                 Object.keys(data).length === 0
-                    ? "Undecoded raw event"
+                    ? "디코딩되지 않은 원시 이벤트"
                     : "";
 
             const parts = [
                 eventLabel,
-                source ? `Source: ${source}` : "",
-                destination ? `Destination: ${destination}` : "",
-                data.protocol ? `Protocol/Method: ${data.protocol}` : "",
+                source ? `출발지: ${source}` : "",
+                destination ? `목적지: ${destination}` : "",
+                data.protocol ? `프로토콜/메서드: ${data.protocol}` : "",
                 data.url ? `URL: ${data.url}` : "",
-                data.id ? `Status/Event: ${data.id}` : "",
-                rule.id ? `Rule: ${rule.id}` : "",
+                data.id ? `상태/이벤트: ${data.id}` : "",
+                rule.id ? `룰: ${rule.id}` : "",
                 rule.level !== undefined && rule.level !== null
-                    ? `Level: ${rule.level}`
+                    ? `레벨: ${rule.level}`
                     : "",
             ].filter(Boolean);
 
             return `
                 <div class="output-item investigation-event">
                     <p>
-                        <strong>${escapeHtml(event.timestamp || "Unknown time")}</strong>
+                        <strong>${escapeHtml(event.timestamp ? formatDateTime(event.timestamp) : "시각 알 수 없음")}</strong>
                     </p>
 
                     ${event.location
@@ -553,7 +581,7 @@
 
                     ${event.full_log
                         ? `<details class="log-raw">
-                               <summary>Raw event</summary>
+                               <summary>원시 이벤트</summary>
                                <pre>${escapeHtml(event.full_log)}</pre>
                            </details>`
                         : ""}
@@ -596,14 +624,14 @@
                     );
                     if (target) {
                         target.innerHTML =
-                            `<div class="empty-state">Investigation context could not be loaded: ${escapeHtml(contextError.message)}</div>`;
+                            `<div class="empty-state">조사 맥락을 불러오지 못했습니다: ${escapeHtml(contextError.message)}</div>`;
                     }
                 }
             } catch (evidenceError) {
                 const target = root.querySelector("[data-trigger]");
                 if (target) {
                     target.innerHTML =
-                        `<div class="empty-state">Wazuh source evidence could not be loaded: ${escapeHtml(evidenceError.message)}</div>`;
+                        `<div class="empty-state">Wazuh 원본 증거를 불러오지 못했습니다: ${escapeHtml(evidenceError.message)}</div>`;
                 }
             }
         } catch (error) {
@@ -626,7 +654,7 @@
             if (section) section.hidden = false;
 
             button.disabled = true;
-            button.textContent = "Analyzing…";
+            button.textContent = "분석 중…";
             output.classList.remove("empty-state");
             output.innerHTML = `<div class="typing"><i></i><i></i><i></i></div>`;
             try {
@@ -635,22 +663,22 @@
                     headers: {"Content-Type": "application/json", "X-CSRF-Token": csrf},
                     body: JSON.stringify({}),
                 });
-                output.innerHTML = `<div class="markdown-body">${markdown(result.answer || "No analysis result returned.")}</div>`;
+                output.innerHTML = `<div class="markdown-body">${markdown(result.answer || "반환된 분석 결과가 없습니다.")}</div>`;
                 if (typeof window.enhanceRenderedContent === "function") window.enhanceRenderedContent(output);
                 renderReview(root, result);
                 const counts = result.metadata_counts || {};
                 const bundled = [
-                    `Alerts ${counts.security_alerts ?? 0}`,
-                    `Raw events ${counts.security_events ?? 0}`,
-                    `Assets ${counts.assets ?? 0}`,
-                    `Threat indicators ${counts.threat_indicators ?? 0}`,
+                    `경보 ${counts.security_alerts ?? 0}`,
+                    `원시 이벤트 ${counts.security_events ?? 0}`,
+                    `자산 ${counts.assets ?? 0}`,
+                    `위협 지표 ${counts.threat_indicators ?? 0}`,
                 ].join(" · ");
-                root.querySelector("[data-analysis-meta]").textContent = `${result.model || "Local model"} · Evidence supplied: ${bundled}`;
+                root.querySelector("[data-analysis-meta]").textContent = `${result.model || "로컬 모델"} · 제공된 증거: ${bundled}`;
             } catch (error) {
                 output.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
             } finally {
                 button.disabled = false;
-                button.textContent = "Analyze with LLM";
+                button.textContent = "LLM으로 분석";
             }
         });
     }
