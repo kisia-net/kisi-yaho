@@ -42,6 +42,19 @@ resource "aws_security_group" "redteam" {
   description = "Red team staging. No inbound; operators use SSM only."
   vpc_id      = aws_vpc.main.id
 
+  # HAW-KI backend (frontend host) -> red team runner, for automatic evaluation
+  # of live analysis results (REDTEAM_RUNNER_URL, port 8091). Only the frontend
+  # security group may connect; nothing else reaches the runner.
+  # The group description above still says "No inbound": changing a security
+  # group's description replaces the whole group, so it is left as it is.
+  ingress {
+    from_port       = 8091
+    to_port         = 8091
+    protocol        = "tcp"
+    security_groups = [aws_security_group.frontend.id]
+    description     = "HAW-KI backend to red team runner (auto evaluation)"
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
