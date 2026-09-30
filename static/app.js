@@ -682,8 +682,12 @@ function setService(name, details) {
         dot.classList.remove("unknown", "online", "offline", "unconfigured");
         dot.classList.add(!configured ? "unconfigured" : online ? "online" : "offline");
     });
+    const reason = { refused: " · 서비스 미실행", timeout: " · 응답 없음" }[details?.error_kind] || "";
+    const autoEval = typeof details?.auto_eval_enabled === "boolean"
+        ? ` · 자동평가 ${details.auto_eval_enabled ? "켜짐" : "꺼짐"}`
+        : "";
     document.querySelectorAll(`[data-service-label="${name}"]`).forEach((label) => {
-        label.textContent = !configured ? "미설정" : online ? `연결됨 · HTTP ${details.status_code}` : "연결 안 됨";
+        label.textContent = (!configured ? "미설정" : online ? `연결됨 · HTTP ${details.status_code}` : `연결 안 됨${reason}`) + (configured ? autoEval : "");
     });
     document.querySelectorAll(`[data-service-latency="${name}"]`).forEach((label) => {
         label.textContent = details?.latency_ms != null ? `${details.latency_ms} ms` : "—";

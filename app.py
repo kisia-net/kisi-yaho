@@ -1247,12 +1247,22 @@ def check_http_service(name: str, url: str, path: str = "") -> tuple[str, dict[s
         }
     except requests.RequestException as exc:
         latency_ms = round((time.perf_counter() - started) * 1000)
+        # "refused" means the host answered but nothing listens on the port
+        # (service not running, or bound to 127.0.0.1); "timeout" means
+        # nothing answered at all (security group, host down).
+        if isinstance(exc, requests.Timeout):
+            error_kind = "timeout"
+        elif isinstance(exc, requests.ConnectionError) and "refused" in str(exc).lower():
+            error_kind = "refused"
+        else:
+            error_kind = "other"
         return name, {
             "ok": False,
             "configured": True,
             "status_code": None,
             "latency_ms": latency_ms,
             "error": str(exc)[:180],
+            "error_kind": error_kind,
         }
 
 
@@ -1297,6 +1307,8 @@ def api_status():
         ("wazuh_dashboard", CONFIG["wazuh_dashboard_internal_url"], "/api/status"),
         ("velociraptor", CONFIG["velociraptor_url"], ""),
         ("suricata", CONFIG["suricata_ui_url"], ""),
+        # Reachability only (any HTTP answer counts); no token is sent.
+        ("redteam_runner", CONFIG["redteam_runner_url"], ""),
     ]
     services: dict[str, Any] = {}
     with ThreadPoolExecutor(max_workers=len(jobs)) as executor:
@@ -1304,6 +1316,10 @@ def api_status():
         for future in as_completed(futures):
             name, result = future.result()
             services[name] = result
+
+    if "redteam_runner" in services:
+        services["redteam_runner"]["auto_eval_enabled"] = bool(CONFIG["redteam_auto_eval_enabled"])
+        services["redteam_runner"]["tools"] = list(CONFIG["redteam_auto_tools"])
 
     return jsonify({"checked_at": utc_now_iso(), "services": services})
 

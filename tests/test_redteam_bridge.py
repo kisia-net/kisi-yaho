@@ -144,3 +144,56 @@ class EndpointTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ServiceStatusTests(unittest.TestCase):
+    """The dashboard's service panel shows the runner and why it is down."""
+
+    def setUp(self):
+        self.client = app.app.test_client()
+        with self.client.session_transaction() as session:
+            session["_csrf_token"] = "test-token"
+        self.client.post("/login", data={
+            "username": os.environ["HAWKI_ADMIN_USERNAME"], "password": os.environ["HAWKI_ADMIN_PASSWORD"],
+            "csrf_token": "test-token", "next": "/",
+        })
+
+    def runner(self, url):
+        with mock.patch.dict(app.CONFIG, {"redteam_runner_url": url, "redteam_auto_eval_enabled": False}):
+            return self.client.get("/api/status").get_json()["services"]["redteam_runner"]
+
+    def test_unconfigured_runner(self):
+        status = self.runner("")
+        self.assertFalse(status["configured"])
+        self.assertFalse(status["auto_eval_enabled"])
+
+    def test_closed_port_is_reported_as_refused(self):
+        import socket
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()  # nothing listens here now
+        status = self.runner(f"http://127.0.0.1:{port}")
+        self.assertFalse(status["ok"])
+        self.assertEqual(status["error_kind"], "refused")
+
+    def test_any_http_answer_counts_as_reachable(self):
+        import http.server
+        import threading
+
+        class NotFound(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(404)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), NotFound)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            status = self.runner(f"http://127.0.0.1:{server.server_address[1]}")
+        finally:
+            server.shutdown()
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["status_code"], 404)

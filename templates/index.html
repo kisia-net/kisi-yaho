@@ -49,8 +49,8 @@
     <article class="panel">
         <div class="panel-header"><div><p class="panel-kicker">연결 상태</p><h2>서비스 접속 가능 여부</h2></div><span id="status-checked-at" class="muted">확인 전</span></div>
         <div class="service-grid" id="dashboard-services">
-            {% set service_names = {'llm': 'LLM (vLLM)', 'wazuh_indexer': 'Wazuh Indexer', 'wazuh_dashboard': 'Wazuh Dashboard', 'velociraptor': 'Velociraptor', 'suricata': 'Suricata'} %}
-            {% for name in ['llm', 'wazuh_indexer', 'wazuh_dashboard', 'velociraptor', 'suricata'] %}
+            {% set service_names = {'llm': 'LLM (vLLM)', 'wazuh_indexer': 'Wazuh Indexer', 'wazuh_dashboard': 'Wazuh Dashboard', 'velociraptor': 'Velociraptor', 'suricata': 'Suricata', 'redteam_runner': '레드팀 실행기'} %}
+            {% for name in ['llm', 'wazuh_indexer', 'wazuh_dashboard', 'velociraptor', 'suricata', 'redteam_runner'] %}
             <div class="service-card" data-service-card="{{ name }}">
                 <span class="status-dot unknown" data-service-dot="{{ name }}"></span>
                 <div><strong>{{ service_names.get(name, name) }}</strong><small data-service-label="{{ name }}">확인 중</small></div>
