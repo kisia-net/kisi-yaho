@@ -29,11 +29,40 @@ import requests
 from .adapters import ECSAdapter, SuricataAdapter, SysmonAdapter, WazuhAdapter
 from .assets import AssetInventory, NullAssetInventory, match_assets
 from .correlate import build_case
+from .correlation_profiles import select_profile
 from .models import AlertCase, CanonicalEvent, parse_timestamp
 from .repository import AlertNotFound
 from .threat_intel import NullThreatIntelFeed, ThreatIntelFeed, match_indicators
 
 INDEX_PATTERN = re.compile(r"^[A-Za-z0-9._*,\-]{1,256}$")
+
+# Where the lab's decoders put addresses: classic decoders (nginx, sshd,
+# ModSecurity) use srcip/dstip, Suricata EVE through Wazuh uses src_ip/dest_ip.
+SOURCE_IP_FIELDS = ["data.srcip", "data.src_ip"]
+DESTINATION_IP_FIELDS = ["data.dstip", "data.dest_ip"]
+# Cap on events pulled from other agents per alert; they compete with the
+# same-agent evidence for the same few context slots.
+CROSS_AGENT_LIMIT = 50
+# Context slots held for other agents' events when any were found.
+CROSS_AGENT_RESERVED = 4
+
+
+def _field(record: dict[str, Any], dotted: str) -> Any:
+    value: Any = record
+    for key in dotted.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def _event_source_ip(record: dict[str, Any]) -> str:
+    for name in SOURCE_IP_FIELDS:
+        value = str(_field(record, name) or "").strip()
+        if value:
+            return value
+    return ""
+
 
 DEFAULT_ALERT_INDEX = "wazuh-alerts-*"
 DEFAULT_EVENT_INDEX = "wazuh-alerts-*"
@@ -560,53 +589,102 @@ class WazuhEventRepository:
             return datetime.fromisoformat(value)
 
         trigger_time = parse_time(trigger_time_raw)
-        start = trigger_time - timedelta(seconds=self.window_seconds)
-        end = trigger_time + timedelta(seconds=self.window_seconds)
+        profile = select_profile(trigger, default_seconds=self.window_seconds)
+        start = trigger_time - timedelta(seconds=profile.seconds_before)
+        end = trigger_time + timedelta(seconds=profile.seconds_after)
 
-        body = {
-            "size": self.candidate_limit,
-            "sort": [
-                {self.timestamp_field: {"order": "asc"}}
-            ],
-            "_source": [
-                "timestamp",
-                "agent",
-                "rule",
-                "decoder",
-                "location",
-                "data",
-                "full_log",
-            ],
-            "query": {
-                "bool": {
-                    "filter": [
-                        {"term": {"agent.id": agent_id}},
-                        {
-                            "range": {
-                                self.timestamp_field: {
-                                    "gte": start.isoformat(),
-                                    "lte": end.isoformat(),
-                                }
-                            }
-                        },
-                    ]
+        source_fields = [
+            "timestamp",
+            "agent",
+            "rule",
+            "decoder",
+            "location",
+            "data",
+            "full_log",
+        ]
+
+        def time_range(gte: datetime, lte: datetime) -> dict[str, Any]:
+            return {
+                "range": {
+                    self.timestamp_field: {
+                        "gte": gte.isoformat(),
+                        "lte": lte.isoformat(),
+                    }
                 }
-            },
-        }
+            }
 
-        try:
-            payload = self.client.search(self.archive_index, body)
-        except (WazuhIndexerError, ValueError) as exc:
-            self.last_error = str(exc)
-            if isinstance(exc, WazuhIndexerError):
-                raise
-            raise WazuhIndexerError(str(exc)) from exc
+        def search(body: dict[str, Any]) -> list[dict[str, Any]]:
+            try:
+                return _hits(self.client.search(self.archive_index, body))
+            except (WazuhIndexerError, ValueError) as exc:
+                self.last_error = str(exc)
+                if isinstance(exc, WazuhIndexerError):
+                    raise
+                raise WazuhIndexerError(str(exc)) from exc
+
+        # Same agent, fetched outward from the trigger in both directions.
+        # One ascending query capped at candidate_limit filled up with the
+        # oldest events of a busy window and could return nothing after the
+        # trigger at all; splitting the budget keeps the events nearest the
+        # trigger on both sides.
+        half = max(1, self.candidate_limit // 2)
+        same_agent = {"term": {"agent.id": agent_id}}
+        before_hits = search({
+            "size": half,
+            "sort": [{self.timestamp_field: {"order": "desc"}}],
+            "_source": source_fields,
+            "query": {"bool": {"filter": [same_agent, time_range(start, trigger_time)]}},
+        })
+        after_hits = search({
+            "size": half,
+            "sort": [{self.timestamp_field: {"order": "asc"}}],
+            "_source": source_fields,
+            "query": {"bool": {"filter": [same_agent, time_range(trigger_time, end)]}},
+        })
+
+        # Other agents that saw the trigger's source address: the network
+        # sensor for a web alert, the other servers for a brute-force source.
+        trigger_srcip_value = _event_source_ip(trigger)
+        cross_hits: list[dict[str, Any]] = []
+        if profile.cross_agent and trigger_srcip_value:
+            cross_hits = search({
+                "size": min(CROSS_AGENT_LIMIT, self.candidate_limit),
+                "sort": [{self.timestamp_field: {"order": "asc"}}],
+                "_source": source_fields,
+                "query": {
+                    "bool": {
+                        "filter": [time_range(start, end)],
+                        "must_not": [same_agent],
+                        "should": [
+                            {"term": {field: trigger_srcip_value}}
+                            for field in SOURCE_IP_FIELDS + DESTINATION_IP_FIELDS
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                },
+            })
+
+        hits: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        cross_ids: set[str] = set()
+        for origin, batch in (
+            ("same_agent", before_hits + after_hits),
+            ("cross_agent", cross_hits),
+        ):
+            for hit in batch:
+                hit_id = str(hit.get("_id", ""))
+                if hit_id and hit_id in seen_ids:
+                    continue
+                seen_ids.add(hit_id)
+                if origin == "cross_agent":
+                    cross_ids.add(hit_id)
+                hits.append(hit)
 
         trigger_data = trigger.get("data") or {}
         trigger_rule = trigger.get("rule") or {}
         trigger_decoder = trigger.get("decoder") or {}
 
-        trigger_srcip = str(trigger_data.get("srcip") or "")
+        trigger_srcip = trigger_srcip_value
         trigger_location = str(trigger.get("location") or "")
         trigger_decoder_name = str(trigger_decoder.get("name") or "")
         trigger_full_log = str(trigger.get("full_log") or "")
@@ -614,7 +692,7 @@ class WazuhEventRepository:
         selected: list[dict[str, Any]] = []
         suppressed = 0
 
-        for hit in _hits(payload):
+        for hit in hits:
             source = hit.get("_source")
             if not isinstance(source, dict):
                 continue
@@ -659,7 +737,8 @@ class WazuhEventRepository:
 
             import re
 
-            srcip = str(data.get("srcip") or "").strip()
+            srcip = _event_source_ip(source)
+            other_agent = str(hit.get("_id", "")) in cross_ids
 
             if not srcip and full_log:
                 match = re.match(
@@ -673,9 +752,21 @@ class WazuhEventRepository:
                 trigger_srcip and srcip == trigger_srcip
             )
 
+            if not same_source_ip and other_agent and trigger_srcip:
+                # The sensor may record the address as the destination of a
+                # reply; the cross-agent query only returned the event because
+                # one of these fields held the trigger's source address.
+                same_source_ip = trigger_srcip in {
+                    str(_field(source, name) or "").strip()
+                    for name in SOURCE_IP_FIELDS + DESTINATION_IP_FIELDS
+                }
+
             if same_source_ip:
                 score += 5
                 reasons.append("same_source_ip")
+
+            if other_agent:
+                reasons.append("other_agent_same_address")
 
             if trigger_location and location == trigger_location:
                 score += 2
@@ -708,6 +799,7 @@ class WazuhEventRepository:
                 continue
 
             selected.append({
+                "origin": "cross_agent" if other_agent else "same_agent",
                 "id": str(hit.get("_id", "")),
                 "index": str(hit.get("_index", "")),
                 "timestamp": source.get("timestamp"),
@@ -722,14 +814,19 @@ class WazuhEventRepository:
                 "delta_seconds": round(delta_seconds, 3),
             })
 
-        selected.sort(
-            key=lambda item: (
-                -int(item["relevance_score"]),
-                float(item["delta_seconds"]),
-            )
-        )
+        def rank(item: dict[str, Any]) -> tuple[int, float]:
+            return (-int(item["relevance_score"]), float(item["delta_seconds"]))
 
-        selected = selected[:max(1, min(int(limit), 50))]
+        # Same-agent events always outscore cross-agent ones (they add the
+        # same-log-source and same-decoder points), so without a reservation
+        # the other agents' view would never survive a busy window. A few
+        # slots are held for it; unused slots go back to the same agent.
+        budget = max(1, min(int(limit), 50))
+        cross = sorted((i for i in selected if i["origin"] == "cross_agent"), key=rank)
+        local = sorted((i for i in selected if i["origin"] != "cross_agent"), key=rank)
+        reserved = cross[:min(CROSS_AGENT_RESERVED, budget)]
+        remaining = sorted(local + cross[len(reserved):], key=rank)
+        selected = reserved + remaining[:budget - len(reserved)]
 
         # Analyst presentation should remain chronological.
         selected.sort(key=lambda item: str(item.get("timestamp") or ""))
@@ -738,9 +835,21 @@ class WazuhEventRepository:
             "alert_id": alert_id,
             "agent": trigger.get("agent") or {},
             "trigger_timestamp": trigger.get("timestamp"),
-            "window_seconds": self.window_seconds,
+            "window_seconds": max(profile.seconds_before, profile.seconds_after),
+            "window": {
+                "seconds_before": profile.seconds_before,
+                "seconds_after": profile.seconds_after,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            },
+            "profile": profile.to_dict(),
             "archive_index": self.archive_index,
-            "candidate_count": len(_hits(payload)),
+            "candidate_count": len(hits),
+            "candidate_breakdown": {
+                "same_agent_before": len(before_hits),
+                "same_agent_after": len(after_hits),
+                "cross_agent": len(cross_hits),
+            },
             "suppressed_routine_count": suppressed,
             "selected_count": len(selected),
             "events": selected,

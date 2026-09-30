@@ -39,6 +39,11 @@ LIVE_EVIDENCE_HANDLING = [
         "Distinguish directly observed facts from inference."
     ),
     (
+        "CTX records whose retrieval.origin is cross_agent come from other hosts "
+        "that recorded the trigger's source address. They show the same address "
+        "seen elsewhere, not necessarily the same session or the same actor."
+    ),
+    (
         "Provenance identifies evidence origin and deterministic retrieval reasons. "
         "It does not establish maliciousness, causation, severity, or confidence."
     ),
@@ -218,6 +223,7 @@ def _context_item(
         "data": event.get("data") or {},
         "full_log": event.get("full_log"),
         "retrieval": {
+            "origin": event.get("origin") or "same_agent",
             "relevance_score": event.get("relevance_score"),
             "relevance_reasons": event.get("relevance_reasons") or [],
             "delta_seconds": event.get("delta_seconds"),
@@ -424,14 +430,23 @@ def build_live_evidence_bundle(
         "retrieval": {
             "archive_index": context.get("archive_index"),
             "window_seconds": context.get("window_seconds"),
+            "window": context.get("window"),
+            "profile": {
+                key: (context.get("profile") or {}).get(key)
+                for key in ("name", "seconds_before", "seconds_after", "cross_agent")
+            } if context.get("profile") else None,
             "candidate_count": context.get("candidate_count"),
+            "candidate_breakdown": context.get("candidate_breakdown"),
             "selected_count": len(investigation_context),
             "suppressed_routine_count": context.get(
                 "suppressed_routine_count"
             ),
             "selection_method": (
-                "Deterministic same-agent archive retrieval with routine "
-                "collector suppression and source/entity relevance gating."
+                "Deterministic archive retrieval. The window and whether other "
+                "agents are searched come from a profile chosen by the trigger's "
+                "rule groups and decoder; events nearest the trigger are fetched "
+                "on both sides, routine collector output is suppressed, and "
+                "source/entity relevance gating decides what is kept."
             ),
         },
         "evidence_handling": LIVE_EVIDENCE_HANDLING,
