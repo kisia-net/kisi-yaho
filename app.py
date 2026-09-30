@@ -256,6 +256,20 @@ THREAT_INTEL_REQUESTED_ROOT, THREAT_INTEL_ROOT = collection_root(
 # scenario/event repository, asset and threat-intelligence context from their
 # own collections. All four are assembled into one bundle per alert case.
 ASSET_INVENTORY = FileAssetInventory(ASSET_INVENTORY_ROOT)
+
+# Wazuh mode reads its own inventory of the real lab hosts and, unlike the
+# collections above, never falls back to the packaged fixtures: a synthetic
+# "web-01 / PCI-DSS" record inside a real analysis is evidence the model has no
+# way to recognise as made up. No directory means no inventory, reported as
+# "not configured".
+LIVE_ASSET_INVENTORY_ROOT = Path(
+    os.getenv("LIVE_ASSET_INVENTORY_ROOT", DATA_DIR / "assets-live")
+)
+LIVE_ASSET_INVENTORY = (
+    FileAssetInventory(LIVE_ASSET_INVENTORY_ROOT)
+    if LIVE_ASSET_INVENTORY_ROOT.is_dir() and any(LIVE_ASSET_INVENTORY_ROOT.glob("*.json"))
+    else NullAssetInventory()
+)
 THREAT_INTEL_FEED = FileThreatIntelFeed(THREAT_INTEL_ROOT)
 
 # Phase 1 reads fixtures, Phase 2 reads the Wazuh Indexer. Only this selection
@@ -288,7 +302,7 @@ def build_alert_repository():
         alert_index=os.getenv("WAZUH_ALERT_INDEX", DEFAULT_ALERT_INDEX),
         event_index=os.getenv("WAZUH_EVENT_INDEX", DEFAULT_EVENT_INDEX),
         archive_index=os.getenv("WAZUH_ARCHIVE_INDEX", "wazuh-archives-*"),
-        asset_inventory=NullAssetInventory(),
+        asset_inventory=LIVE_ASSET_INVENTORY,
         threat_intel_feed=NullThreatIntelFeed(),
         alert_limit=int(os.getenv("WAZUH_ALERT_LIMIT", "100")),
         candidate_limit=int(os.getenv("WAZUH_CANDIDATE_LIMIT", "200")),
@@ -1638,8 +1652,16 @@ def api_assets():
             "total": len(assets),
             "assets": assets,
             "source": "file_inventory",
-            "root": str(ASSET_INVENTORY_ROOT),
-            "configured": ASSET_INVENTORY_ROOT.exists(),
+            "root": str(
+                LIVE_ASSET_INVENTORY_ROOT
+                if ALERT_REPOSITORY_KIND == "wazuh"
+                else ASSET_INVENTORY_ROOT
+            ),
+            "configured": (
+                not isinstance(LIVE_ASSET_INVENTORY, NullAssetInventory)
+                if ALERT_REPOSITORY_KIND == "wazuh"
+                else ASSET_INVENTORY_ROOT.exists()
+            ),
         }
     )
 
@@ -1731,7 +1753,9 @@ def api_analyze_alert(alert_id: str):
         bundle_counts = {
             "security_alerts": 1 if bundle.get("trigger") else 0,
             "security_events": related_event_count,
-            "assets": 0,
+            "assets": len(
+                (bundle.get("assets") or {}).get("matches") or []
+            ),
             "threat_indicators": 0,
         }
 
@@ -1779,6 +1803,10 @@ def api_analyze_alert(alert_id: str):
             "related_event_count": related_event_count,
             "metadata_counts": bundle_counts,
             "evidence_counts": evidence_counts,
+            "priority": {
+                key: (bundle.get("priority") or {}).get(key)
+                for key in ("score", "band", "primary_asset_id")
+            } if is_live else None,
         },
     )
 
@@ -2659,6 +2687,8 @@ For `hawki.wazuh.live-evidence/v1` or `hawki.wazuh.live-evidence/v2`:
 - In v2, `lineage` records structural relationships between Wazuh documents, evidence ids, and derived control outcomes. It is provenance bookkeeping, not independent evidence or proof of causation.
 - `retrieval` describes deterministic evidence selection only. Its relevance score is not attack severity, maliciousness, or analytical confidence.
 - Wazuh rule level and description are producer metadata. They do not by themselves prove compromise or determine your assessment severity.
+- `assets` holds inventory records for hosts and addresses seen in the evidence, with `match.observed_in_event_ids` naming where each appeared. Criticality, exposure, and data classification state what is at stake, not that the host was attacked. `unresolved_identifiers` were observed but have no record. When `inventory_configured` is false there is no inventory at all; say asset importance is unknown.
+- `priority` is HAW-KI's deterministic triage score from the rule level and the inventory. Report its band and factors as given; never recompute, raise, or lower it.
 - Missing asset, exposure, threat-intelligence, process, user, or other context is an evidence gap. Never manufacture it.
 - Cite only `TRIGGER` and the `CTX-NNN` identifiers actually supplied.
 

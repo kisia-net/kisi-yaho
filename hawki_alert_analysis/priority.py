@@ -1,0 +1,166 @@
+"""Deterministic alert priority (자산 우선순위).
+
+The score is computed here, in code, and never by the model. Two reasons:
+
+1. It can be explained line by line. Every point in the score comes from a
+   named factor, so an analyst (and the XAI view later) can see exactly why an
+   alert ranked where it did.
+2. It cannot be talked into a different answer. Text inside a log cannot raise
+   or lower a number that the model never gets to write.
+
+Inputs are the Wazuh rule level of the trigger and the inventory record of the
+asset the trigger is about. Inventory values are business context, not a
+verdict: a "critical" asset does not make the alert malicious, it makes a
+mistake on that asset more expensive.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+# Wazuh rule levels run 0-15. Four points per level keeps the level as the
+# largest single factor (max 60) so an unknown asset never hides a level-12
+# detection.
+LEVEL_POINTS_PER_LEVEL = 4
+LEVEL_MAX = 15
+
+CRITICALITY_POINTS = {
+    "critical": 25,
+    "high": 18,
+    "medium": 10,
+    "low": 3,
+}
+# An address or host that is not in the inventory is itself worth a look:
+# unmanaged machines are where attackers like to sit.
+UNRESOLVED_ASSET_POINTS = 8
+
+EXPOSURE_POINTS = {
+    "internet_facing": 10,
+    "dmz": 7,
+    "partner_facing": 7,
+    "internal": 3,
+    "isolated": 0,
+}
+
+SENSITIVE_DATA_POINTS = 5
+SENSITIVE_DATA_CLASSES = {"restricted", "confidential", "secret"}
+
+# Upper bounds (inclusive lower edge) for each band.
+PRIORITY_BANDS = (
+    (70, "P1"),
+    (50, "P2"),
+    (30, "P3"),
+    (0, "P4"),
+)
+
+# Roles that mean "the alert is about this asset", as opposed to the asset
+# merely showing up as the other end of a connection.
+TARGET_ROLES = {"event_host", "destination_ip"}
+
+
+def _rule_level(trigger: dict[str, Any]) -> int:
+    rule = trigger.get("rule") if isinstance(trigger.get("rule"), dict) else {}
+    try:
+        level = int(rule.get("level", 0))
+    except (TypeError, ValueError):
+        level = 0
+    return max(0, min(level, LEVEL_MAX))
+
+
+def _band(score: int) -> str:
+    for floor, label in PRIORITY_BANDS:
+        if score >= floor:
+            return label
+    return PRIORITY_BANDS[-1][1]
+
+
+def _target_assets(asset_matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assets the trigger alert is about, most critical first."""
+    targets = []
+    for item in asset_matches:
+        match = item.get("match") if isinstance(item.get("match"), dict) else {}
+        roles = set(match.get("observed_roles") or [])
+        if match.get("on_trigger_alert") and roles & TARGET_ROLES:
+            targets.append(item)
+
+    order = list(CRITICALITY_POINTS)
+    return sorted(
+        targets,
+        key=lambda item: (
+            order.index(item.get("criticality"))
+            if item.get("criticality") in order
+            else len(order)
+        ),
+    )
+
+
+def compute_priority(
+    trigger: dict[str, Any],
+    asset_matches: list[dict[str, Any]],
+    *,
+    unresolved_identifiers: list[str] | None = None,
+    inventory_configured: bool = True,
+) -> dict[str, Any]:
+    """Return a 0-100 priority score with a factor-by-factor breakdown."""
+
+    factors: list[dict[str, Any]] = []
+
+    level = _rule_level(trigger)
+    factors.append({
+        "factor": "wazuh_rule_level",
+        "value": level,
+        "points": level * LEVEL_POINTS_PER_LEVEL,
+    })
+
+    targets = _target_assets(asset_matches)
+    primary = targets[0] if targets else None
+
+    if primary is not None:
+        criticality = str(primary.get("criticality") or "").lower()
+        factors.append({
+            "factor": "asset_criticality",
+            "asset_id": primary.get("id"),
+            "value": criticality or "unknown",
+            "points": CRITICALITY_POINTS.get(criticality, 0),
+        })
+
+        exposure = str(primary.get("exposure") or "").lower()
+        factors.append({
+            "factor": "asset_exposure",
+            "asset_id": primary.get("id"),
+            "value": exposure or "unknown",
+            "points": EXPOSURE_POINTS.get(exposure, 0),
+        })
+
+        classification = str(primary.get("data_classification") or "").lower()
+        if classification in SENSITIVE_DATA_CLASSES:
+            factors.append({
+                "factor": "asset_data_classification",
+                "asset_id": primary.get("id"),
+                "value": classification,
+                "points": SENSITIVE_DATA_POINTS,
+            })
+    elif inventory_configured:
+        # Only an inventory that exists can say a host is unknown. Without one,
+        # every host would look "unmanaged" and the bonus would mean nothing.
+        factors.append({
+            "factor": "asset_not_in_inventory",
+            "value": list(unresolved_identifiers or [])[:5],
+            "points": UNRESOLVED_ASSET_POINTS,
+        })
+
+    score = min(100, sum(int(item["points"]) for item in factors))
+
+    return {
+        "schema": "hawki.priority/v1",
+        "score": score,
+        "band": _band(score),
+        "primary_asset_id": primary.get("id") if primary else None,
+        "inventory_configured": inventory_configured,
+        "factors": factors,
+        "method": (
+            "Deterministic: Wazuh rule level plus inventory criticality, "
+            "exposure and data classification of the asset the trigger is "
+            "about. Computed in code; the model does not set this value."
+        ),
+    }

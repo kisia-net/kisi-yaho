@@ -273,3 +273,81 @@ def match_assets(
         key=lambda item: (not item.on_trigger, -len(item.observed_in), item.asset.id),
     )
     return ordered, list(unresolved)
+
+
+# -- Live Wazuh evidence ---------------------------------------------------
+#
+# The live path hands the model raw Wazuh documents (TRIGGER, CTX-NNN) rather
+# than CanonicalEvent objects, so it needs its own reader. The fields below are
+# the ones Wazuh decoders actually populate for the lab's sources: agent
+# identity for the host that produced the log, srcip/dstip for the classic
+# decoders, and src_ip/dest_ip for Suricata EVE passed through Wazuh.
+LIVE_HOST_FIELDS = (
+    (("agent", "name"), ROLE_EVENT_HOST),
+    (("agent", "ip"), ROLE_EVENT_HOST),
+)
+LIVE_ADDRESS_FIELDS = (
+    (("data", "srcip"), ROLE_SOURCE_IP),
+    (("data", "src_ip"), ROLE_SOURCE_IP),
+    (("data", "dstip"), ROLE_DESTINATION_IP),
+    (("data", "dest_ip"), ROLE_DESTINATION_IP),
+)
+
+
+def _nested(record: dict[str, Any], path: tuple[str, ...]) -> str:
+    value: Any = record
+    for key in path:
+        if not isinstance(value, dict):
+            return ""
+        value = value.get(key)
+    return "" if value is None else str(value).strip()
+
+
+def live_observed_values(item: dict[str, Any]) -> list[tuple[str, str]]:
+    values: list[tuple[str, str]] = []
+    for path, role in (*LIVE_HOST_FIELDS, *LIVE_ADDRESS_FIELDS):
+        value = _nested(item, path)
+        # Wazuh reports the manager's own events as agent 000 with ip "any".
+        if value and value.lower() != "any":
+            values.append((value, role))
+    return values
+
+
+def match_live_assets(
+    inventory: AssetInventory,
+    evidence_items: Iterable[dict[str, Any]],
+    *,
+    trigger_evidence_id: str = "TRIGGER",
+) -> tuple[list[AssetMatch], list[str]]:
+    """match_assets() for the live bundle's evidence items.
+
+    `observed_in` records evidence ids (TRIGGER, CTX-001, ...) so the model can
+    cite exactly where an asset appeared.
+    """
+    matches: dict[str, AssetMatch] = {}
+    unresolved: dict[str, None] = {}
+
+    for item in evidence_items:
+        if not isinstance(item, dict):
+            continue
+        evidence_id = str(item.get("evidence_id") or "")
+        for value, role in live_observed_values(item):
+            asset = inventory.lookup(value)
+            if asset is None:
+                unresolved.setdefault(value, None)
+                continue
+            match = matches.setdefault(asset.id, AssetMatch(asset=asset))
+            if value not in match.matched_on:
+                match.matched_on.append(value)
+            if role not in match.observed_roles:
+                match.observed_roles.append(role)
+            if evidence_id and evidence_id not in match.observed_in:
+                match.observed_in.append(evidence_id)
+            if evidence_id == trigger_evidence_id:
+                match.on_trigger = True
+
+    ordered = sorted(
+        matches.values(),
+        key=lambda item: (not item.on_trigger, -len(item.observed_in), item.asset.id),
+    )
+    return ordered, list(unresolved)

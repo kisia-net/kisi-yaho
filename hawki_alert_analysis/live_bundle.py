@@ -10,7 +10,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from .assets import NullAssetInventory, live_observed_values, match_live_assets
 from .control_outcomes import derive_control_outcome
+from .priority import TARGET_ROLES, compute_priority
 
 
 LIVE_BUNDLE_SCHEMA_V1 = "hawki.wazuh.live-evidence/v1"
@@ -49,10 +51,47 @@ LIVE_EVIDENCE_HANDLING = [
         "malware execution, or other outcomes unless supplied evidence supports them."
     ),
     (
+        "ASSETS are inventory records, not findings. Criticality, exposure and "
+        "data classification describe what is at stake on a host; they do not "
+        "show that the host was attacked or compromised."
+    ),
+    (
+        "PRIORITY is computed deterministically by HAW-KI from the rule level "
+        "and the inventory. Report it as given; do not recalculate or override it."
+    ),
+    (
         "Cite evidence only with identifiers present in this package: "
         "TRIGGER or CTX-NNN."
     ),
 ]
+
+
+# The live package must fit AGENT_CONTEXT_MAX_CHARS whole (it is never
+# compacted), so assets travel with the fields that change an assessment and
+# nothing else. The full record stays available through /api/assets.
+MAX_LIVE_ASSETS = 5
+LIVE_ASSET_FIELDS = (
+    "id",
+    "hostname",
+    "ip_addresses",
+    "asset_type",
+    "zone",
+    "exposure",
+    "criticality",
+    "business_service",
+    "data_classification",
+    "services",
+    "patch_state",
+    "match",
+)
+
+
+def _compact_asset(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: record[key]
+        for key in LIVE_ASSET_FIELDS
+        if record.get(key) not in (None, "", [])
+    }
 
 
 def _utc_now_iso() -> str:
@@ -260,6 +299,28 @@ def build_live_evidence_bundle(
 
     lineage = _build_lineage(evidence_items)
 
+    # Asset context. A repository without an inventory carries the Null
+    # inventory, which resolves nothing and is reported as "not configured"
+    # instead of pretending every host is unknown.
+    inventory = getattr(repository, "asset_inventory", None) or NullAssetInventory()
+    inventory_configured = not isinstance(inventory, NullAssetInventory)
+    asset_matches, unresolved = match_live_assets(inventory, evidence_items)
+    asset_records = [
+        _compact_asset(match.to_dict())
+        for match in asset_matches[:MAX_LIVE_ASSETS]
+    ]
+    unresolved_targets = [
+        value
+        for value, role in live_observed_values(trigger_item)
+        if role in TARGET_ROLES and inventory.lookup(value) is None
+    ]
+    priority = compute_priority(
+        trigger_item,
+        asset_records,
+        unresolved_identifiers=unresolved_targets,
+        inventory_configured=inventory_configured,
+    )
+
     return {
         "schema": LIVE_BUNDLE_SCHEMA,
         "assembled_at": _utc_now_iso(),
@@ -268,6 +329,12 @@ def build_live_evidence_bundle(
         "investigation_context": investigation_context,
         "control_outcomes": control_outcomes,
         "lineage": lineage,
+        "assets": {
+            "inventory_configured": inventory_configured,
+            "matches": asset_records,
+            "unresolved_identifiers": unresolved,
+        },
+        "priority": priority,
         "retrieval": {
             "archive_index": context.get("archive_index"),
             "window_seconds": context.get("window_seconds"),
