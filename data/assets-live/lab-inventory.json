@@ -99,7 +99,7 @@
     {
       "id": "asset-redteam",
       "ip_addresses": [
-        "10.0.10.239"
+        "10.0.10.59"
       ],
       "asset_type": "server",
       "environment": "lab",

@@ -83,6 +83,11 @@ ERROR_MESSAGES_KO: dict[str, str] = {
     "Wazuh vulnerability query failed.": "Wazuh 취약점 조회에 실패했습니다.",
     "min_level must be an integer.": "최소 레벨(min_level)은 정수여야 합니다.",
     "window and limit must be integers.": "window와 limit은 정수여야 합니다.",
+    "Analysis ID is invalid.": "분석 ID가 올바르지 않습니다.",
+    "The red team runner is not configured.": "레드팀 실행기가 설정되지 않았습니다.",
+    "The red team runner could not be reached.": "레드팀 실행기에 연결할 수 없습니다.",
+    "Red team job not found.": "레드팀 검사 작업을 찾을 수 없습니다.",
+    "The red team runner returned an error.": "레드팀 실행기가 오류를 반환했습니다.",
 }
 
 # Assessment review notes: stable codes for the interface, Korean for people.

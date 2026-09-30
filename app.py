@@ -60,6 +60,18 @@ from hawki_alert_analysis.wazuh_api import (
 )
 from hawki_alert_analysis.siem import SiemService
 from hawki_alert_analysis.evidence_agent import run_evidence_agent
+from hawki_alert_analysis.redteam_bridge import (
+    ANALYSIS_ID_PATTERN,
+    RECURSION_HEADER,
+    build_job_payload,
+    dispatch_in_background,
+    fetch_job_status,
+    forwarding_decision,
+    new_analysis_id,
+    parse_tools,
+    sha256_json,
+    sha256_text,
+)
 from hawki_alert_analysis.ui_messages import (
     REVIEW_NOTE_CODES,
     REVIEW_NOTES_KO,
@@ -236,6 +248,13 @@ CONFIG = {
     # Adaptive evidence gathering before a live analysis (evidence_agent.py).
     # Off by default: each tool call is one more LLM request on the GPU.
     "agent_tool_loop_enabled": env_bool("AGENT_TOOL_LOOP_ENABLED", False),
+    # Red team auto-evaluation (hawki_alert_analysis/redteam_bridge.py).
+    # Off by default; nothing is sent without a runner URL and a token.
+    "redteam_auto_eval_enabled": env_bool("REDTEAM_AUTO_EVAL_ENABLED", False),
+    "redteam_runner_url": os.getenv("REDTEAM_RUNNER_URL", "").strip().rstrip("/"),
+    "redteam_runner_token": os.getenv("REDTEAM_RUNNER_TOKEN", "").strip(),
+    "redteam_auto_tools": parse_tools(os.getenv("REDTEAM_AUTO_TOOLS", "promptfoo")),
+    "redteam_runner_timeout": max(1.0, min(float(os.getenv("REDTEAM_RUNNER_TIMEOUT", "3") or 3), 30.0)),
     "agent_max_tool_calls": max(0, min(int(os.getenv("AGENT_MAX_TOOL_CALLS", "3") or 3), 5)),
     "agent_context_max_chars": max(int(os.getenv("AGENT_CONTEXT_MAX_CHARS", "24000")), 6000),
     "verify_tls": env_bool("VERIFY_TLS", True),
@@ -1984,6 +2003,64 @@ def api_analyze_alert(alert_id: str):
             }
         ), 500
 
+    # Every analysis gets an id and fingerprints of exactly what the model was
+    # given, so a red team verdict, an audit record and this answer can be
+    # tied together later.
+    analysis_id = new_analysis_id()
+    prompt_sha256 = sha256_text(
+        system_message(MODE_PROMPTS["alert_summary"])
+        + "\n"
+        + serialize_agent_context(context)
+        + "\n"
+        + request_text
+    )
+    bundle_sha256 = sha256_json(bundle)
+    decision = forwarding_decision(
+        enabled=CONFIG["redteam_auto_eval_enabled"],
+        runner_url=CONFIG["redteam_runner_url"],
+        token=CONFIG["redteam_runner_token"],
+        tools=CONFIG["redteam_auto_tools"],
+        bundle_schema=schema,
+        demo=bool(result.get("demo")),
+        from_runner=bool(request.headers.get(RECURSION_HEADER)),
+    )
+    append_audit(
+        "alert_analysis_completed",
+        {
+            "analysis_id": analysis_id,
+            "alert_id": alert_id,
+            "bundle_schema": schema,
+            "model": result.get("model"),
+            "demo": bool(result.get("demo")),
+            "prompt_sha256": prompt_sha256,
+            "bundle_sha256": bundle_sha256,
+            "redteam": decision,
+        },
+    )
+    if decision == "send":
+        dispatch_in_background(
+            runner_url=CONFIG["redteam_runner_url"],
+            token=CONFIG["redteam_runner_token"],
+            timeout=CONFIG["redteam_runner_timeout"],
+            payload=build_job_payload(
+                analysis_id=analysis_id,
+                alert_id=alert_id,
+                request_text=request_text,
+                prompt_sha256=prompt_sha256,
+                bundle_sha256=bundle_sha256,
+                bundle=bundle,
+                result=result,
+                tools=CONFIG["redteam_auto_tools"],
+            ),
+            on_done=lambda outcome: append_audit("redteam_eval_dispatched", outcome),
+        )
+    result["analysis_id"] = analysis_id
+    result["hashes"] = {"prompt_sha256": prompt_sha256, "bundle_sha256": bundle_sha256}
+    result["redteam"] = {
+        "status": "queued" if decision == "send" else decision,
+        "tools": CONFIG["redteam_auto_tools"] if decision == "send" else [],
+    }
+
     result["case_id"] = case_id
     result["alert_id"] = alert_id
     if isinstance(bundle.get("agent_retrieval"), dict):
@@ -1994,6 +2071,40 @@ def api_analyze_alert(alert_id: str):
     result["evidence_counts"] = evidence_counts
 
     return jsonify(result)
+
+
+@app.get("/api/redteam/jobs/<analysis_id>")
+@role_required("analyst")
+def api_redteam_job(analysis_id: str):
+    """Status of the red team evaluation of one analysis, read from the runner."""
+    if not ANALYSIS_ID_PATTERN.fullmatch(analysis_id):
+        return jsonify({"error": "Analysis ID is invalid.", "code": "invalid_analysis_id"}), 400
+    if not (CONFIG["redteam_runner_url"] and CONFIG["redteam_runner_token"]):
+        return jsonify(
+            {"error": "The red team runner is not configured.", "code": "redteam_not_configured"}
+        ), 503
+    try:
+        status, body = fetch_job_status(
+            runner_url=CONFIG["redteam_runner_url"],
+            token=CONFIG["redteam_runner_token"],
+            timeout=CONFIG["redteam_runner_timeout"],
+            analysis_id=analysis_id,
+        )
+    except requests.RequestException as exc:
+        return jsonify(
+            {
+                "error": "The red team runner could not be reached.",
+                "detail": str(exc)[:300],
+                "code": "redteam_unreachable",
+            }
+        ), 502
+    if status == 404:
+        return jsonify({"error": "Red team job not found.", "code": "redteam_job_not_found"}), 404
+    if status >= 400:
+        return jsonify(
+            {"error": "The red team runner returned an error.", "code": "redteam_runner_error", "runner_status": status}
+        ), 502
+    return jsonify({"analysis_id": analysis_id, "runner": body})
 
 
 @app.get("/api/hunts")
