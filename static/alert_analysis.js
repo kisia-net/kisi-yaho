@@ -651,6 +651,44 @@
         const analyzeButton = root.querySelector("[data-analyze]");
         if (!analyzeButton) return;
 
+        // How the evidence was gathered before the analysis (evidence agent).
+        const TOOL_LABELS = {
+            widen_window: "시간창 확장",
+            search_address: "주소 검색(전체 에이전트)",
+            lookup_asset: "자산 조회",
+            lookup_indicator: "위협 인텔리전스 조회",
+            finish: "수집 종료",
+        };
+        const STOP_LABELS = {
+            finish: "에이전트가 증거 충분 판단",
+            no_tool_call: "추가 수집 불필요",
+            max_calls: "호출 상한 도달",
+            error: "수집 실패(원래 증거로 분석)",
+            context_limit_reverted: "증거가 너무 많아 원래 증거로 분석",
+        };
+        const REFUSAL_LABELS = {
+            value_not_in_evidence: "증거에 없는 값",
+            unknown_tool: "허용되지 않은 도구",
+            not_an_ip_address: "IP 주소가 아님",
+        };
+        function renderAgentRetrieval(output, trace) {
+            if (!trace || !output) return;
+            const calls = (trace.calls || []).map((call) => {
+                const label = TOOL_LABELS[call.tool] || call.tool;
+                const args = Object.entries(call.arguments || {}).map(([k, v]) => `${k}=${v}`).join(", ");
+                const state = call.accepted ? "실행" : `거부: ${REFUSAL_LABELS[call.refused] || call.refused || "사유 없음"}`;
+                const added = (call.added_evidence_ids || []).length ? ` → ${call.added_evidence_ids.join(", ")}` : "";
+                return `<li><strong>${escapeHtml(label)}</strong> ${escapeHtml(args)} · ${escapeHtml(state)}${escapeHtml(added)}${call.reason ? `<br><span class="muted">${escapeHtml(call.reason)}</span>` : ""}</li>`;
+            }).join("");
+            const box = document.createElement("div");
+            box.className = "agent-retrieval-trace";
+            box.innerHTML = `
+                <p class="panel-kicker">증거 수집 에이전트</p>
+                <p>도구 호출 ${(trace.calls || []).length}회 / 상한 ${escapeHtml(trace.max_calls ?? "—")}회 · 추가된 증거 ${(trace.added_evidence_ids || []).length}건 · ${escapeHtml(STOP_LABELS[trace.stopped] || trace.stopped || "")}</p>
+                ${calls ? `<ol>${calls}</ol>` : ""}`;
+            output.prepend(box);
+        }
+
         analyzeButton.addEventListener("click", async (event) => {
             const button = event.currentTarget;
             const output = root.querySelector("[data-analysis-output]");
@@ -679,6 +717,7 @@
                     `위협 지표 ${counts.threat_indicators ?? 0}`,
                 ].join(" · ");
                 root.querySelector("[data-analysis-meta]").textContent = `${result.model || "로컬 모델"} · 제공된 증거: ${bundled}`;
+                renderAgentRetrieval(output, result.agent_retrieval);
             } catch (error) {
                 output.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
             } finally {

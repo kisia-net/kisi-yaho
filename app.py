@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import copy
 import json
 import os
 import re
@@ -58,6 +59,7 @@ from hawki_alert_analysis.wazuh_api import (
     WazuhServerAPIError,
 )
 from hawki_alert_analysis.siem import SiemService
+from hawki_alert_analysis.evidence_agent import run_evidence_agent
 from hawki_alert_analysis.ui_messages import (
     REVIEW_NOTE_CODES,
     REVIEW_NOTES_KO,
@@ -231,6 +233,10 @@ CONFIG = {
     "demo_mode": env_bool("DEMO_MODE", True),
     "suricata_repair_enabled": env_bool("SURICATA_REPAIR_ENABLED", True),
     "assessment_repair_enabled": env_bool("ASSESSMENT_REPAIR_ENABLED", True),
+    # Adaptive evidence gathering before a live analysis (evidence_agent.py).
+    # Off by default: each tool call is one more LLM request on the GPU.
+    "agent_tool_loop_enabled": env_bool("AGENT_TOOL_LOOP_ENABLED", False),
+    "agent_max_tool_calls": max(0, min(int(os.getenv("AGENT_MAX_TOOL_CALLS", "3") or 3), 5)),
     "agent_context_max_chars": max(int(os.getenv("AGENT_CONTEXT_MAX_CHARS", "24000")), 6000),
     "verify_tls": env_bool("VERIFY_TLS", True),
 }
@@ -1760,6 +1766,77 @@ def api_alert_timeline(alert_id: str):
     )
 
 
+def evidence_agent_llm_call(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """One tool-choice request to the model; returns the assistant message."""
+    headers = {"Content-Type": "application/json"}
+    if CONFIG["llm_api_key"]:
+        headers["Authorization"] = f"Bearer {CONFIG['llm_api_key']}"
+    response = requests.post(
+        CONFIG["llm_api_url"],
+        headers=headers,
+        json={
+            "model": CONFIG["llm_model"],
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+            "temperature": 0,
+            "reasoning_effort": "low",
+            "max_tokens": 1024,
+        },
+        timeout=CONFIG["llm_timeout"],
+    )
+    response.raise_for_status()
+    choices = response.json().get("choices") or []
+    return (choices[0].get("message") or {}) if choices else {}
+
+
+def gather_more_evidence(alert_id: str, bundle: dict[str, Any]) -> dict[str, Any]:
+    """Run the evidence agent; never let it break or oversize the analysis."""
+    original = copy.deepcopy(bundle)
+    try:
+        run_evidence_agent(
+            ALERT_REPOSITORY,
+            alert_id,
+            bundle,
+            evidence_agent_llm_call,
+            max_calls=CONFIG["agent_max_tool_calls"],
+            audit=append_audit,
+        )
+    except (requests.RequestException, WazuhIndexerError, KeyError, TypeError, ValueError) as exc:
+        original["agent_retrieval"] = {
+            "schema": "hawki.evidence-agent/v1",
+            "stopped": "error",
+            "error": str(exc)[:300],
+            "calls": [],
+        }
+        append_audit("evidence_agent_failed", {"alert_id": alert_id, "error": str(exc)[:300]})
+        return original
+
+    try:
+        serialize_agent_context({"alert_id": alert_id, "alert_case": bundle})
+    except ValueError:
+        # More evidence than the model can take: analyse what we had, and say so.
+        trace = bundle.get("agent_retrieval") or {}
+        original["agent_retrieval"] = {**trace, "stopped": "context_limit_reverted"}
+        append_audit("evidence_agent_reverted", {"alert_id": alert_id, "reason": "context_limit"})
+        return original
+
+    trace = bundle.get("agent_retrieval") or {}
+    append_audit(
+        "evidence_agent_completed",
+        {
+            "alert_id": alert_id,
+            "calls": len(trace.get("calls") or []),
+            "added": len(trace.get("added_evidence_ids") or []),
+            "stopped": trace.get("stopped"),
+        },
+    )
+    return bundle
+
+
 @app.post("/api/alerts/<alert_id>/analyze")
 @role_required("analyst")
 def api_analyze_alert(alert_id: str):
@@ -1787,6 +1864,9 @@ def api_analyze_alert(alert_id: str):
         "hawki.wazuh.live-evidence/v1",
         "hawki.wazuh.live-evidence/v2",
     }
+
+    if is_live and CONFIG["agent_tool_loop_enabled"] and CONFIG["agent_max_tool_calls"] > 0:
+        bundle = gather_more_evidence(alert_id, bundle)
 
     if is_live:
         context_events = bundle.get("investigation_context")
@@ -1906,6 +1986,8 @@ def api_analyze_alert(alert_id: str):
 
     result["case_id"] = case_id
     result["alert_id"] = alert_id
+    if isinstance(bundle.get("agent_retrieval"), dict):
+        result["agent_retrieval"] = bundle["agent_retrieval"]
     result["bundle_schema"] = schema
     result["related_event_count"] = related_event_count
     result["metadata_counts"] = bundle_counts
@@ -2760,6 +2842,7 @@ For `hawki.wazuh.live-evidence/v1` or `hawki.wazuh.live-evidence/v2`:
 - `assets` holds inventory records for hosts and addresses seen in the evidence, with `match.observed_in_event_ids` naming where each appeared. Criticality, exposure, and data classification state what is at stake, not that the host was attacked. `unresolved_identifiers` were observed but have no record. When `inventory_configured` is false there is no inventory at all; say asset importance is unknown.
 - `threat_intelligence.matches` are indicators from a local feed that match an observable, with `match.observed_in_event_ids` naming where. A match is external context, not proof of compromise; an expired indicator is historical. `statistics` says how many observables were checked, and no match does not mean benign. When `feed_configured` is false no intelligence was consulted at all.
 - `priority` is HAW-KI's deterministic triage score from the rule level, the inventory, and threat intelligence. Report its band and factors as given; never recompute, raise, or lower it.
+- `agent_retrieval`, when present, records the evidence-gathering tool calls made before this analysis. CTX items whose provenance `source_kind` is `agent_expansion` were added by those calls; cite them like any other CTX item. `agent_lookups` holds inventory and intelligence lookups made then.
 - Missing asset, exposure, threat-intelligence, process, user, or other context is an evidence gap. Never manufacture it.
 - Cite only `TRIGGER` and the `CTX-NNN` identifiers actually supplied.
 
