@@ -327,41 +327,17 @@ def _build_lineage(
     }
 
 
-def build_live_evidence_bundle(
+def enrich_evidence(
     repository: Any,
-    alert_id: str,
-    *,
-    max_context: int = 20,
+    trigger_item: dict[str, Any],
+    investigation_context: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Build the exact evidence package intended for the live LLM path."""
+    """Assets, threat intelligence and priority for a set of evidence items.
 
-    trigger = repository.get_alert_record(alert_id)
-    context = repository.get_alert_context(
-        alert_id,
-        limit=max_context,
-    )
-
-    selected_events = context.get("events") or []
-
-    investigation_context = [
-        _context_item(event, f"CTX-{index:03d}")
-        for index, event in enumerate(selected_events, 1)
-        if isinstance(event, dict)
-    ]
-
-    trigger_item = _native_trigger(trigger)
-
-    evidence_items = [
-        trigger_item,
-        *investigation_context,
-    ]
-
-    control_outcomes = [
-        derive_control_outcome(item)
-        for item in evidence_items
-    ]
-
-    lineage = _build_lineage(evidence_items)
+    Called when the package is built and again after the evidence agent adds
+    events, so the three blocks always describe the evidence actually sent.
+    """
+    evidence_items = [trigger_item, *investigation_context]
 
     # Asset context. A repository without an inventory carries the Null
     # inventory, which resolves nothing and is reported as "not configured"
@@ -399,13 +375,6 @@ def build_live_evidence_bundle(
     )
 
     return {
-        "schema": LIVE_BUNDLE_SCHEMA,
-        "assembled_at": _utc_now_iso(),
-        "alert_id": alert_id,
-        "trigger": trigger_item,
-        "investigation_context": investigation_context,
-        "control_outcomes": control_outcomes,
-        "lineage": lineage,
         "assets": {
             "inventory_configured": inventory_configured,
             "matches": asset_records,
@@ -427,6 +396,56 @@ def build_live_evidence_bundle(
             },
         },
         "priority": priority,
+    }
+
+
+def build_live_evidence_bundle(
+    repository: Any,
+    alert_id: str,
+    *,
+    max_context: int = 20,
+) -> dict[str, Any]:
+    """Build the exact evidence package intended for the live LLM path."""
+
+    trigger = repository.get_alert_record(alert_id)
+    context = repository.get_alert_context(
+        alert_id,
+        limit=max_context,
+    )
+
+    selected_events = context.get("events") or []
+
+    investigation_context = [
+        _context_item(event, f"CTX-{index:03d}")
+        for index, event in enumerate(selected_events, 1)
+        if isinstance(event, dict)
+    ]
+
+    trigger_item = _native_trigger(trigger)
+
+    evidence_items = [
+        trigger_item,
+        *investigation_context,
+    ]
+
+    control_outcomes = [
+        derive_control_outcome(item)
+        for item in evidence_items
+    ]
+
+    lineage = _build_lineage(evidence_items)
+
+    enrichment = enrich_evidence(repository, trigger_item, investigation_context)
+
+    return {
+        "schema": LIVE_BUNDLE_SCHEMA,
+        "assembled_at": _utc_now_iso(),
+        "alert_id": alert_id,
+        "trigger": trigger_item,
+        "investigation_context": investigation_context,
+        "control_outcomes": control_outcomes,
+        "lineage": lineage,
+        **enrichment,
         "retrieval": {
             "archive_index": context.get("archive_index"),
             "window_seconds": context.get("window_seconds"),

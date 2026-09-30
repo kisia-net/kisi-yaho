@@ -4826,3 +4826,58 @@ html[data-theme="light"] .chat-workspace .panel-header .session-state,
 html[data-theme="light"] .rules-panel-header .approval-total-label,
 html[data-theme="light"] .approvals-header-tools .approval-total-label { color: var(--muted); }
 html[data-theme="light"] .output-panel .output-item { padding: 10px 12px; }
+
+/* --- Priority (P1-P4) next to severity ------------------------------------ */
+.wazuh-level { display: inline-flex; align-items: center; gap: 6px; }
+.prio-chip {
+    display: inline-grid;
+    place-items: center;
+    min-width: 30px;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    cursor: help;
+}
+.prio-p1 { background: #dc2626; color: #ffffff; }
+.prio-p2 { background: #ea580c; color: #ffffff; }
+.prio-p3 { background: var(--sev-medium-bg, #fef3c7); color: var(--sev-medium, #a16207); }
+.prio-p4 { border: 1px solid var(--line-2); background: transparent; color: var(--muted); }
+
+@media (min-width: 901px) {
+    .alert-row {
+        grid-template-columns:
+            minmax(145px, 165px)
+            122px
+            minmax(260px, 1.5fr)
+            minmax(110px, 140px)
+            minmax(150px, 220px)
+            64px;
+    }
+    .dashboard-alert-row { grid-template-columns: minmax(135px, 165px) 122px minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+    .alert-row { grid-template-columns: minmax(120px, 145px) 108px minmax(0, 1fr); }
+}
+#alert-filter-form {
+    grid-template-columns: minmax(0, 2.3fr) minmax(0, 1fr) minmax(0, .8fr) auto;
+    align-items: end;
+}
+#alert-filter-form .button { align-self: end; }
+.alert-row > .button:last-child { justify-self: end; }
+
+/* Evidence agent trace above the analysis */
+.agent-retrieval-trace {
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    background: var(--panel-2);
+    font-size: 13px;
+}
+.agent-retrieval-trace p { margin: 0 0 6px; }
+.agent-retrieval-trace ol { margin: 6px 0 0; padding-left: 20px; }
+.agent-retrieval-trace li { margin-bottom: 4px; }

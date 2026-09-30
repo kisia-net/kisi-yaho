@@ -21,6 +21,7 @@ page that lists alerts; `last_error` says why the list is empty.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from typing import Any, Iterable
 from urllib.parse import quote
 
@@ -567,6 +568,7 @@ class WazuhEventRepository:
         alert_id: str,
         *,
         limit: int = 20,
+        window_override: tuple[int, int] | None = None,
     ) -> dict[str, Any]:
         """Return bounded raw evidence surrounding a Wazuh alert."""
         from datetime import datetime, timedelta
@@ -590,6 +592,17 @@ class WazuhEventRepository:
 
         trigger_time = parse_time(trigger_time_raw)
         profile = select_profile(trigger, default_seconds=self.window_seconds)
+        if window_override is not None:
+            # The evidence agent may widen the window within fixed bounds
+            # (evidence_agent.WINDOW_LIMITS); everything else about the
+            # profile, including cross-agent search, stays as selected.
+            before, after = window_override
+            profile = replace(
+                profile,
+                name=f"{profile.name}+widened",
+                seconds_before=max(profile.seconds_before, int(before)),
+                seconds_after=max(profile.seconds_after, int(after)),
+            )
         start = trigger_time - timedelta(seconds=profile.seconds_before)
         end = trigger_time + timedelta(seconds=profile.seconds_after)
 
@@ -854,6 +867,76 @@ class WazuhEventRepository:
             "selected_count": len(selected),
             "events": selected,
         }
+
+    def search_address(
+        self,
+        address: str,
+        *,
+        around: str,
+        hours: int,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Archive events on any agent that carry `address`, within +/- hours.
+
+        Read-only, bounded, and only reachable through the evidence agent's
+        validated tool call (the address must already appear in the evidence).
+        """
+        from datetime import datetime, timedelta
+
+        value = str(around or "").strip()
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        center = datetime.fromisoformat(value)
+        span = timedelta(hours=max(1, min(int(hours), 24)))
+        body = {
+            "size": max(1, min(int(limit), 50)),
+            "sort": [{self.timestamp_field: {"order": "desc"}}],
+            "_source": ["timestamp", "agent", "rule", "decoder", "location", "data", "full_log"],
+            "query": {
+                "bool": {
+                    "filter": [{
+                        "range": {
+                            self.timestamp_field: {
+                                "gte": (center - span).isoformat(),
+                                "lte": (center + span).isoformat(),
+                            }
+                        }
+                    }],
+                    "should": [
+                        {"term": {field: address}}
+                        for field in SOURCE_IP_FIELDS + DESTINATION_IP_FIELDS
+                    ],
+                    "minimum_should_match": 1,
+                }
+            },
+        }
+        try:
+            payload = self.client.search(self.archive_index, body)
+        except (WazuhIndexerError, ValueError) as exc:
+            self.last_error = str(exc)
+            raise WazuhIndexerError(str(exc)) from exc
+
+        events: list[dict[str, Any]] = []
+        for hit in _hits(payload):
+            source = hit.get("_source")
+            if not isinstance(source, dict):
+                continue
+            events.append({
+                "origin": "agent_search",
+                "id": str(hit.get("_id", "")),
+                "index": str(hit.get("_index", "")),
+                "timestamp": source.get("timestamp"),
+                "agent": source.get("agent") or {},
+                "rule": source.get("rule") or {},
+                "decoder": source.get("decoder") or {},
+                "location": source.get("location"),
+                "data": source.get("data") or {},
+                "full_log": source.get("full_log"),
+                "relevance_score": None,
+                "relevance_reasons": ["agent_tool:search_address"],
+                "delta_seconds": None,
+            })
+        return events
 
     def get_alert(self, alert_id: str) -> CanonicalEvent:
         body = {"size": 1, "query": {"ids": {"values": [str(alert_id)]}}}

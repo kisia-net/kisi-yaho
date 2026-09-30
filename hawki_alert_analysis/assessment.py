@@ -409,23 +409,36 @@ SECTION_TITLES = {
         "files": "Files",
     },
     "ko": {
-        "assessment": "Assessment",
-        "hypothesis": "Attack hypothesis",
-        "confirmed": "Confirmed observations",
-        "supporting": "Supporting evidence",
-        "contradictory": "Contradictory evidence",
-        "gaps": "Evidence gaps",
-        "techniques": "ATT&CK techniques",
-        "entities": "Affected entities",
-        "searches": "Recommended searches",
-        "response": "Recommended response",
-        "severity": "Severity",
-        "confidence": "Confidence",
-        "hosts": "Hosts",
-        "users": "Users",
-        "addresses": "Addresses",
-        "processes": "Processes",
-        "files": "Files",
+        "assessment": "판단 요약",
+        "hypothesis": "공격 가설",
+        "confirmed": "확인된 관측 사실",
+        "supporting": "뒷받침하는 증거",
+        "contradictory": "반대 증거",
+        "gaps": "증거 공백",
+        "techniques": "ATT&CK 기법",
+        "entities": "영향받는 대상",
+        "searches": "추천 검색",
+        "response": "권고 대응",
+        "severity": "심각도",
+        "confidence": "신뢰도",
+        "hosts": "호스트",
+        "users": "사용자",
+        "addresses": "주소",
+        "processes": "프로세스",
+        "files": "파일",
+    },
+}
+
+# Level words are schema values (the model writes them in English); only the
+# rendered text is translated, never the stored assessment.
+LEVEL_LABELS = {
+    "ko": {
+        "critical": "치명",
+        "high": "높음",
+        "medium": "중간",
+        "low": "낮음",
+        "informational": "정보",
+        "info": "정보",
     },
 }
 
@@ -438,6 +451,7 @@ def assessment_markdown(assessment: dict[str, Any], language: str = "en") -> str
     were run against. A model that skips a section leaves a gap here too.
     """
     titles = SECTION_TITLES.get(language, SECTION_TITLES["en"])
+    levels = LEVEL_LABELS.get(language, {})
     lines: list[str] = []
 
     def section(key: str, body: list[str]) -> None:
@@ -454,11 +468,11 @@ def assessment_markdown(assessment: dict[str, Any], language: str = "en") -> str
         header.append("")
     if severity.get("level"):
         header.append(
-            f"- **{titles['severity']}: {severity['level']}** — {severity.get('rationale', '')}".rstrip(" —")
+            f"- **{titles['severity']}: {levels.get(str(severity['level']).lower(), severity['level'])}** — {severity.get('rationale', '')}".rstrip(" —")
         )
     if confidence.get("level"):
         header.append(
-            f"- **{titles['confidence']}: {confidence['level']}** — {confidence.get('rationale', '')}".rstrip(" —")
+            f"- **{titles['confidence']}: {levels.get(str(confidence['level']).lower(), confidence['level'])}** — {confidence.get('rationale', '')}".rstrip(" —")
         )
     section("assessment", header)
 
@@ -505,7 +519,7 @@ def assessment_markdown(assessment: dict[str, Any], language: str = "en") -> str
     section(
         "searches",
         [
-            f"- {item.get('title') or item.get('language') or 'Search'}: `{item['value']}`"
+            f"- {item.get('title') or item.get('language') or ('검색' if language == 'ko' else 'Search')}: `{item['value']}`"
             for item in assessment.get("recommended_searches", [])
             if item.get("value")
         ],
