@@ -49,6 +49,16 @@ resource "aws_security_group" "siem" {
     description = "Velociraptor client to server"
   }
 
+  # Velociraptor API(8001). 콘솔에서 직접 추가돼 코드에 없던 규칙을 2026-09-30 코드로 옮김.
+  # description 오타("Velocirpator")는 AWS 에 있는 값 그대로입니다 — 고치면 규칙이 다시 만들어집니다.
+  ingress {
+    from_port   = 8001
+    to_port     = 8001
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+    description = "Velocirpator API"
+  }
+
   # 프론트엔드가 경보를 조회하는 통로. Wazuh Indexer(OpenSearch) 는
   # 기본이 HTTPS + 자체 서명 인증서입니다.
   ingress {
