@@ -18,14 +18,17 @@
         </a>
 
         <nav class="nav-list" aria-label="주 메뉴">
+            <p class="nav-group-label">모니터링</p>
             <a class="nav-item {{ 'active' if active_page == 'dashboard' else '' }}" href="/" target="_self"><span>⌁</span>대시보드</a>
-            <a class="nav-item {{ 'active' if active_page == 'agent' else '' }}" href="/agent" target="_self"><span>⌘</span>AI 분석 작업공간</a>
             <a class="nav-item {{ 'active' if active_page == 'alerts' else '' }}" href="/alerts" target="_self"><span>⚠</span>보안 경보</a>
             <a class="nav-item {{ 'active' if active_page == 'hosts' else '' }}" href="/hosts" target="_self"><span>▣</span>호스트</a>
             <a class="nav-item {{ 'active' if active_page == 'logs' else '' }}" href="/logs" target="_self"><span>⌕</span>로그 검색</a>
+            <p class="nav-group-label">분석 · 대응</p>
+            <a class="nav-item {{ 'active' if active_page == 'agent' else '' }}" href="/agent" target="_self"><span>⌘</span>AI 분석 작업공간</a>
             <a class="nav-item {{ 'active' if active_page == 'hunts' else '' }}" href="/hunts" target="_self"><span>◎</span>파일 추적 <small class="nav-badge">시범</small></a>
             <a class="nav-item {{ 'active' if active_page == 'response' else '' }}" href="/response" target="_self"><span>◇</span>호스트 대응 <small class="nav-badge">시범</small></a>
             <a class="nav-item {{ 'active' if active_page == 'rules' else '' }}" href="/rules" target="_self"><span>≡</span>Suricata 룰</a>
+            <p class="nav-group-label">승인 · 기록</p>
             <a class="nav-item {{ 'active' if active_page == 'actions' else '' }}" href="/actions" target="_self"><span>✓</span>승인 대기열</a>
             <a class="nav-item {{ 'active' if active_page == 'audit' else '' }}" href="/audit" target="_self"><span>↺</span>감사 로그</a>
         </nav>

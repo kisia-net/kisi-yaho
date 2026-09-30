@@ -58,8 +58,8 @@ function huntStateLabel(value) {
     return HUNT_STATE_LABELS[key] || String(value ?? "");
 }
 
-const THEME_STORAGE_KEY = "hawki-theme";
-const THEME_COOKIE_KEY = "hawki_theme";
+const THEME_STORAGE_KEY = "hawki-theme-v2";
+const THEME_COOKIE_KEY = "hawki_theme_v2";
 
 function normalizeTheme(theme) {
     return theme === "light" || theme === "dark" ? theme : null;
@@ -89,7 +89,46 @@ function storedTheme() {
 }
 
 function preferredTheme() {
-    return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    // Bright operations theme by default, whatever the OS preference.
+    return "light";
+}
+
+/*
+ * Severity shown in alert lists. Wazuh rule levels map the way the Wazuh
+ * dashboard groups them (0-6 low, 7-11 medium, 12-14 high, 15 critical); a
+ * source without a level (fixtures, other adapters) falls back to its own
+ * severity field. Display only: nothing here is sent back to the server.
+ */
+const SEVERITY_DISPLAY = {
+    critical: "치명",
+    high: "높음",
+    medium: "중간",
+    low: "낮음",
+    info: "정보",
+};
+
+function alertSeverity(alert) {
+    const level = Number(alert?.rule_level);
+    let key = "";
+    if (alert?.rule_level !== undefined && alert?.rule_level !== null && Number.isFinite(level)) {
+        key = level >= 15 ? "critical" : level >= 12 ? "high" : level >= 7 ? "medium" : "low";
+    } else {
+        const raw = String(alert?.severity || "").toLowerCase();
+        key = raw === "informational" ? "info" : (SEVERITY_DISPLAY[raw] ? raw : "info");
+    }
+    return {
+        key,
+        label: SEVERITY_DISPLAY[key],
+        level: Number.isFinite(level) && alert?.rule_level !== null && alert?.rule_level !== undefined
+            ? level
+            : null,
+    };
+}
+
+function severityChip(alert) {
+    const severity = alertSeverity(alert);
+    const level = severity.level !== null ? ` <small>L${escapeHtml(String(severity.level))}</small>` : "";
+    return `<span class="sev-chip sev-${severity.key}">${escapeHtml(severity.label)}${level}</span>`;
 }
 
 function persistTheme(theme) {
@@ -644,7 +683,7 @@ function renderDashboardAlerts(alerts) {
             : (alert.time || "—");
 
         return `
-            <a class="dashboard-alert-row"
+            <a class="dashboard-alert-row sev-row sev-${alertSeverity(alert).key}"
                href="/alerts/${encodeURIComponent(alert.id)}">
 
                 <span class="dashboard-alert-time">
@@ -652,10 +691,7 @@ function renderDashboardAlerts(alerts) {
                 </span>
 
                 <span class="wazuh-level">
-                    ${alert.rule_level !== undefined &&
-                      alert.rule_level !== null
-                        ? `L${escapeHtml(String(alert.rule_level))}`
-                        : "—"}
+                    ${severityChip(alert)}
                 </span>
 
                 <div>
@@ -2013,7 +2049,17 @@ async function loadAlertsInner() {
         `최근 경보 ${formatNumber(data.total)}건 불러옴` +
         (level > 0 ? ` · Wazuh 레벨 ≥ ${level}` : "");
 
-    table.innerHTML = (data.alerts || []).map((a) => {
+    const header = (data.alerts || []).length ? `
+        <div class="alert-row alert-row-head" role="row">
+            <span>시각</span>
+            <span>심각도</span>
+            <span>경보</span>
+            <span>호스트</span>
+            <span>룰 · MITRE</span>
+            <span></span>
+        </div>` : "";
+
+    table.innerHTML = header + (data.alerts || []).map((a) => {
         const timestamp = Date.parse(a.time);
         const time = Number.isFinite(timestamp)
             ? new Date(timestamp).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
@@ -2030,15 +2076,13 @@ async function loadAlertsInner() {
         ].filter(Boolean);
 
         return `
-            <div class="alert-row">
+            <div class="alert-row sev-row sev-${alertSeverity(a).key}">
                 <span class="alert-time">
                     ${escapeHtml(time)}
                 </span>
 
                 <span class="wazuh-level">
-                    ${a.rule_level !== undefined && a.rule_level !== null
-                        ? `L${escapeHtml(String(a.rule_level))}`
-                        : "—"}
+                    ${severityChip(a)}
                 </span>
 
                 <div class="alert-description">
@@ -2092,6 +2136,17 @@ function initAlerts() {
         event.preventDefault();
         loadAlerts();
     });
+
+    // Dashboard cards link here with a filter already chosen
+    // (e.g. /alerts?min_level=8), so the queue opens pre-filtered.
+    const params = new URLSearchParams(window.location.search);
+    const levelSelect = byId("alert-min-level");
+    const presetLevel = params.get("min_level");
+    if (levelSelect && presetLevel && [...levelSelect.options].some((o) => o.value === presetLevel)) {
+        levelSelect.value = presetLevel;
+    }
+    const presetQuery = params.get("q");
+    if (presetQuery && byId("alert-query")) byId("alert-query").value = presetQuery;
 
     loadAlerts();
 }
