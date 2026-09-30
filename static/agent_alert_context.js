@@ -5,6 +5,15 @@
     const summary = () => document.getElementById("agent-alert-summary");
     const analyzeButton = () => document.getElementById("agent-analyze-attached");
 
+    // Display-only labels; alert.severity itself is left untouched.
+    const SEVERITY_LABELS = {
+        critical: "치명",
+        high: "높음",
+        medium: "중간",
+        low: "낮음",
+        info: "정보",
+    };
+
     function escapeHtml(value) {
         return String(value ?? "")
             .replaceAll("&", "&amp;")
@@ -65,7 +74,8 @@
             const alerts = Array.isArray(body.alerts) ? body.alerts : [];
             element.innerHTML = alerts.map((alert) => {
                 const title = alert.title || alert.summary || alert.id;
-                const severity = String(alert.severity || "").toUpperCase();
+                const severityKey = String(alert.severity || "").toLowerCase();
+                const severity = SEVERITY_LABELS[severityKey] || String(alert.severity || "").toUpperCase();
                 const host = alert.host ? ` · ${alert.host}` : "";
                 const isSelected = desired.has(alert.id) ? " selected" : "";
                 return `<option value="${escapeHtml(alert.id)}" data-title="${escapeHtml(title)}" data-host="${escapeHtml(alert.host || "")}"${isSelected}>${escapeHtml(severity)} · ${escapeHtml(title)}${escapeHtml(host)}</option>`;

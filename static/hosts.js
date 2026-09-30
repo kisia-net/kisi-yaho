@@ -28,7 +28,7 @@
         if (!response.ok) {
             throw new Error(
                 body.error ||
-                `Request failed (${response.status})`
+                `요청 실패 (${response.status})`
             );
         }
 
@@ -50,8 +50,22 @@
         const parsed = Date.parse(value);
 
         return Number.isFinite(parsed)
-            ? new Date(parsed).toLocaleString()
+            ? new Date(parsed).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
             : value;
+    }
+
+    // Display-only labels for Wazuh agent status values; the raw value is
+    // still used for the CSS class.
+    const HOST_STATUS_LABELS = {
+        active: "연결됨",
+        disconnected: "연결 안 됨",
+        pending: "연결 대기",
+        never_connected: "연결 이력 없음",
+    };
+
+    function statusLabel(value) {
+        const key = String(value ?? "").toLowerCase();
+        return HOST_STATUS_LABELS[key] || value;
     }
 
     async function initHosts(root) {
@@ -62,14 +76,14 @@
             const data = await requestJson("/api/siem/hosts");
 
             summary.textContent =
-                `${data.active ?? 0} active · ${data.total ?? 0} total`;
+                `연결됨 ${data.active ?? 0} · 전체 ${data.total ?? 0}`;
 
             list.innerHTML = (data.hosts || []).map((host) => `
                 <a class="host-row"
                    href="/hosts/${encodeURIComponent(host.id)}">
 
                     <span class="host-status ${escapeHtml(host.status)}">
-                        ${escapeHtml(host.status)}
+                        ${escapeHtml(statusLabel(host.status))}
                     </span>
 
                     <div>
@@ -77,8 +91,8 @@
                             ${escapeHtml(host.name || host.id)}
                         </strong>
                         <p>
-                            Agent ${escapeHtml(host.id)}
-                            · ${escapeHtml(host.ip || "No IP")}
+                            에이전트 ${escapeHtml(host.id)}
+                            · ${escapeHtml(host.ip || "IP 없음")}
                         </p>
                     </div>
 
@@ -89,7 +103,7 @@
                                     host.os?.name,
                                     host.os?.version,
                                 ].filter(Boolean).join(" ")
-                                || "Unknown OS"
+                                || "OS 알 수 없음"
                             )}
                         </strong>
                         <p>
@@ -103,11 +117,11 @@
                 </a>
             `).join("") || `
                 <div class="empty-state">
-                    No monitored Wazuh endpoints were returned.
+                    모니터링 중인 Wazuh 엔드포인트가 반환되지 않았습니다.
                 </div>
             `;
         } catch (error) {
-            summary.textContent = "Host query failed";
+            summary.textContent = "호스트 조회 실패";
 
             list.innerHTML = `
                 <div class="empty-state">
@@ -174,7 +188,7 @@
 
         const links = [
             {
-                label: "Alerts · 24h",
+                label: "경보 · 24시간",
                 href: hostLogUrl({
                     index: "wazuh-alerts-*",
                     query: `agent.id:"${safeAgentId}"`,
@@ -184,7 +198,7 @@
                 }),
             },
             {
-                label: "Raw events · 1h",
+                label: "원시 이벤트 · 1시간",
                 href: hostLogUrl({
                     index: "wazuh-archives-*",
                     query: `agent.id:"${safeAgentId}"`,
@@ -194,7 +208,7 @@
                 }),
             },
             {
-                label: "FIM detections · 24h",
+                label: "FIM 탐지 · 24시간",
                 href: hostLogUrl({
                     index: "wazuh-alerts-*",
                     query:
@@ -279,24 +293,24 @@
             const scaBody = policy
                 ? `
                     <p class="host-security-name">
-                        ${escapeHtml(policy.name || policy.id || "SCA policy")}
+                        ${escapeHtml(policy.name || policy.id || "SCA 정책")}
                     </p>
 
                     <div class="host-security-metrics">
-                        ${securityMetric("Score", policy.score)}
-                        ${securityMetric("Passed", policy.pass)}
-                        ${securityMetric("Failed", policy.fail)}
-                        ${securityMetric("Invalid", policy.invalid)}
+                        ${securityMetric("점수", policy.score)}
+                        ${securityMetric("통과", policy.pass)}
+                        ${securityMetric("실패", policy.fail)}
+                        ${securityMetric("유효하지 않음", policy.invalid)}
                     </div>
 
                     <p class="muted">
-                        ${escapeHtml(policy.total_checks)} checks
-                        · Last scan ${escapeHtml(localTime(policy.end_scan))}
+                        점검 ${escapeHtml(policy.total_checks)}개
+                        · 마지막 스캔 ${escapeHtml(localTime(policy.end_scan))}
                     </p>
                 `
                 : `
                     <p class="muted">
-                        No SCA policy result was returned.
+                        반환된 SCA 정책 결과가 없습니다.
                     </p>
                 `;
 
@@ -311,14 +325,14 @@
                 <article class="host-security-card">
                     <div class="host-security-heading">
                         <div>
-                            <strong>Security configuration</strong>
+                            <strong>보안 설정</strong>
                             <span>SCA</span>
                         </div>
 
                         ${policy
                             ? `<div class="posture-score">
                                    <strong>${escapeHtml(policy.score ?? "—")}</strong>
-                                   <span>score</span>
+                                   <span>점수</span>
                                </div>`
                             : ""}
                     </div>
@@ -329,39 +343,39 @@
                                 ${escapeHtml(
                                     policy.name ||
                                     policy.id ||
-                                    "SCA policy"
+                                    "SCA 정책"
                                 )}
                             </p>
 
                             <div class="posture-bars">
                                 ${postureBar(
-                                    "Passed",
+                                    "통과",
                                     policy.pass,
                                     scaTotal
                                 )}
 
                                 ${postureBar(
-                                    "Failed",
+                                    "실패",
                                     policy.fail,
                                     scaTotal
                                 )}
 
                                 ${postureBar(
-                                    "Invalid",
+                                    "유효하지 않음",
                                     policy.invalid,
                                     scaTotal
                                 )}
                             </div>
 
                             <p class="muted">
-                                ${escapeHtml(scaTotal)} total checks
-                                · Last scan
+                                전체 점검 ${escapeHtml(scaTotal)}개
+                                · 마지막 스캔
                                 ${escapeHtml(localTime(policy.end_scan))}
                             </p>
                         `
                         : `
                             <div class="empty-state">
-                                No SCA policy result was returned.
+                                반환된 SCA 정책 결과가 없습니다.
                             </div>
                         `}
                 </article>
@@ -369,46 +383,46 @@
                 <article class="host-security-card">
                     <div class="host-security-heading">
                         <div>
-                            <strong>Vulnerability findings</strong>
-                            <span>Indexer state</span>
+                            <strong>취약점 발견 항목</strong>
+                            <span>Wazuh Indexer 상태</span>
                         </div>
 
                         <div class="posture-score">
                             <strong>${escapeHtml(vulnTotal)}</strong>
-                            <span>findings</span>
+                            <span>건</span>
                         </div>
                     </div>
 
                     <div class="posture-bars">
                         ${postureBar(
-                            "Critical",
+                            "치명",
                             severity.critical ?? 0,
                             vulnTotal
                         )}
 
                         ${postureBar(
-                            "High",
+                            "높음",
                             severity.high ?? 0,
                             vulnTotal
                         )}
 
                         ${postureBar(
-                            "Medium",
+                            "중간",
                             severity.medium ?? 0,
                             vulnTotal
                         )}
 
                         ${postureBar(
-                            "Low",
+                            "낮음",
                             severity.low ?? 0,
                             vulnTotal
                         )}
                     </div>
 
                     <p class="muted">
-                        Unknown
+                        알 수 없음
                         ${escapeHtml(severity.unknown ?? 0)}
-                        · Under evaluation
+                        · 평가 중
                         ${escapeHtml(
                             vulnerabilities.under_evaluation ?? 0
                         )}
@@ -418,7 +432,7 @@
                 <article class="host-security-card">
                     <div class="host-security-heading">
                         <div>
-                            <strong>File integrity monitoring</strong>
+                            <strong>파일 무결성 모니터링</strong>
                             <span>FIM</span>
                         </div>
 
@@ -428,28 +442,28 @@
                                     fim.detections_last_24h ?? 0
                                 )}
                             </strong>
-                            <span>detections · 24h</span>
+                            <span>탐지 · 24시간</span>
                         </div>
                     </div>
 
                     <div class="fim-state">
-                        <span>Tracked baseline</span>
+                        <span>추적 중인 기준선</span>
                         <strong>
                             ${escapeHtml(
                                 fim.tracked_entries ?? 0
                             )}
                         </strong>
-                        <small>current monitored entries</small>
+                        <small>현재 모니터링 항목</small>
                     </div>
 
                     <p class="muted">
-                        Baseline inventory and recent FIM detections
-                        are separate measurements.
+                        기준선 목록과 최근 FIM 탐지는
+                        별도로 측정됩니다.
                     </p>
 
                     <a class="button secondary small"
                        href="${escapeHtml(fimSearchUrl(agentId))}">
-                        Search FIM detections
+                        FIM 탐지 검색
                     </a>
                 </article>
             `;
@@ -457,7 +471,7 @@
         } catch (error) {
             target.innerHTML = `
                 <div class="empty-state">
-                    Security posture could not be loaded:
+                    보안 상태를 불러오지 못했습니다:
                     ${escapeHtml(error.message)}
                 </div>
             `;
@@ -477,10 +491,10 @@
             const alerts = data.alerts || {};
 
             root.querySelector("[data-host-title]").textContent =
-                host.name || `Agent ${agentId}`;
+                host.name || `에이전트 ${agentId}`;
 
             root.querySelector("[data-host-subtitle]").textContent =
-                `Agent ${host.id || agentId} · ${host.ip || "No IP"}`;
+                `에이전트 ${host.id || agentId} · ${host.ip || "IP 없음"}`;
 
             renderHostPivots(
                 root,
@@ -488,15 +502,15 @@
             );
 
             root.querySelector("[data-host-facts]").innerHTML = [
-                fact("Agent ID", host.id),
-                fact("IP address", host.ip),
-                fact("Status", host.status),
-                fact("Last keepalive", localTime(host.last_keepalive)),
-                fact("Wazuh version", host.wazuh_version),
-                fact("Manager", host.manager),
-                fact("Node", host.node),
+                fact("에이전트 ID", host.id),
+                fact("IP 주소", host.ip),
+                fact("상태", statusLabel(host.status)),
+                fact("마지막 keepalive", localTime(host.last_keepalive)),
+                fact("Wazuh 버전", host.wazuh_version),
+                fact("매니저", host.manager),
+                fact("노드", host.node),
                 fact(
-                    "Groups",
+                    "그룹",
                     Array.isArray(host.groups)
                         ? host.groups.join(", ")
                         : ""
@@ -504,15 +518,15 @@
             ].join("");
 
             root.querySelector("[data-host-system]").innerHTML = [
-                fact("Hostname", system.hostname),
-                fact("Operating system",
+                fact("호스트 이름", system.hostname),
+                fact("운영체제",
                     [system.os_name, system.os_version]
                         .filter(Boolean)
                         .join(" ")
                 ),
-                fact("Architecture", system.architecture),
-                fact("Kernel", system.kernel_release),
-                fact("Syscollector scan", localTime(system.scan_time)),
+                fact("아키텍처", system.architecture),
+                fact("커널", system.kernel_release),
+                fact("Syscollector 스캔", localTime(system.scan_time)),
             ].join("");
 
             root.querySelector("[data-host-alert-count]").textContent =
@@ -541,17 +555,17 @@
                         </strong>
                         <p>
                             ${alert.rule_id
-                                ? `Rule ${escapeHtml(alert.rule_id)}`
+                                ? `룰 ${escapeHtml(alert.rule_id)}`
                                 : ""}
                             ${alert.source_ip
-                                ? ` · Source ${escapeHtml(alert.source_ip)}`
+                                ? ` · 출발지 ${escapeHtml(alert.source_ip)}`
                                 : ""}
                         </p>
                     </div>
                 </a>
             `).join("") || `
                 <div class="empty-state">
-                    No Wazuh detections in the last 24 hours.
+                    최근 24시간 동안 Wazuh 탐지가 없습니다.
                 </div>
             `;
 

@@ -5,13 +5,13 @@
         let saved = null;
 
         try {
-            saved = normalize(localStorage.getItem("hawki-theme"));
+            saved = normalize(localStorage.getItem("hawki-theme-v2"));
         } catch {
             // Use the cookie fallback below.
         }
 
         if (!saved) {
-            const prefix = "hawki_theme=";
+            const prefix = "hawki_theme_v2=";
             const item = document.cookie
                 .split(";")
                 .map((part) => part.trim())
@@ -19,8 +19,10 @@
             saved = normalize(item ? decodeURIComponent(item.slice(prefix.length)) : null);
         }
 
-        const preferred = window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
-        const theme = saved || preferred;
+        // The bright operations theme is the default; the dark theme stays one
+        // click away and is remembered. The key changed with the redesign so
+        // everyone starts from the new default once.
+        const theme = saved || "light";
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
     })();

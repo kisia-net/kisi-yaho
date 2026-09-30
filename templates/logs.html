@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block subtitle %}
 <p class="page-description">
-    Search Wazuh Indexer security data using read-only queries.
+    읽기 전용 쿼리로 Wazuh Indexer의 보안 데이터를 검색합니다.
 </p>
 {% endblock %}
 
@@ -9,47 +9,47 @@
 <section class="panel">
     <form id="log-search-form" class="log-form">
         <label>
-            Index pattern
+            인덱스 패턴
             <input id="log-index" value="wazuh-alerts-*">
         </label>
 
         <input id="log-language" type="hidden" value="query_string">
 
         <label class="span-two">
-            Query
+            쿼리
             <input id="log-query" value="*">
         </label>
 
         <label>
-            Start
+            시작
             <input id="log-start" value="now-24h">
         </label>
 
         <label>
-            End
+            끝
             <input id="log-end" value="now">
         </label>
 
         <label>
-            Maximum results
+            최대 결과 수
             <input id="log-size" type="number" min="1" max="200" value="50">
         </label>
 
         <button class="button primary" type="submit">
-            Search
+            검색
         </button>
     </form>
 
     <div class="policy-note" id="log-policy-note">
-        Checking Wazuh Indexer search policy…
+        Wazuh Indexer 검색 정책을 확인하는 중…
     </div>
 
     <div class="table-header">
-        <span id="log-count">No search performed yet</span>
+        <span id="log-count">아직 검색하지 않았습니다</span>
 
         <div>
             <button class="button ghost" id="copy-log-query" type="button">
-                Copy query
+                쿼리 복사
             </button>
 
             <a class="button secondary"
@@ -57,14 +57,14 @@
                href="{{ wazuh_dashboard_url }}"
                target="_blank"
                rel="noopener noreferrer">
-                Open Wazuh Dashboard ↗
+                Wazuh Dashboard 열기 ↗
             </a>
         </div>
     </div>
 
     <div class="log-results" id="log-results">
         <div class="empty-state">
-            Search results will appear here.
+            검색 결과가 여기에 표시됩니다.
         </div>
     </div>
 </section>

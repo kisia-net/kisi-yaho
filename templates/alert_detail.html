@@ -2,7 +2,7 @@
 
 {% block subtitle %}
 <p class="page-description">
-    Review the selected Wazuh detection and its source evidence.
+    선택한 Wazuh 탐지와 원본 증거를 확인합니다.
 </p>
 {% endblock %}
 
@@ -14,8 +14,8 @@
     <section class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Wazuh alert</p>
-                <h2 data-case-title>Loading alert…</h2>
+                <p class="panel-kicker">Wazuh 경보</p>
+                <h2 data-case-title>경보를 불러오는 중…</h2>
                 <p class="muted" data-case-id hidden></p>
             </div>
 
@@ -23,13 +23,13 @@
                 <button class="button primary"
                         type="button"
                         data-analyze>
-                    Analyze with LLM
+                    LLM으로 분석
                 </button>
 
                 <a class="button secondary"
                    href="/agent?mode=alert_summary"
                    data-continue-agent>
-                    Continue in agent
+                    AI 분석 작업공간에서 이어가기
                 </a>
             </div>
         </div>
@@ -38,8 +38,8 @@
     <section class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Observed detection</p>
-                <h2>Detection evidence</h2>
+                <p class="panel-kicker">관측된 탐지</p>
+                <h2>탐지 증거</h2>
             </div>
         </div>
 
@@ -51,12 +51,12 @@
              hidden>
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Deterministic context</p>
-                <h2>Analyst context</h2>
+                <p class="panel-kicker">규칙 기반 맥락</p>
+                <h2>분석가 참고 정보</h2>
             </div>
 
             <span class="muted">
-                24h history around trigger
+                경보 전후 24시간 이력
             </span>
         </div>
 
@@ -70,8 +70,8 @@
              hidden>
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Deterministic investigation</p>
-                <h2>Investigation pivots</h2>
+                <p class="panel-kicker">규칙 기반 조사</p>
+                <h2>조사 바로가기</h2>
             </div>
         </div>
 
@@ -88,8 +88,8 @@
     <section class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Correlated evidence</p>
-                <h2>Investigation context</h2>
+                <p class="panel-kicker">연관 증거</p>
+                <h2>조사 맥락</h2>
             </div>
 
             <span class="muted" data-context-meta></span>
@@ -98,7 +98,7 @@
         <div class="structured-output"
              data-investigation-context>
             <div class="empty-state">
-                Loading related evidence…
+                관련 증거를 불러오는 중…
             </div>
         </div>
     </section>
@@ -114,8 +114,8 @@
     <section class="panel" data-analysis-section hidden>
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">LLM analysis</p>
-                <h2>Assessment</h2>
+                <p class="panel-kicker">LLM 분석</p>
+                <h2>판단 결과</h2>
             </div>
 
             <span class="muted" data-analysis-meta></span>

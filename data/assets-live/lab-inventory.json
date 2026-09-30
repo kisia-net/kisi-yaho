@@ -1,0 +1,121 @@
+{
+  "source": "kisia-lab-cmdb",
+  "description": "KISIA 1팀 실습망 실제 자산 목록 (Wazuh 모드 분석 전용). IP·역할은 docs/RUNBOOK.md 서버 목록 기준. 중요도·노출도는 팀 합의로 조정할 것.",
+  "generated_at": "2026-09-30",
+  "assets": [
+    {
+      "id": "asset-web",
+      "hostname": "web-01",
+      "ip_addresses": [
+        "10.0.1.201"
+      ],
+      "asset_type": "server",
+      "environment": "lab",
+      "zone": "dmz",
+      "exposure": "internet_facing",
+      "criticality": "high",
+      "business_service": "공격 대상 웹서비스 (nginx + ModSecurity WAF)",
+      "owner": "하서휘",
+      "operating_system": "Ubuntu",
+      "data_classification": "confidential",
+      "services": [
+        "nginx (tcp/80)",
+        "nginx (tcp/443)",
+        "wazuh-agent"
+      ],
+      "tags": [
+        "web-tier",
+        "waf",
+        "attack-target"
+      ]
+    },
+    {
+      "id": "asset-vm",
+      "ip_addresses": [
+        "10.0.10.235"
+      ],
+      "asset_type": "server",
+      "environment": "lab",
+      "zone": "internal",
+      "exposure": "internal",
+      "criticality": "medium",
+      "business_service": "네트워크·호스트 센서 (Suricata, Sysmon for Linux)",
+      "owner": "엄수현",
+      "operating_system": "Linux",
+      "services": [
+        "suricata",
+        "sysmon-for-linux",
+        "wazuh-agent"
+      ],
+      "tags": [
+        "sensor",
+        "endpoint"
+      ]
+    },
+    {
+      "id": "asset-siem",
+      "ip_addresses": [
+        "10.0.10.123"
+      ],
+      "asset_type": "server",
+      "environment": "lab",
+      "zone": "internal",
+      "exposure": "internal",
+      "criticality": "critical",
+      "business_service": "Wazuh Manager / Indexer / Dashboard, Velociraptor Server (탐지·대응 기반 시설)",
+      "owner": "권민석, 이효찬",
+      "data_classification": "restricted",
+      "services": [
+        "wazuh-manager (tcp/1514, 1515, 55000)",
+        "wazuh-indexer (tcp/9200)",
+        "wazuh-dashboard (tcp/443)",
+        "velociraptor"
+      ],
+      "tags": [
+        "siem",
+        "security-infra"
+      ]
+    },
+    {
+      "id": "asset-frontend",
+      "ip_addresses": [
+        "10.0.10.176"
+      ],
+      "asset_type": "server",
+      "environment": "lab",
+      "zone": "internal",
+      "exposure": "internal",
+      "criticality": "high",
+      "business_service": "HAW-KI 분석 콘솔 (Flask, nginx)",
+      "owner": "김세현",
+      "data_classification": "confidential",
+      "services": [
+        "hawki-web (tcp/5000)"
+      ],
+      "tags": [
+        "soc-console"
+      ]
+    },
+    {
+      "id": "asset-redteam",
+      "ip_addresses": [
+        "10.0.10.239"
+      ],
+      "asset_type": "server",
+      "environment": "lab",
+      "zone": "internal",
+      "exposure": "internal",
+      "criticality": "low",
+      "business_service": "레드팀 스테이징 (promptfoo, garak)",
+      "owner": "이승섭",
+      "services": [
+        "promptfoo",
+        "garak"
+      ],
+      "tags": [
+        "redteam",
+        "test-source"
+      ]
+    }
+  ]
+}

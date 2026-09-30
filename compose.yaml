@@ -47,7 +47,9 @@ services:
       # These nest inside /app/data above; Docker mounts the parent first.
       - ./data/scenarios:/app/data/scenarios:ro
       - ./data/assets:/app/data/assets:ro
+      - ./data/assets-live:/app/data/assets-live:ro
       - ./data/threat_intel:/app/data/threat_intel:ro
+      - ./data/threat_intel-live:/app/data/threat_intel-live:ro
 
     extra_hosts:
       - "host.docker.internal:host-gateway"

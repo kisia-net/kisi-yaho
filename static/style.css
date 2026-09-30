@@ -4301,3 +4301,528 @@ html[data-theme="light"] .message.user .message-content {
         grid-template-columns: 1fr;
     }
 }
+
+/* ==========================================================================
+   Korean readability layer (2026-09-30)
+   Korean-first type, larger minimum sizes, no uppercase tracking, calmer
+   weights. Kept last so it settles the earlier layers without rewriting them.
+   ========================================================================== */
+
+:root {
+    --font-ui: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo",
+        "Malgun Gothic", "맑은 고딕", "Noto Sans KR", "Segoe UI", system-ui,
+        -apple-system, sans-serif;
+    --font-mono: "D2Coding", "Cascadia Code", "SFMono-Regular", Consolas,
+        "Noto Sans Mono", monospace;
+    font-family: var(--font-ui);
+}
+
+/* Nearly every size in the earlier layers is in rem and set for Latin text;
+   Hangul at 10px is hard to read. One step up for the whole interface. */
+html { font-size: 18px; }
+
+body {
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.6;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+button, input, textarea, select { font-family: inherit; }
+
+code, pre, kbd, samp, .code-input, .query-code, .markdown-body code {
+    font-family: var(--font-mono);
+    word-break: normal;
+}
+
+/* Uppercase and wide tracking suit English kickers but only spread Hangul
+   apart; section labels read as ordinary small headings instead. */
+.workspace-content *,
+.sidebar *,
+.topbar *,
+.auth-shell * {
+    text-transform: none !important;
+    letter-spacing: normal !important;
+}
+
+.panel-kicker,
+.eyebrow {
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+h1, .topbar h1 { font-size: 22px; font-weight: 700; line-height: 1.3; }
+h2, .panel-header h2 { font-size: 16px; font-weight: 650; line-height: 1.4; }
+h3 { font-size: 13px; font-weight: 650; }
+
+.page-description { font-size: 13px; line-height: 1.6; }
+.muted { font-size: 12.5px; }
+
+/* Sidebar */
+.nav-item { font-size: 14px; padding-top: 9px; padding-bottom: 9px; }
+.nav-badge { font-size: 10.5px; font-weight: 600; }
+.sidebar-label { font-size: 12px; font-weight: 600; }
+.service-link, .service-link small { font-size: 12.5px; }
+.brand small { font-size: 11.5px; }
+.sidebar-footer small { font-size: 11px; }
+.model-line { font-size: 12px; }
+.global-health { font-size: 12.5px; }
+
+/* Numbers line up in columns and counters. */
+.metric-card strong,
+.latency,
+.alert-time,
+.dashboard-alert-time,
+.wazuh-level,
+.approval-total-label,
+.audit-row > span {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Cards and panels */
+.metric-card span { font-size: 13px; font-weight: 600; }
+.metric-card strong { font-size: 28px; font-weight: 700; }
+.metric-card small { font-size: 12px; }
+.service-card strong { font-size: 13.5px; font-weight: 650; }
+.service-card small, .service-card .latency { font-size: 12px; }
+.feature-card strong { font-size: 15px; font-weight: 650; }
+.feature-card p { font-size: 13px; line-height: 1.6; }
+.feature-card > span { font-size: 12px; font-weight: 700; }
+
+/* Forms and buttons */
+label,
+.toolbar-form label,
+.stack-form label,
+.log-form label,
+.rule-inventory-filterbar label span,
+.mode-context-fields label {
+    font-size: 12.5px;
+    font-weight: 600;
+}
+input, select, textarea { font-size: 13.5px; }
+.button { font-size: 13px; font-weight: 650; }
+.button.small { font-size: 12px; }
+
+/* Lists and tables */
+.table-header { font-size: 13px; }
+.alert-row { font-size: 13px; }
+.alert-row strong,
+.dashboard-alert-row strong { font-weight: 650; }
+.alert-row p,
+.dashboard-alert-row p,
+.alert-row .muted { font-size: 12.5px; }
+.alert-time, .dashboard-alert-time { font-size: 12.5px; }
+.tag { font-size: 11.5px; font-weight: 600; }
+.status-text { font-size: 12px; font-weight: 600; }
+.empty-state, .loading-block { font-size: 13px; }
+.policy-note { font-size: 12.5px; line-height: 1.6; }
+dt, dd { font-size: 13px; }
+
+/* Agent workspace */
+.agent-mode-tab strong { font-size: 12.5px; font-weight: 650; }
+.agent-history-mode { font-size: 11px; }
+.session-state { font-size: 12px; }
+.chat-history-footer, .chat-history-footer button { font-size: 12px; }
+.message, .markdown-body { font-size: 14px; line-height: 1.7; }
+.structured-output h3 { font-size: 13px; }
+
+/* Heavy weights from the English-first layers read as shouting in Hangul. */
+strong, b { font-weight: 650; }
+.brand strong { font-weight: 800; }
+
+/* Weights tuned for Pretendard (served locally, variable 45-920). */
+input, select, textarea { font-weight: 400; }
+label,
+.toolbar-form label,
+.stack-form label,
+.log-form label,
+.mode-context-fields label { color: var(--muted); font-weight: 500; }
+.panel-kicker, .eyebrow { font-weight: 500; }
+.alert-row strong,
+.dashboard-alert-row strong,
+.notice-item strong { font-weight: 600; }
+.wazuh-level { font-weight: 600; }
+.button { font-weight: 600; }
+
+/* Page-specific filter bars and editors (approvals, rules, agent composer)
+   set their own sub-11px sizes; bring them to the same scale. */
+.workspace-content input,
+.workspace-content select,
+.workspace-content textarea { font-size: 13px; }
+.workspace-content .code-input { font-size: 13px; line-height: 1.55; }
+.workspace-content label > span,
+.workspace-content .mode-context-fields label {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--muted);
+}
+.approval-total-label,
+.approval-results-bar,
+.approval-results-bar span,
+.approval-summary-item,
+.approval-summary-item span,
+.rule-enabled-control span,
+.chat-history-footer span { font-size: 12.5px; }
+.approval-summary-item strong { font-size: 15px; }
+.audit-row, .audit-row span, .audit-row strong, .audit-row code { font-size: 12.5px; }
+.agent-history-item small, .agent-history-list small { font-size: 11.5px; }
+
+/* Agent evidence panel: always three readable columns (evidence, queries,
+   actions) instead of auto-filled 155px tracks with two thirds left empty. */
+.output-panel .structured-output { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 900px) {
+    .output-panel .structured-output { grid-template-columns: minmax(0, 1fr); }
+}
+.output-section h3 { margin-bottom: 8px; color: var(--muted); }
+
+/* An empty or loading message inside an auto-filled evidence grid took one
+   155px track and wrapped every few words; let it span the whole row. */
+.structured-output > .empty-state,
+.structured-output > .loading-block { grid-column: 1 / -1; }
+
+/* ==========================================================================
+   Bright operations theme (default)
+   Modelled on the light consoles SOC teams live in all day (Microsoft
+   Defender XDR / Sentinel incident queue, Elastic Security alerts table):
+   neutral grey canvas, white work surfaces, one blue for action, and colour
+   reserved for severity so that red on the screen always means something.
+   Scoped to data-theme="light"; the dark theme keeps its navy design.
+   ========================================================================== */
+
+html[data-theme="light"] {
+    --bg: #f3f5f9;
+    --sidebar: #ffffff;
+    --panel: #ffffff;
+    --panel-2: #f7f9fc;
+    --line: #e3e8ef;
+    --line-2: #cdd6e1;
+    --text: #1a2433;
+    --muted: #556578;
+    --subtle: #7f8ea3;
+    --accent: #2563eb;
+    --accent-soft: rgba(37, 99, 235, .08);
+    --blue: #2563eb;
+    --warning: #b45309;
+    --danger: #dc2626;
+    --success: #15803d;
+    --body-glow: transparent;
+    --sidebar-surface: #ffffff;
+    --panel-gradient-start: #ffffff;
+    --panel-gradient-end: #ffffff;
+    --card-surface: #ffffff;
+    --input-bg: #ffffff;
+    --code-bg: #f3f6fa;
+    --message-text: #243244;
+    --code-text: #1f2d3d;
+    --toast-bg: #ffffff;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .05);
+    --on-accent: #ffffff;
+    --on-warning: #ffffff;
+    --on-danger: #ffffff;
+
+    --chrome-bg: #ffffff;
+    --chrome-bg-2: #eef3fd;
+    --chrome-bg-3: #e3ecfc;
+    --chrome-line: #e3e8ef;
+    --chrome-text: #1a2433;
+    --chrome-muted: #556578;
+    --chrome-accent: #2563eb;
+
+    --sev-critical: #b91c1c; --sev-critical-bg: #fee2e2;
+    --sev-high: #c2410c;     --sev-high-bg: #ffedd5;
+    --sev-medium: #a16207;   --sev-medium-bg: #fef3c7;
+    --sev-low: #1d4ed8;      --sev-low-bg: #dbeafe;
+    --sev-info: #475569;     --sev-info-bg: #eef2f6;
+    --radius: 10px;
+}
+
+html[data-theme="dark"] {
+    --sev-critical: #ff8a8a; --sev-critical-bg: rgba(255, 100, 116, .16);
+    --sev-high: #ffb070;     --sev-high-bg: rgba(255, 150, 80, .16);
+    --sev-medium: #f5cf6b;   --sev-medium-bg: rgba(245, 188, 85, .15);
+    --sev-low: #8cc4ff;      --sev-low-bg: rgba(98, 189, 245, .14);
+    --sev-info: #a9b6c6;     --sev-info-bg: rgba(138, 155, 173, .14);
+}
+
+html[data-theme="light"] body { background: var(--bg); color: var(--text); }
+
+/* --- Shell: white sidebar and top bar, blue marks the current place ------ */
+html[data-theme="light"] .sidebar {
+    background: var(--chrome-bg);
+    border-right: 1px solid var(--chrome-line);
+    color: var(--chrome-text);
+}
+html[data-theme="light"] .brand { border-bottom-color: var(--chrome-line); }
+html[data-theme="light"] .brand-mark {
+    border-color: transparent;
+    background: var(--accent);
+    color: #ffffff;
+}
+html[data-theme="light"] .brand strong { color: var(--chrome-text); }
+html[data-theme="light"] .brand small { color: var(--chrome-muted); }
+html[data-theme="light"] .nav-item { color: #344256; border-radius: 8px; }
+html[data-theme="light"] .nav-item > span { color: #8391a7; }
+html[data-theme="light"] .nav-item:hover {
+    border-color: transparent;
+    background: #f1f4f9;
+    color: var(--chrome-text);
+}
+html[data-theme="light"] .nav-item.active {
+    border-color: transparent;
+    background: var(--chrome-bg-2);
+    color: var(--accent);
+    font-weight: 600;
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+html[data-theme="light"] .nav-item.active > span { color: var(--accent); }
+html[data-theme="light"] .nav-badge {
+    border-color: var(--line);
+    background: #f1f4f9;
+    color: var(--muted);
+}
+html[data-theme="light"] .sidebar-label,
+html[data-theme="light"] .nav-group-label { color: #8391a7; }
+html[data-theme="light"] .sidebar-section,
+html[data-theme="light"] .sidebar-footer { border-color: var(--chrome-line); }
+html[data-theme="light"] .service-link { color: #344256; }
+html[data-theme="light"] .service-link:hover { background: #f1f4f9; color: var(--chrome-text); }
+html[data-theme="light"] .service-link small,
+html[data-theme="light"] .sidebar-footer,
+html[data-theme="light"] .sidebar-footer small,
+html[data-theme="light"] .model-line { color: var(--subtle); }
+
+html[data-theme="light"] .topbar {
+    background: rgba(255, 255, 255, .96);
+    border-bottom: 1px solid var(--chrome-line);
+    color: var(--chrome-text);
+    backdrop-filter: saturate(1.2) blur(6px);
+}
+html[data-theme="light"] .topbar h1 { color: var(--chrome-text); }
+html[data-theme="light"] .topbar .page-description,
+html[data-theme="light"] .global-health { color: var(--chrome-muted); }
+html[data-theme="light"] .topbar .button.secondary,
+html[data-theme="light"] .topbar .button.ghost,
+html[data-theme="light"] .topbar .theme-toggle,
+html[data-theme="light"] .topbar .account-chip,
+html[data-theme="light"] .topbar-icon-button {
+    border-color: var(--line);
+    background: #ffffff;
+    color: #344256;
+}
+html[data-theme="light"] .topbar .button.secondary:hover,
+html[data-theme="light"] .topbar .theme-toggle:hover,
+html[data-theme="light"] .topbar .account-chip:hover,
+html[data-theme="light"] .topbar-icon-button:hover {
+    border-color: var(--line-2);
+    background: #f1f4f9;
+}
+html[data-theme="light"] .topbar .account-chip span { color: var(--accent); }
+
+/* Menu groups: monitoring, investigation and response, governance. */
+.nav-group-label {
+    margin: 14px 10px 4px;
+    color: var(--chrome-muted);
+    font-size: 11.5px;
+    font-weight: 600;
+}
+.nav-list > .nav-group-label:first-child { margin-top: 0; }
+
+/* --- Surfaces ------------------------------------------------------------ */
+html[data-theme="light"] .panel,
+html[data-theme="light"] .metric-card {
+    border-color: var(--line);
+    background: var(--panel);
+    box-shadow: var(--shadow);
+}
+html[data-theme="light"] .panel-header {
+    border-bottom-color: var(--line);
+    background: var(--panel);
+    color: var(--text);
+}
+html[data-theme="light"] .panel-header h2,
+html[data-theme="light"] .agent-panel-title,
+html[data-theme="light"] .approvals-title { color: var(--text); }
+html[data-theme="light"] .agent-panel-title svg,
+html[data-theme="light"] .approvals-title svg { color: var(--accent); stroke: currentColor; }
+html[data-theme="light"] .panel-kicker,
+html[data-theme="light"] .eyebrow { color: var(--subtle); }
+
+/* Buttons: one filled blue for the main action, outlined for the rest. */
+html[data-theme="light"] .button.primary { background: var(--accent); color: #ffffff; }
+html[data-theme="light"] .button.primary:hover { background: #1d4ed8; }
+html[data-theme="light"] .button.secondary {
+    border-color: var(--line-2);
+    background: #ffffff;
+    color: #243244;
+}
+html[data-theme="light"] .button.secondary:hover { border-color: #9fb0c6; background: #f7f9fc; }
+html[data-theme="light"] .button.ghost { border-color: var(--line); background: transparent; color: var(--muted); }
+html[data-theme="light"] .button.warning { background: #d97706; color: #ffffff; }
+html[data-theme="light"] .button.danger { background: var(--danger); color: #ffffff; }
+.button:hover { transform: none; }
+
+/* Inputs */
+html[data-theme="light"] input,
+html[data-theme="light"] select,
+html[data-theme="light"] textarea {
+    border-color: var(--line-2);
+    background: #ffffff;
+    color: var(--text);
+}
+html[data-theme="light"] input:focus,
+html[data-theme="light"] select:focus,
+html[data-theme="light"] textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .14);
+}
+html[data-theme="light"] input::placeholder,
+html[data-theme="light"] textarea::placeholder { color: #98a4b5; }
+
+/* --- Dashboard ----------------------------------------------------------- */
+a.metric-card { display: block; color: inherit; text-decoration: none; transition: border-color .12s ease, box-shadow .12s ease; }
+a.metric-card:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.metric-card { position: relative; }
+.metric-card::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 14px; bottom: 14px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--metric-color, var(--accent));
+}
+.metric-card.metric-critical { --metric-color: var(--sev-high); }
+.metric-card.metric-neutral { --metric-color: #64748b; }
+.metric-card.metric-approval { --metric-color: #d97706; }
+html[data-theme="light"] .metric-card span { color: var(--muted); }
+html[data-theme="light"] .metric-card strong { color: var(--text); }
+html[data-theme="light"] .service-card { background: #ffffff; border-color: var(--line); }
+html[data-theme="light"] .feature-card { background: var(--panel-2); border-color: var(--line); }
+html[data-theme="light"] .feature-card:hover { border-color: var(--accent); background: #ffffff; }
+html[data-theme="light"] .feature-card > span { color: var(--accent); }
+
+/* --- Severity: the only strong colour in the tables ---------------------- */
+.sev-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 54px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--sev-bg, var(--sev-info-bg));
+    color: var(--sev-fg, var(--sev-info));
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+}
+.sev-chip::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.sev-chip small { opacity: .75; font-size: 11px; font-weight: 500; }
+.sev-critical { --sev-fg: var(--sev-critical); --sev-bg: var(--sev-critical-bg); }
+.sev-high     { --sev-fg: var(--sev-high);     --sev-bg: var(--sev-high-bg); }
+.sev-medium   { --sev-fg: var(--sev-medium);   --sev-bg: var(--sev-medium-bg); }
+.sev-low      { --sev-fg: var(--sev-low);      --sev-bg: var(--sev-low-bg); }
+.sev-info     { --sev-fg: var(--sev-info);     --sev-bg: var(--sev-info-bg); }
+
+/* A coloured left edge lets the eye find the red rows before reading. */
+.alert-row.sev-row,
+.dashboard-alert-row.sev-row { box-shadow: inset 3px 0 0 var(--sev-fg, transparent); }
+.alert-row.sev-row.sev-low,
+.alert-row.sev-row.sev-info,
+.dashboard-alert-row.sev-row.sev-low,
+.dashboard-alert-row.sev-row.sev-info { box-shadow: none; }
+
+/* --- Alert queue ---------------------------------------------------------- */
+.alert-row.alert-row-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-top: 9px;
+    padding-bottom: 9px;
+    background: var(--panel-2);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+html[data-theme="light"] .alert-row,
+html[data-theme="light"] .dashboard-alert-row { border-bottom-color: var(--line); }
+html[data-theme="light"] .alert-row:not(.alert-row-head):hover,
+html[data-theme="light"] .dashboard-alert-row:hover { background: #f6f9ff; }
+html[data-theme="light"] .alert-row strong,
+html[data-theme="light"] .dashboard-alert-row strong { color: var(--text); }
+html[data-theme="light"] .alert-row .muted,
+html[data-theme="light"] .alert-row p,
+html[data-theme="light"] .dashboard-alert-row p { color: var(--muted); }
+html[data-theme="light"] .alert-time,
+html[data-theme="light"] .dashboard-alert-time { color: var(--muted); }
+html[data-theme="light"] .tag {
+    border: 1px solid var(--line);
+    background: #f5f7fb;
+    color: #44556a;
+}
+html[data-theme="light"] .table-header,
+html[data-theme="light"] .approval-results-bar {
+    border-bottom-color: var(--line);
+    background: var(--panel);
+    color: var(--muted);
+}
+html[data-theme="light"] .policy-note { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+html[data-theme="light"] .empty-state,
+html[data-theme="light"] .loading-block { color: var(--subtle); }
+
+/* --- Agent workspace in the bright theme --------------------------------- */
+html[data-theme="light"] .chat-workspace .chat-binder { --binder-color: #c9d6ea !important; }
+html[data-theme="light"] .chat-workspace .chat-binder .agent-mode-tab {
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    background: #f3f6fb;
+    color: #44556a;
+    box-shadow: none;
+}
+html[data-theme="light"] .chat-workspace .chat-binder .agent-mode-tab:hover {
+    background: #eaf0fb;
+    color: var(--text);
+}
+html[data-theme="light"] .chat-workspace .chat-binder .agent-mode-tab.active {
+    border-color: #c9d6ea;
+    background: #ffffff;
+    color: var(--accent);
+    box-shadow: inset 0 3px 0 var(--accent);
+}
+html[data-theme="light"] .chat-workspace .chat-binder .agent-mode-tab strong { color: inherit; }
+html[data-theme="light"] .chat-binder .agent-mode-tab::before { box-shadow: none; }
+html[data-theme="light"] .chat-binder-body,
+html[data-theme="light"] .chat-binder-body .composer { background: #ffffff; }
+html[data-theme="light"] .chat-binder-body .composer-context { background: #f8fafd; }
+html[data-theme="light"] .chat-binder-body .composer textarea { background: #ffffff; color: var(--text); }
+html[data-theme="light"] .message-list { background: #fbfcfe; }
+
+/* Header meta text written in fixed pale colours for the navy headers. */
+html[data-theme="light"] .session-state,
+html[data-theme="light"] .approval-total-label,
+html[data-theme="light"] .chat-history-footer,
+html[data-theme="light"] .chat-history-footer button { color: var(--muted); }
+html[data-theme="light"] .new-chat-button,
+html[data-theme="light"] .approval-refresh-button {
+    border-color: transparent;
+    background: var(--accent);
+    color: #ffffff;
+}
+html[data-theme="light"] .new-chat-button:hover,
+html[data-theme="light"] .approval-refresh-button:hover { background: #1d4ed8; }
+
+/* Column headers sit over their own values. */
+.alert-row.alert-row-head > span { justify-self: start; text-align: left; }
+html[data-theme="light"] .chat-workspace .panel-header .session-state,
+html[data-theme="light"] .rules-panel-header .approval-total-label,
+html[data-theme="light"] .approvals-header-tools .approval-total-label { color: var(--muted); }
+html[data-theme="light"] .output-panel .output-item { padding: 10px 12px; }
