@@ -212,3 +212,65 @@ def compute_priority(
         "factors": factors,
         "method": "deterministic: rule level + asset + threat intel; computed in code",
     }
+
+
+# -- Alert queue ----------------------------------------------------------
+#
+# The queue needs a priority for every listed alert before anyone opens one.
+# It is computed by the same code the analysis uses (asset match, CTI match,
+# compute_priority) from the fields a list item carries, so the badge in the
+# queue and the priority in the analysis agree for the same alert.
+
+# Sources without a Wazuh rule level (fixture scenarios, other adapters) give
+# a severity word; it is placed at the bottom of the matching Wazuh band.
+SEVERITY_AS_LEVEL = {"critical": 15, "high": 12, "medium": 7, "low": 3, "info": 1, "informational": 1}
+
+
+def priority_for_alert_item(
+    item: dict[str, Any],
+    *,
+    asset_inventory: Any,
+    threat_intel_feed: Any,
+) -> dict[str, Any]:
+    from .assets import NullAssetInventory, live_observed_values, match_live_assets
+    from .threat_intel import NullThreatIntelFeed, match_live_indicators
+
+    level = item.get("rule_level")
+    derived = False
+    try:
+        level = int(level)
+    except (TypeError, ValueError):
+        level = SEVERITY_AS_LEVEL.get(str(item.get("severity") or "").lower(), 0)
+        derived = True
+
+    host = str(item.get("host") or "")
+    trigger = {
+        "evidence_id": "TRIGGER",
+        "rule": {"level": level},
+        "agent": {"name": host, "ip": str(item.get("agent_ip") or "")},
+        "data": {"srcip": str(item.get("source_ip") or "")},
+    }
+
+    inventory = asset_inventory or NullAssetInventory()
+    feed = threat_intel_feed or NullThreatIntelFeed()
+    inventory_configured = not isinstance(inventory, NullAssetInventory)
+
+    asset_matches, _ = match_live_assets(inventory, [trigger])
+    intel_matches, _ = match_live_indicators(feed, [trigger])
+    unresolved = [
+        value
+        for value, role in live_observed_values(trigger)
+        if role in TARGET_ROLES and inventory.lookup(value) is None
+    ]
+    result = compute_priority(
+        trigger,
+        [match.to_dict() for match in asset_matches],
+        unresolved_identifiers=unresolved,
+        inventory_configured=inventory_configured,
+        intel_matches=[match.to_dict() for match in intel_matches],
+        intel_configured=not isinstance(feed, NullThreatIntelFeed),
+    )
+    if derived and result["factors"]:
+        result["factors"][0]["factor"] = "source_severity"
+        result["factors"][0]["value"] = str(item.get("severity") or "unknown")
+    return {key: result[key] for key in ("score", "band", "primary_asset_id", "factors")}

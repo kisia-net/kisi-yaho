@@ -4,6 +4,7 @@ from typing import Any
 
 from .bundle import BUNDLE_SCHEMA
 from .live_bundle import LIVE_BUNDLE_SCHEMA, build_live_evidence_bundle
+from .priority import priority_for_alert_item
 from .repository import EventRepository
 
 
@@ -60,6 +61,15 @@ class AlertAnalysisService:
                     for value in item.values()
                 )
             ]
+
+        # Queue priority, added after filtering so a search never matches the
+        # wording of a priority factor.
+        inventory = getattr(self.repository, "asset_inventory", None)
+        feed = getattr(self.repository, "threat_intel_feed", None)
+        for item in alerts:
+            item["priority"] = priority_for_alert_item(
+                item, asset_inventory=inventory, threat_intel_feed=feed
+            )
 
         return alerts
 

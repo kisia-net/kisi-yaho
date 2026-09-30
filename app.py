@@ -58,6 +58,11 @@ from hawki_alert_analysis.wazuh_api import (
     WazuhServerAPIError,
 )
 from hawki_alert_analysis.siem import SiemService
+from hawki_alert_analysis.ui_messages import (
+    REVIEW_NOTE_CODES,
+    REVIEW_NOTES_KO,
+    localize_error_payload,
+)
 
 load_dotenv()
 
@@ -177,6 +182,9 @@ CONFIG = {
     "llm_max_tokens": max(int(os.getenv("LLM_MAX_TOKENS", "2200")), 256),
     "llm_temperature": float(os.getenv("LLM_TEMPERATURE", "0.1")),
     "llm_output_language": os.getenv("LLM_OUTPUT_LANGUAGE", "ko").strip().lower(),
+    # Language of human-readable API error messages. "en" returns the original
+    # English only; see hawki_alert_analysis/ui_messages.py.
+    "api_message_language": os.getenv("API_MESSAGE_LANGUAGE", "ko").strip().lower(),
     "llm_timeout": max(float(os.getenv("LLM_REQUEST_TIMEOUT", "120")), 10.0),
     "wazuh_indexer_url": os.getenv(
         "WAZUH_INDEXER_URL", "https://wazuh.indexer:9200"
@@ -1022,6 +1030,27 @@ def template_context(active_page: str) -> dict[str, Any]:
         "vendor_scripts": available_vendor_scripts(),
         "current_user": public_user(g.user) if getattr(g, "user", None) else None,
     }
+
+
+@app.after_request
+def localize_api_error(response):
+    """Show API errors in Korean, keeping the English in `error_en`.
+
+    Only JSON error responses (4xx/5xx) with a known message are touched;
+    `code`, `detail` and every other key pass through unchanged.
+    """
+    if (
+        CONFIG["api_message_language"] != "ko"
+        or response.status_code < 400
+        or response.mimetype != "application/json"
+        or response.direct_passthrough
+    ):
+        return response
+    body = response.get_json(silent=True)
+    localized = localize_error_payload(body, CONFIG["api_message_language"])
+    if localized is not body:
+        response.set_data(app.json.dumps(localized))
+    return response
 
 
 @app.after_request
@@ -2602,10 +2631,23 @@ def apply_assessment_schema(
     # against, and the model no longer has to write the detail twice.
     briefing = str(result.get("answer", "")).strip()
     detail = assessment_markdown(assessment, CONFIG["llm_output_language"])
-    if briefing and detail:
+    # A briefing that already is (or contains) the rendered assessment -- the
+    # demo fallback builds its answer that way, and a model can echo it -- was
+    # shown twice. Only a distinct briefing is kept in front of the detail.
+    if briefing and detail and detail not in briefing:
         result["answer"] = briefing + "\n\n---\n\n" + detail
     elif detail:
         result["answer"] = detail
+
+    # Review notes stay English for tests and logs; the panel gets codes and,
+    # in Korean mode, the translated sentences.
+    codes = [REVIEW_NOTE_CODES.get(note, "") for note in review.get("notes", [])]
+    review["note_codes"] = codes
+    if CONFIG["llm_output_language"] == "ko":
+        review["notes_localized"] = [
+            REVIEW_NOTES_KO.get(code) or note
+            for code, note in zip(codes, review.get("notes", []))
+        ]
     return result
 
 
@@ -3223,18 +3265,27 @@ def demo_alert_assessment(context: dict[str, Any], host: str) -> dict[str, Any]:
     assets = items("assets")
     indicators = items("threat_intelligence")
 
+    # Demo text follows LLM_OUTPUT_LANGUAGE like a real answer would.
+    ko = CONFIG["llm_output_language"] == "ko"
+
+    def say(english: str, korean: str) -> str:
+        return korean if ko else english
+
     if not alerts:
         return {
-            "answer": (
+            "answer": say(
                 f"### Assessment\nNo alert evidence is attached, so this is a generic checklist for "
                 f"**{host}**: confirm the process tree and account context, identify related destinations, "
-                "check prevalence across other hosts, and preserve evidence before containment."
+                "check prevalence across other hosts, and preserve evidence before containment.",
+                f"### 판단 요약\n첨부된 경보 증거가 없어 **{host}**에 대한 일반 점검 순서만 안내합니다: "
+                "프로세스 트리와 계정 맥락 확인, 관련 목적지 파악, 다른 호스트에서의 발생 여부 확인, "
+                "격리 전 증거 보존.",
             ),
-            "evidence": ["No alert case was attached to the request."],
+            "evidence": [say("No alert case was attached to the request.", "요청에 첨부된 경보 사례가 없습니다.")],
             "queries": [
                 {
                     "language": "KQL",
-                    "title": "Correlate endpoint activity",
+                    "title": say("Correlate endpoint activity", "단말 활동 연관 검색"),
                     "value": f'host.name:"{host}" and @timestamp >= now-30m',
                 }
             ],
@@ -3252,9 +3303,10 @@ def demo_alert_assessment(context: dict[str, Any], host: str) -> dict[str, Any]:
     observations = [f"{item.get('message', 'Alert')} ({item.get('id', '')})" for item in alerts[:6]]
     if events:
         sources = sorted({str(item.get("source_type", "")) for item in events if item.get("source_type")})
-        observations.append(
-            f"{len(events)} correlated non-alert events from {', '.join(sources)} fall inside the case window."
-        )
+        observations.append(say(
+            f"{len(events)} correlated non-alert events from {', '.join(sources)} fall inside the case window.",
+            f"{', '.join(sources)}에서 수집된 연관 이벤트 {len(events)}건이 같은 시간 범위에 있습니다.",
+        ))
 
     supporting = [
         {"statement": item.get("message", "Alert"), "event_ids": [item.get("id", "")]}
@@ -3268,29 +3320,54 @@ def demo_alert_assessment(context: dict[str, Any], host: str) -> dict[str, Any]:
         "confirmed_observations": observations,
         "interpretation": (
             (
-                f"{len(alerts)} detections and {len(events)} correlated events fall on {trigger_host} "
-                "within one time window."
+                say(
+                    f"{len(alerts)} detections and {len(events)} correlated events fall on {trigger_host} "
+                    "within one time window.",
+                    f"{trigger_host}에서 같은 시간 범위에 탐지 {len(alerts)}건과 연관 이벤트 {len(events)}건이 있습니다.",
+                )
                 if clustered
-                else f"A single detection on {trigger_host}, with no correlated evidence supplied."
+                else say(
+                    f"A single detection on {trigger_host}, with no correlated evidence supplied.",
+                    f"{trigger_host}에서 탐지 1건이 있고, 함께 제공된 연관 증거는 없습니다.",
+                )
             )
-            + " This demo response summarizes the bundle deterministically; it is not a model assessment."
+            + say(
+                " This demo response summarizes the bundle deterministically; it is not a model assessment.",
+                " 이 답변은 데모 모드에서 증거를 규칙대로 요약한 것이며, 모델의 판단이 아닙니다.",
+            )
         ),
         "attack_hypothesis": (
-            f"The evidence on {trigger_host} is consistent with a single related sequence rather than "
-            "unrelated noise, but the demo path does not evaluate causation."
+            say(
+                f"The evidence on {trigger_host} is consistent with a single related sequence rather than "
+                "unrelated noise, but the demo path does not evaluate causation.",
+                f"{trigger_host}의 증거는 서로 무관한 잡음보다는 하나의 연속된 흐름에 가깝지만, "
+                "데모 모드는 인과관계를 판단하지 않습니다.",
+            )
             if clustered
-            else f"The alert on {trigger_host} cannot be placed in a sequence from the evidence supplied."
+            else say(
+                f"The alert on {trigger_host} cannot be placed in a sequence from the evidence supplied.",
+                f"제공된 증거만으로는 {trigger_host}의 경보를 하나의 흐름으로 이을 수 없습니다.",
+            )
         ),
         "confidence": {
             "level": "low",
-            "rationale": "Demo fallback: the local model was unreachable, so no reasoning was performed.",
+            "rationale": say(
+                "Demo fallback: the local model was unreachable, so no reasoning was performed.",
+                "데모 모드: 로컬 모델에 연결되지 않아 추론을 수행하지 않았습니다.",
+            ),
         },
         "severity": {
             "level": str((trigger.get("event") or {}).get("severity") or "medium"),
             "rationale": (
-                f"Producer severity of the trigger, with {len(critical_assets)} high or critical asset(s) involved."
+                say(
+                    f"Producer severity of the trigger, with {len(critical_assets)} high or critical asset(s) involved.",
+                    f"경보를 만든 탐지기의 심각도이며, 중요도 높음 이상 자산 {len(critical_assets)}개가 관련됩니다.",
+                )
                 if critical_assets
-                else "Producer severity of the trigger; no high-criticality asset was resolved."
+                else say(
+                    "Producer severity of the trigger; no high-criticality asset was resolved.",
+                    "경보를 만든 탐지기의 심각도이며, 중요도가 높은 자산은 확인되지 않았습니다.",
+                )
             ),
         },
         "affected_entities": {
@@ -3304,16 +3381,22 @@ def demo_alert_assessment(context: dict[str, Any], host: str) -> dict[str, Any]:
             "files": (bundle.get("entities") or {}).get("files", []),
         },
         "attack_techniques": [
-            {"id": technique, "name": "", "evidence": f"Reported by {item.get('id', 'alert')}"}
+            {"id": technique, "name": "", "evidence": say(f"Reported by {item.get('id', 'alert')}", f"{item.get('id', 'alert')} 경보가 보고함")}
             for item in alerts
             for technique in ((item.get("mitre") or {}).get("id") or [])
         ],
         "supporting_evidence": supporting,
         "contradictory_evidence": [],
         "evidence_gaps": [
-            "This is a deterministic demo summary; no model reasoning was applied.",
+            say(
+                "This is a deterministic demo summary; no model reasoning was applied.",
+                "데모 모드의 규칙 기반 요약이며, 모델 추론은 적용되지 않았습니다.",
+            ),
             *(
-                [f"No inventory record for: {', '.join(unresolved[:5])}."]
+                [say(
+                    f"No inventory record for: {', '.join(unresolved[:5])}.",
+                    f"자산 목록에 없는 대상: {', '.join(unresolved[:5])}.",
+                )]
                 if unresolved
                 else []
             ),
@@ -3321,20 +3404,29 @@ def demo_alert_assessment(context: dict[str, Any], host: str) -> dict[str, Any]:
         "recommended_searches": [
             {
                 "language": "KQL",
-                "title": "Correlate endpoint activity",
+                "title": say("Correlate endpoint activity", "단말 활동 연관 검색"),
                 "value": f'host.name:"{trigger_host}" and @timestamp >= now-30m',
             }
         ],
         "recommended_response": [
-            "Confirm the process tree and account context on the affected host.",
-            "Preserve evidence before any containment action.",
+            say(
+                "Confirm the process tree and account context on the affected host.",
+                "영향받은 호스트에서 프로세스 트리와 계정 맥락을 확인합니다.",
+            ),
+            say(
+                "Preserve evidence before any containment action.",
+                "격리 등 대응 조치 전에 증거를 먼저 보존합니다.",
+            ),
         ],
     }
 
-    evidence = [f"{len(alerts)} alerts and {len(events)} correlated events were supplied in the bundle."]
+    evidence = [say(
+        f"{len(alerts)} alerts and {len(events)} correlated events were supplied in the bundle.",
+        f"경보 {len(alerts)}건과 연관 이벤트 {len(events)}건이 증거 묶음으로 제공되었습니다.",
+    )]
     if assets:
         evidence.append(
-            "Asset context: "
+            say("Asset context: ", "자산 정보: ")
             + ", ".join(
                 f"{item.get('hostname', item.get('id', ''))} ({item.get('criticality', 'unknown')})"
                 for item in assets[:3]
@@ -3342,13 +3434,19 @@ def demo_alert_assessment(context: dict[str, Any], host: str) -> dict[str, Any]:
         )
     if malicious:
         evidence.append(
-            "Threat intelligence flagged: "
+            say("Threat intelligence flagged: ", "위협 인텔리전스 적중: ")
             + ", ".join(str(item.get("value", "")) for item in malicious[:3])
-            + ". A match is context, not proof of compromise."
+            + say(". A match is context, not proof of compromise.", ". 적중은 참고 정보이며 침해의 증거는 아닙니다.")
         )
 
     return {
-        "answer": assessment_markdown(assessment, CONFIG["llm_output_language"]),
+        # A short briefing, as a model gives: apply_assessment_schema renders
+        # the full assessment below it. Putting the rendered assessment here
+        # too is what showed every demo analysis twice.
+        "answer": say(
+            f"**Demo summary** — {assessment['interpretation']}",
+            f"**데모 요약** — {assessment['interpretation']}",
+        ),
         "evidence": evidence,
         "queries": assessment["recommended_searches"],
         "actions": [],

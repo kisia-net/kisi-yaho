@@ -125,6 +125,37 @@ function alertSeverity(alert) {
     };
 }
 
+const PRIORITY_FACTOR_LABELS = {
+    wazuh_rule_level: "룰 레벨",
+    source_severity: "탐지 심각도",
+    asset_criticality: "자산 중요도",
+    asset_exposure: "노출도",
+    asset_data_classification: "민감 데이터",
+    asset_not_in_inventory: "미등록 호스트",
+    threat_intel_match: "위협 인텔리전스",
+};
+
+/*
+ * Priority badge (P1-P4) computed by the server from rule level, asset
+ * inventory and threat intelligence. The tooltip spells out every factor so
+ * an analyst can see why an alert ranks where it does.
+ */
+function priorityBadge(alert) {
+    const priority = alert?.priority;
+    if (!priority || !priority.band) return "";
+    const band = String(priority.band).toLowerCase();
+    const parts = (priority.factors || [])
+        .filter((factor) => Number(factor.points) > 0)
+        .map((factor) => `${PRIORITY_FACTOR_LABELS[factor.factor] || factor.factor} +${factor.points}`);
+    const tip = `우선순위 점수 ${priority.score}점${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
+    return `<span class="prio-chip prio-${escapeHtml(band)}" title="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">${escapeHtml(priority.band)}</span>`;
+}
+
+function priorityScore(alert) {
+    const score = Number(alert?.priority?.score);
+    return Number.isFinite(score) ? score : -1;
+}
+
 function severityChip(alert) {
     const severity = alertSeverity(alert);
     const level = severity.level !== null ? ` <small>L${escapeHtml(String(severity.level))}</small>` : "";
@@ -582,7 +613,12 @@ async function api(url, options = {}) {
         throw new Error("로그인이 필요합니다.");
     }
     if (!response.ok) {
-        throw new Error(data.detail || data.error || `요청 실패: ${response.status}`);
+        // The Korean sentence first; the technical detail (an exception text)
+        // follows in parentheses rather than replacing it.
+        const reason = data.error
+            ? (data.detail ? `${data.error} (${data.detail})` : data.error)
+            : (data.detail || `요청 실패: ${response.status}`);
+        throw new Error(reason);
     }
     return data;
 }
@@ -691,6 +727,7 @@ function renderDashboardAlerts(alerts) {
                 </span>
 
                 <span class="wazuh-level">
+                    ${priorityBadge(alert)}
                     ${severityChip(alert)}
                 </span>
 
@@ -2049,17 +2086,27 @@ async function loadAlertsInner() {
         `최근 경보 ${formatNumber(data.total)}건 불러옴` +
         (level > 0 ? ` · Wazuh 레벨 ≥ ${level}` : "");
 
-    const header = (data.alerts || []).length ? `
+    // Highest priority first by default (ties: newest first); "최신순"
+    // keeps the server's time order.
+    const sortMode = byId("alert-sort")?.value || "priority";
+    const alerts = [...(data.alerts || [])];
+    if (sortMode === "priority") {
+        alerts.sort((left, right) =>
+            priorityScore(right) - priorityScore(left)
+            || (Date.parse(right.time) || 0) - (Date.parse(left.time) || 0));
+    }
+
+    const header = alerts.length ? `
         <div class="alert-row alert-row-head" role="row">
             <span>시각</span>
-            <span>심각도</span>
+            <span>우선순위 · 심각도</span>
             <span>경보</span>
             <span>호스트</span>
             <span>룰 · MITRE</span>
             <span></span>
         </div>` : "";
 
-    table.innerHTML = header + (data.alerts || []).map((a) => {
+    table.innerHTML = header + alerts.map((a) => {
         const timestamp = Date.parse(a.time);
         const time = Number.isFinite(timestamp)
             ? new Date(timestamp).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
@@ -2082,6 +2129,7 @@ async function loadAlertsInner() {
                 </span>
 
                 <span class="wazuh-level">
+                    ${priorityBadge(a)}
                     ${severityChip(a)}
                 </span>
 
@@ -2136,6 +2184,7 @@ function initAlerts() {
         event.preventDefault();
         loadAlerts();
     });
+    byId("alert-sort")?.addEventListener("change", () => loadAlerts());
 
     // Dashboard cards link here with a filter already chosen
     // (e.g. /alerts?min_level=8), so the queue opens pre-filtered.

@@ -10,7 +10,12 @@
         const response = await fetch(url, options);
         let body = {};
         try { body = await response.json(); } catch { body = {}; }
-        if (!response.ok) throw new Error(body.detail || body.error || `요청 실패: ${response.status}`);
+        if (!response.ok) {
+            const reason = body.error
+                ? (body.detail ? `${body.error} (${body.detail})` : body.error)
+                : (body.detail || `요청 실패: ${response.status}`);
+            throw new Error(reason);
+        }
         return body;
     }
 
@@ -120,7 +125,7 @@
             <div class="action-meta">${tags}</div>
             ${missing.length ? `<p class="muted">보고되지 않은 항목: ${escapeHtml(missing.join(", "))}</p>` : ""}
             ${ungrounded.length ? `<p class="muted">증거 묶음에 없는 참조 이벤트: ${escapeHtml(ungrounded.join(", "))}</p>` : ""}
-            ${notes.map((note) => `<p class="muted">${escapeHtml(note)}</p>`).join("")}
+            ${(review.notes_localized || notes).map((note) => `<p class="muted">${escapeHtml(note)}</p>`).join("")}
         </div>`;
     }
 
