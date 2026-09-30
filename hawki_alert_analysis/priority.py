@@ -8,8 +8,8 @@ The score is computed here, in code, and never by the model. Two reasons:
 2. It cannot be talked into a different answer. Text inside a log cannot raise
    or lower a number that the model never gets to write.
 
-Inputs are the Wazuh rule level of the trigger and the inventory record of the
-asset the trigger is about. Inventory values are business context, not a
+Inputs are the Wazuh rule level of the trigger, the inventory record of the
+asset the trigger is about, and the strongest threat-intelligence match. Inventory values are business context, not a
 verdict: a "critical" asset does not make the alert malicious, it makes a
 mistake on that asset more expensive.
 """
@@ -44,6 +44,21 @@ EXPOSURE_POINTS = {
 
 SENSITIVE_DATA_POINTS = 5
 SENSITIVE_DATA_CLASSES = {"restricted", "confidential", "secret"}
+
+# Threat intelligence. One factor, taken from the strongest live match, so a
+# feed that lists the same IP three times cannot stack points. A known-bad
+# address on the trigger is worth about five rule levels: a level-5 web alert
+# from a high-confidence C2 address lands in P1 on an internet-facing asset.
+CTI_MALICIOUS_HIGH_CONFIDENCE = 70
+CTI_POINTS = {
+    ("malicious", True): 20,   # confidence >= CTI_MALICIOUS_HIGH_CONFIDENCE
+    ("malicious", False): 12,
+    ("suspicious", True): 6,
+    ("suspicious", False): 6,
+}
+# Seen only in the surrounding context, not on the alert itself: the link to
+# this alert is weaker, so the points are halved.
+CTI_CONTEXT_ONLY_DIVISOR = 2
 
 # Upper bounds (inclusive lower edge) for each band.
 PRIORITY_BANDS = (
@@ -94,12 +109,44 @@ def _target_assets(asset_matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
+def _cti_factor(intel_matches: list[dict[str, Any]]) -> dict[str, Any] | None:
+    best: dict[str, Any] | None = None
+    for item in intel_matches:
+        match = item.get("match") if isinstance(item.get("match"), dict) else {}
+        if match.get("indicator_expired"):
+            # Reported to the model, but an expired listing does not raise
+            # the priority.
+            continue
+        verdict = str(item.get("verdict") or "").lower()
+        try:
+            confidence = int(item.get("confidence") or 0)
+        except (TypeError, ValueError):
+            confidence = 0
+        points = CTI_POINTS.get(
+            (verdict, confidence >= CTI_MALICIOUS_HIGH_CONFIDENCE), 0
+        )
+        on_trigger = bool(match.get("on_trigger_alert"))
+        if not on_trigger:
+            points //= CTI_CONTEXT_ONLY_DIVISOR
+        if points and (best is None or points > best["points"]):
+            best = {
+                "factor": "threat_intel_match",
+                "indicator_id": item.get("id"),
+                "value": f"{verdict} ({confidence}) {match.get('matched_value', '')}".strip(),
+                "on_trigger": on_trigger,
+                "points": points,
+            }
+    return best
+
+
 def compute_priority(
     trigger: dict[str, Any],
     asset_matches: list[dict[str, Any]],
     *,
     unresolved_identifiers: list[str] | None = None,
     inventory_configured: bool = True,
+    intel_matches: list[dict[str, Any]] | None = None,
+    intel_configured: bool = False,
 ) -> dict[str, Any]:
     """Return a 0-100 priority score with a factor-by-factor breakdown."""
 
@@ -149,6 +196,10 @@ def compute_priority(
             "points": UNRESOLVED_ASSET_POINTS,
         })
 
+    cti = _cti_factor(list(intel_matches or []))
+    if cti is not None:
+        factors.append(cti)
+
     score = min(100, sum(int(item["points"]) for item in factors))
 
     return {
@@ -157,10 +208,7 @@ def compute_priority(
         "band": _band(score),
         "primary_asset_id": primary.get("id") if primary else None,
         "inventory_configured": inventory_configured,
+        "threat_intel_configured": intel_configured,
         "factors": factors,
-        "method": (
-            "Deterministic: Wazuh rule level plus inventory criticality, "
-            "exposure and data classification of the asset the trigger is "
-            "about. Computed in code; the model does not set this value."
-        ),
+        "method": "deterministic: rule level + asset + threat intel; computed in code",
     }

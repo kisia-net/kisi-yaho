@@ -272,6 +272,18 @@ LIVE_ASSET_INVENTORY = (
 )
 THREAT_INTEL_FEED = FileThreatIntelFeed(THREAT_INTEL_ROOT)
 
+# Same rule for threat intelligence: Wazuh mode reads data/threat_intel-live,
+# filled by tools/import_cti.py from public feeds, and never the synthetic
+# fixture indicators (203.0.113.45 and friends are documentation addresses).
+LIVE_THREAT_INTEL_ROOT = Path(
+    os.getenv("LIVE_THREAT_INTEL_ROOT", DATA_DIR / "threat_intel-live")
+)
+LIVE_THREAT_INTEL_FEED = (
+    FileThreatIntelFeed(LIVE_THREAT_INTEL_ROOT)
+    if LIVE_THREAT_INTEL_ROOT.is_dir() and any(LIVE_THREAT_INTEL_ROOT.glob("*.json"))
+    else NullThreatIntelFeed()
+)
+
 # Phase 1 reads fixtures, Phase 2 reads the Wazuh Indexer. Only this selection
 # changes: correlation, enrichment, bundling, and the assessment schema sit
 # below the repository boundary and are identical either way.
@@ -303,7 +315,7 @@ def build_alert_repository():
         event_index=os.getenv("WAZUH_EVENT_INDEX", DEFAULT_EVENT_INDEX),
         archive_index=os.getenv("WAZUH_ARCHIVE_INDEX", "wazuh-archives-*"),
         asset_inventory=LIVE_ASSET_INVENTORY,
-        threat_intel_feed=NullThreatIntelFeed(),
+        threat_intel_feed=LIVE_THREAT_INTEL_FEED,
         alert_limit=int(os.getenv("WAZUH_ALERT_LIMIT", "100")),
         candidate_limit=int(os.getenv("WAZUH_CANDIDATE_LIMIT", "200")),
         window_seconds=int(os.getenv("WAZUH_WINDOW_SECONDS", "300")),
@@ -1682,8 +1694,16 @@ def api_threat_intel():
             "total": len(indicators),
             "indicators": indicators,
             "source": "file_feed",
-            "root": str(THREAT_INTEL_ROOT),
-            "configured": THREAT_INTEL_ROOT.exists(),
+            "root": str(
+                LIVE_THREAT_INTEL_ROOT
+                if ALERT_REPOSITORY_KIND == "wazuh"
+                else THREAT_INTEL_ROOT
+            ),
+            "configured": (
+                not isinstance(LIVE_THREAT_INTEL_FEED, NullThreatIntelFeed)
+                if ALERT_REPOSITORY_KIND == "wazuh"
+                else THREAT_INTEL_ROOT.exists()
+            ),
         }
     )
 
@@ -1756,7 +1776,9 @@ def api_analyze_alert(alert_id: str):
             "assets": len(
                 (bundle.get("assets") or {}).get("matches") or []
             ),
-            "threat_indicators": 0,
+            "threat_indicators": len(
+                (bundle.get("threat_intelligence") or {}).get("matches") or []
+            ),
         }
 
         evidence_counts = {
@@ -2688,7 +2710,8 @@ For `hawki.wazuh.live-evidence/v1` or `hawki.wazuh.live-evidence/v2`:
 - `retrieval` describes deterministic evidence selection only. Its relevance score is not attack severity, maliciousness, or analytical confidence.
 - Wazuh rule level and description are producer metadata. They do not by themselves prove compromise or determine your assessment severity.
 - `assets` holds inventory records for hosts and addresses seen in the evidence, with `match.observed_in_event_ids` naming where each appeared. Criticality, exposure, and data classification state what is at stake, not that the host was attacked. `unresolved_identifiers` were observed but have no record. When `inventory_configured` is false there is no inventory at all; say asset importance is unknown.
-- `priority` is HAW-KI's deterministic triage score from the rule level and the inventory. Report its band and factors as given; never recompute, raise, or lower it.
+- `threat_intelligence.matches` are indicators from a local feed that match an observable, with `match.observed_in_event_ids` naming where. A match is external context, not proof of compromise; an expired indicator is historical. `statistics` says how many observables were checked, and no match does not mean benign. When `feed_configured` is false no intelligence was consulted at all.
+- `priority` is HAW-KI's deterministic triage score from the rule level, the inventory, and threat intelligence. Report its band and factors as given; never recompute, raise, or lower it.
 - Missing asset, exposure, threat-intelligence, process, user, or other context is an evidence gap. Never manufacture it.
 - Cite only `TRIGGER` and the `CTX-NNN` identifiers actually supplied.
 
