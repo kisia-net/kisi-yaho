@@ -60,6 +60,59 @@ services:
       - hawki
 
   # ---------------------------------------------------------------------
+  # Automatic analysis worker (자동 보고서). Same image as hawki-web, one
+  # process, so a level-8 alert is never analysed twice by two gunicorn
+  # workers. Idles until AUTO_ANALYSIS_ENABLED=true in .env; see
+  # hawki_alert_analysis/auto_report.py for what it does and never does.
+  #
+  #   docker compose up -d --build hawki-web hawki-worker
+  #   docker compose logs -f hawki-worker
+  # ---------------------------------------------------------------------
+  hawki-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: hawki-worker
+    restart: unless-stopped
+    command: ["flask", "--app", "app", "auto-report"]
+
+    env_file:
+      - .env
+
+    environment:
+      LLM_API_URL: "${LLM_API_URL:-http://vllm:8000/v1/chat/completions}"
+      LLM_MODEL: "${VLLM_SERVED_MODEL:-hawki-local}"
+      LLM_API_KEY: "${VLLM_API_KEY}"
+
+    # Reports and the audit log are written to the same volume the web app
+    # reads, so both containers see one set of reports.
+    volumes:
+      - hawki-data:/app/data
+      - ./data/scenarios:/app/data/scenarios:ro
+      - ./data/assets:/app/data/assets:ro
+      - ./data/assets-live:/app/data/assets-live:ro
+      - ./data/threat_intel:/app/data/threat_intel:ro
+      - ./data/threat_intel-live:/app/data/threat_intel-live:ro
+
+    # No web port here. Healthy means the worker wrote a heartbeat within
+    # max(15 minutes, 3 polls); a model call alone can take several minutes.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,os,sys,datetime as d;s=json.load(open('/app/data/auto_reports/state.json'));t=d.datetime.fromisoformat(s.get('heartbeat_at') or s['last_cycle_at']);sys.exit(0 if (d.datetime.now(d.timezone.utc)-t).total_seconds()<max(900,3*int(os.getenv('AUTO_ANALYSIS_POLL_SECONDS','60'))) else 1)"]
+      interval: 60s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "wazuh.indexer:10.0.10.123"
+      - "wazuh.dashboard:10.0.10.123"
+
+    networks:
+      - hawki
+
+  # ---------------------------------------------------------------------
   # Network sensor. Reads a capture and writes its own eve.json — the same
   # format a live sensor produces, so nothing downstream knows the difference.
   #

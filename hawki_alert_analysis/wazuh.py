@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
+from datetime import datetime
 from typing import Any, Iterable
 from urllib.parse import quote
 
@@ -307,9 +308,54 @@ class WazuhEventRepository:
             return []
 
         self.last_error = ""
+        alerts = self._alert_items(_hits(payload))
+        alerts.sort(
+            key=lambda item: str(item.get("time") or ""),
+            reverse=True,
+        )
+        return alerts
+
+    def list_alerts_since(
+        self,
+        since: datetime,
+        *,
+        min_level: int,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Alerts at or above min_level from `since` on, oldest first.
+
+        Used by the automatic analysis worker, which must not miss a level-10
+        alert just because a hundred level-3 alerts arrived after it; the
+        queue view (list_alerts) only ever shows the most recent hundred.
+        Errors are raised, not swallowed: the worker records them.
+        """
+        body = {
+            "size": max(1, min(int(limit), 500)),
+            "sort": [{self.timestamp_field: {"order": "asc"}}],
+            "query": {
+                "bool": {
+                    "filter": [
+                        {
+                            "range": {
+                                self.timestamp_field: {
+                                    "gte": int(since.timestamp() * 1000),
+                                    "format": "epoch_millis",
+                                }
+                            }
+                        },
+                        {"range": {"rule.level": {"gte": int(min_level)}}},
+                    ]
+                }
+            },
+        }
+        payload = self.client.search(self.alert_index, body)
+        return self._alert_items(_hits(payload))
+
+    def _alert_items(self, hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Alert-queue rows from indexer hits, in the order given."""
         alerts: list[dict[str, Any]] = []
 
-        for hit in _hits(payload):
+        for hit in hits:
             source = hit.get("_source")
             if not isinstance(source, dict):
                 continue
@@ -429,10 +475,6 @@ class WazuhEventRepository:
                 }
             )
 
-        alerts.sort(
-            key=lambda item: str(item.get("time") or ""),
-            reverse=True,
-        )
         return alerts
 
     def dashboard_summary(

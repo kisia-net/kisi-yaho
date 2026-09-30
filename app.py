@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import click
 import requests
 from dotenv import load_dotenv
 from flask import (
@@ -72,6 +74,17 @@ from hawki_alert_analysis.redteam_bridge import (
     sha256_json,
     sha256_text,
 )
+from hawki_alert_analysis.auto_report import (
+    AutoReporter,
+    AutoReportSettings,
+    ModelUnavailable,
+    ReportStore,
+    apply_review,
+    parse_time,
+    render_markdown,
+    report_summary,
+)
+from hawki_alert_analysis.priority import SEVERITY_AS_LEVEL
 from hawki_alert_analysis.ui_messages import (
     REVIEW_NOTE_CODES,
     REVIEW_NOTES_KO,
@@ -260,6 +273,13 @@ CONFIG = {
     "verify_tls": env_bool("VERIFY_TLS", True),
 }
 
+# Automatic analysis of high-level alerts (hawki_alert_analysis/auto_report.py).
+# Off by default. The worker container runs it; the web app only reads the
+# reports and records reviews.
+AUTO_REPORT_SETTINGS = AutoReportSettings.from_env()
+AUTO_REPORT_STORE = ReportStore(Path(os.getenv("AUTO_REPORT_ROOT", str(DATA_DIR / "auto_reports"))))
+AUTO_REPORT_ACTOR = {"username": "hawki-auto", "role": "system"}
+
 FIXTURE_EMBEDDED_ROOT = BASE_DIR / "hawki_alert_analysis" / "fixtures"
 
 
@@ -396,6 +416,7 @@ SIEM = SiemService(
 PAGE_TITLES = {
     "dashboard": "보안 관제 대시보드",
     "agent": "AI 분석 작업공간",
+    "auto_reports": "자동 보고서",
     "alerts": "보안 경보",
     "hosts": "호스트",
     "logs": "로그 검색",
@@ -1000,14 +1021,22 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def append_audit(event_type: str, detail: dict[str, Any]) -> None:
+def append_audit(
+    event_type: str,
+    detail: dict[str, Any],
+    *,
+    actor: dict[str, Any] | None = None,
+) -> None:
     record = {
         "id": f"AUD-{secrets.token_hex(5).upper()}",
         "timestamp": utc_now_iso(),
         "event_type": event_type,
         "detail": detail,
     }
-    if has_request_context() and getattr(g, "user", None) is not None:
+    if actor is not None:
+        # Work done without a signed-in person (the automatic analysis worker).
+        record["actor"] = dict(actor)
+    elif has_request_context() and getattr(g, "user", None) is not None:
         record["actor"] = {
             "id": int(g.user["id"]),
             "username": str(g.user["username"]),
@@ -1872,6 +1901,22 @@ def gather_more_evidence(alert_id: str, bundle: dict[str, Any]) -> dict[str, Any
     return bundle
 
 
+def analysis_fingerprints(
+    context: dict[str, Any],
+    request_text: str,
+    bundle: dict[str, Any],
+) -> tuple[str, str]:
+    """SHA-256 of exactly what the model was given, and of the evidence."""
+    prompt_sha256 = sha256_text(
+        system_message(MODE_PROMPTS["alert_summary"])
+        + "\n"
+        + serialize_agent_context(context)
+        + "\n"
+        + request_text
+    )
+    return prompt_sha256, sha256_json(bundle)
+
+
 @app.post("/api/alerts/<alert_id>/analyze")
 @role_required("analyst")
 def api_analyze_alert(alert_id: str):
@@ -2023,14 +2068,7 @@ def api_analyze_alert(alert_id: str):
     # given, so a red team verdict, an audit record and this answer can be
     # tied together later.
     analysis_id = new_analysis_id()
-    prompt_sha256 = sha256_text(
-        system_message(MODE_PROMPTS["alert_summary"])
-        + "\n"
-        + serialize_agent_context(context)
-        + "\n"
-        + request_text
-    )
-    bundle_sha256 = sha256_json(bundle)
+    prompt_sha256, bundle_sha256 = analysis_fingerprints(context, request_text, bundle)
     decision = forwarding_decision(
         enabled=CONFIG["redteam_auto_eval_enabled"],
         runner_url=CONFIG["redteam_runner_url"],
@@ -6736,6 +6774,268 @@ def api_validate_rule():
 def api_audit():
     records = list(reversed(read_jsonl(AUDIT_LOG_PATH)))
     return jsonify({"events": records[:300], "total": len(records)})
+
+
+# -- Automatic analysis and reports (자동 보고서) ------------------------------
+#
+# The collaborators AutoReporter needs, backed by this application's own
+# repository, model call and audit log. The worker container calls
+# `flask --app app auto-report`; the routes below read and review reports.
+
+
+def auto_fetch_alerts(since: datetime, min_level: int, limit: int) -> list[dict[str, Any]]:
+    """New alerts at or above min_level since `since`, oldest first."""
+    list_since = getattr(ALERT_REPOSITORY, "list_alerts_since", None)
+    if callable(list_since):
+        return list_since(since, min_level=min_level, limit=limit)
+
+    # Fixture scenarios: the whole (small) list, filtered here. Severity words
+    # stand in for the Wazuh level, as they do in the queue priority.
+    items = []
+    for item in ALERT_ANALYSIS.list_alerts():
+        when = parse_time(item.get("time"))
+        if when is None or when < since:
+            continue
+        try:
+            level = int(item.get("rule_level"))
+        except (TypeError, ValueError):
+            level = SEVERITY_AS_LEVEL.get(str(item.get("severity") or "").lower(), 0)
+        if level >= min_level:
+            items.append(item)
+    items.sort(key=lambda item: str(item.get("time") or ""))
+    return items[:limit]
+
+
+def auto_build_bundle(item: dict[str, Any]) -> dict[str, Any]:
+    return ALERT_ANALYSIS.evidence_bundle(
+        str(item.get("id") or ""),
+        max_related=MAX_RELATED_EVENTS_PER_CASE,
+    )
+
+
+def auto_model_available() -> bool:
+    """A cheap check before spending a request: does /models answer?"""
+    try:
+        response = requests.get(
+            f"{CONFIG['llm_base_url']}/models",
+            headers=service_headers("llm"),
+            timeout=5,
+        )
+    except requests.RequestException:
+        return False
+    # 401/404 is a misconfigured key or URL: calling would only fail.
+    return response.status_code < 400
+
+
+def auto_analyze(bundle: dict[str, Any], alert: dict[str, Any]) -> dict[str, Any]:
+    """The same model call as the LLM 분석 button, without the demo fallback.
+
+    A demo summary written while the model is off would look like an analysis
+    in a report nobody watched being made, so an unreachable model leaves the
+    report waiting instead.
+    """
+    context = {"alert_id": str(alert.get("id") or ""), "alert_case": bundle}
+    request_text = ALERT_ANALYSIS.default_analysis_request()
+    try:
+        result = call_llm("alert_summary", request_text, [], context)
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
+        if status >= 500:
+            raise ModelUnavailable(str(exc)) from exc
+        # 4xx (e.g. the evidence is over the context length) is about this
+        # report, not the model: the normal failure path, with retries.
+        raise
+    except requests.RequestException as exc:
+        # Connection refused, timeout: the GPU is off or busy.
+        raise ModelUnavailable(str(exc)) from exc
+    prompt_sha256, bundle_sha256 = analysis_fingerprints(context, request_text, bundle)
+    result["analysis_id"] = new_analysis_id()
+    result["hashes"] = {"prompt_sha256": prompt_sha256, "bundle_sha256": bundle_sha256}
+    result["request_text"] = request_text
+    return result
+
+
+def auto_forward_to_redteam(bundle: dict[str, Any], alert: dict[str, Any], result: dict[str, Any]) -> str:
+    """Only reached when AUTO_ANALYSIS_FORWARD_REDTEAM=true."""
+    decision = forwarding_decision(
+        enabled=CONFIG["redteam_auto_eval_enabled"],
+        runner_url=CONFIG["redteam_runner_url"],
+        token=CONFIG["redteam_runner_token"],
+        tools=CONFIG["redteam_auto_tools"],
+        bundle_schema=str(bundle.get("schema") or ""),
+        demo=bool(result.get("demo")),
+        from_runner=False,
+    )
+    if decision == "send":
+        dispatch_in_background(
+            runner_url=CONFIG["redteam_runner_url"],
+            token=CONFIG["redteam_runner_token"],
+            timeout=CONFIG["redteam_runner_timeout"],
+            payload=build_job_payload(
+                analysis_id=str(result.get("analysis_id") or new_analysis_id()),
+                alert_id=str(alert.get("id") or ""),
+                request_text=str(result.get("request_text") or ""),
+                prompt_sha256=str((result.get("hashes") or {}).get("prompt_sha256") or ""),
+                bundle_sha256=str((result.get("hashes") or {}).get("bundle_sha256") or ""),
+                bundle=bundle,
+                result=result,
+                tools=CONFIG["redteam_auto_tools"],
+            ),
+            on_done=lambda outcome: append_audit("redteam_eval_dispatched", outcome, actor=AUTO_REPORT_ACTOR),
+        )
+    return decision
+
+
+def build_auto_reporter() -> AutoReporter:
+    return AutoReporter(
+        settings=AUTO_REPORT_SETTINGS,
+        store=AUTO_REPORT_STORE,
+        fetch_alerts=auto_fetch_alerts,
+        build_bundle=auto_build_bundle,
+        model_available=auto_model_available,
+        analyze=auto_analyze,
+        audit=lambda event, detail: append_audit(event, detail, actor=AUTO_REPORT_ACTOR),
+        forward=auto_forward_to_redteam,
+    )
+
+
+@app.cli.command("auto-report")
+@click.option("--once", is_flag=True, help="Run one cycle and exit.")
+@click.option(
+    "--lookback-hours",
+    type=float,
+    default=None,
+    help="Read alerts from this many hours back on the first cycle (e.g. to process fixture scenarios).",
+)
+def auto_report_command(once: bool, lookback_hours: float | None) -> None:
+    """Automatic analysis worker: poll, report, and fill AI sections."""
+    reporter = build_auto_reporter()
+    lookback = int(max(0.0, min(lookback_hours, 24 * 365.0)) * 3600) if lookback_hours else None
+    click.echo(json.dumps({"auto_report": "worker started", **AUTO_REPORT_SETTINGS.public()}, ensure_ascii=False))
+    while True:
+        try:
+            summary = reporter.run_cycle(lookback_seconds=lookback)
+        except Exception as exc:  # noqa: BLE001 - keep polling; the next cycle may succeed
+            summary = {"error": str(exc)[:300]}
+            append_audit("auto_report_cycle_failed", summary, actor=AUTO_REPORT_ACTOR)
+        click.echo(json.dumps(summary, ensure_ascii=False))
+        lookback = None
+        if once:
+            return
+        time.sleep(AUTO_REPORT_SETTINGS.poll_seconds)
+
+
+def auto_report_worker_status() -> dict[str, Any]:
+    state = AUTO_REPORT_STORE.load_state()
+    beat = parse_time(state.get("heartbeat_at") or state.get("last_cycle_at"))
+    age = (datetime.now(timezone.utc) - beat).total_seconds() if beat else None
+    return {
+        "last_cycle_at": state.get("last_cycle_at"),
+        "heartbeat_at": state.get("heartbeat_at"),
+        "last_summary": state.get("last_summary") or {},
+        "cursor": state.get("cursor"),
+        # Three missed polls (or a long model call, up to 10 minutes): the
+        # worker container is probably not running.
+        "running": age is not None and age <= max(AUTO_REPORT_SETTINGS.poll_seconds * 3, 600),
+    }
+
+
+@app.get("/auto-reports")
+@role_required("analyst")
+def auto_reports_page():
+    return render_template("auto_reports.html", **template_context("auto_reports"))
+
+
+@app.get("/api/auto-reports")
+@role_required("analyst")
+def api_auto_reports():
+    review = request.args.get("review", "all").strip()
+    band = request.args.get("band", "all").strip().upper()
+    ai_status = request.args.get("ai", "all").strip()
+    query = request.args.get("q", "").strip().lower()[:120]
+
+    reports = AUTO_REPORT_STORE.all()
+    summaries = [report_summary(report) for report in reports]
+    counts = {
+        "total": len(summaries),
+        "unreviewed": sum(1 for item in summaries if item["review_status"] == "unreviewed"),
+        "ai_pending": sum(1 for item in summaries if item["ai_status"] == "pending"),
+        "p1": sum(1 for item in summaries if item["priority"].get("band") == "P1"),
+        "false_positive": sum(1 for item in summaries if item["review_status"] == "false_positive"),
+    }
+    if review != "all":
+        summaries = [item for item in summaries if item["review_status"] == review]
+    if band != "ALL":
+        summaries = [item for item in summaries if item["priority"].get("band") == band]
+    if ai_status != "all":
+        summaries = [item for item in summaries if item["ai_status"] == ai_status]
+    if query:
+        summaries = [
+            item for item in summaries
+            if query in json.dumps(item, ensure_ascii=False).lower()
+        ]
+    return jsonify(
+        {
+            "settings": AUTO_REPORT_SETTINGS.public(),
+            "worker": auto_report_worker_status(),
+            "counts": counts,
+            "reports": summaries[:300],
+        }
+    )
+
+
+@app.get("/api/auto-reports/<report_id>")
+@role_required("analyst")
+def api_auto_report(report_id: str):
+    report = AUTO_REPORT_STORE.get(report_id)
+    if report is None:
+        return jsonify({"error": "Report not found."}), 404
+    return jsonify({"report": report})
+
+
+@app.post("/api/auto-reports/<report_id>/review")
+@role_required("analyst")
+def api_auto_report_review(report_id: str):
+    payload = request.get_json(silent=True) or {}
+    status = str(payload.get("status", "")).strip()
+    note = str(payload.get("note", "")).strip()
+    reviewer = str(g.user["username"])
+    try:
+        report = AUTO_REPORT_STORE.update(
+            report_id,
+            lambda item: apply_review(
+                item, status=status, note=note, reviewer=reviewer, now=datetime.now(timezone.utc)
+            ),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if report is None:
+        return jsonify({"error": "Report not found."}), 404
+    append_audit("auto_report_reviewed", {"report_id": report_id, "status": status})
+    return jsonify({"report": report})
+
+
+@app.get("/api/auto-reports/<report_id>/markdown")
+@role_required("analyst")
+def api_auto_report_markdown(report_id: str):
+    report = AUTO_REPORT_STORE.get(report_id)
+    if report is None:
+        return jsonify({"error": "Report not found."}), 404
+    response = app.response_class(render_markdown(report), mimetype="text/markdown")
+    response.headers["Content-Disposition"] = f'attachment; filename="{report["id"]}.md"'
+    return response
+
+
+@app.post("/api/auto-reports/run")
+@role_required("admin")
+def api_auto_report_run():
+    """Run one cycle now (for a demonstration), in the background."""
+    if not AUTO_REPORT_SETTINGS.enabled:
+        return jsonify({"error": "Automatic analysis is disabled.", "code": "auto_analysis_disabled"}), 409
+    reporter = build_auto_reporter()
+    threading.Thread(target=reporter.run_cycle, name="hawki-auto-report-once", daemon=True).start()
+    append_audit("auto_report_run_requested", {})
+    return jsonify({"started": True}), 202
 
 
 @app.errorhandler(404)

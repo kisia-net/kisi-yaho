@@ -88,6 +88,8 @@ db.sqlite3-journal
 *.sqlite3-journal
 data/action_queue.jsonl
 data/audit_log.jsonl
+# Automatic analysis reports and worker state (hawki_alert_analysis/auto_report.py).
+data/auto_reports/
 
 # Flask stuff:
 instance/
