@@ -2318,6 +2318,18 @@ function normalizeLog(source = {}) {
     };
 }
 
+// Wazuh stores UTC ("2026-10-01T05:10:00.000+0000"); show the analyst's local
+// time and keep the stored value in the tooltip.
+function formatLogResultTime(value) {
+    const text = String(value || "");
+    const date = new Date(text.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
+    if (!text || Number.isNaN(date.getTime())) return text || "—";
+    return date.toLocaleString("ko-KR", {
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    });
+}
+
 function renderLogResult(result) {
     const x = normalizeLog(result.source || {});
 
@@ -2337,7 +2349,7 @@ function renderLogResult(result) {
 
     return `
         <div class="log-row">
-            <span>${escapeHtml(x.time)}</span>
+            <span title="${escapeHtml(x.time)}">${escapeHtml(formatLogResultTime(x.time))}</span>
 
             <strong>${escapeHtml(x.host)}</strong>
 
@@ -2376,6 +2388,11 @@ async function runLogSearch() {
         !count ||
         !results
     ) {
+        return;
+    }
+
+    if (!refreshLogRange()) {
+        count.textContent = "기간을 확인하세요";
         return;
     }
 
@@ -2504,6 +2521,249 @@ function initLogQueryBuilder() {
     });
 }
 
+// 로그 검색 · 기간: preset buttons send OpenSearch date math ("now-24h"), which
+// the indexer evaluates at search time; 직접 지정 converts the browser's local
+// time to an ISO instant with "Z". A zone-less time would be read as UTC by the
+// indexer and be off by 9 hours in Korea, so it is never sent.
+const LOG_RANGE_PRESETS = {
+    "now-15m": ["최근 15분", 15 * 60 * 1000],
+    "now-1h": ["최근 1시간", 60 * 60 * 1000],
+    "now-24h": ["최근 24시간", 24 * 60 * 60 * 1000],
+    "now-7d": ["최근 7일", 7 * 24 * 60 * 60 * 1000],
+    "now-30d": ["최근 30일", 30 * 24 * 60 * 60 * 1000],
+};
+const LOG_RELATIVE_UNITS = { s: [1000, "초"], m: [60 * 1000, "분"], h: [60 * 60 * 1000, "시간"], d: [24 * 60 * 60 * 1000, "일"], w: [7 * 24 * 60 * 60 * 1000, "주"] };
+const LOG_ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})$/;
+let refreshLogRange = () => true;
+
+function parseLogTime(value) {
+    const text = String(value || "").trim();
+    if (text === "now") return new Date();
+    const relative = /^now-(\d{1,4})([smhdw])$/.exec(text);
+    if (relative) return new Date(Date.now() - Number(relative[1]) * LOG_RELATIVE_UNITS[relative[2]][0]);
+    if (LOG_ISO_INSTANT.test(text)) {
+        const date = new Date(text);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+    return null;
+}
+
+function describeLogTime(value) {
+    const text = String(value || "").trim();
+    if (text === "now") return "지금";
+    const relative = /^now-(\d{1,4})([smhdw])$/.exec(text);
+    if (relative) return `${relative[1]}${LOG_RELATIVE_UNITS[relative[2]][1]} 전`;
+    const date = parseLogTime(text);
+    return date ? formatLogRangeTime(date) : text;
+}
+
+function toLocalInputValue(date) {
+    const pad = (number) => String(number).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatLogRangeTime(date) {
+    return date.toLocaleString("ko-KR", {
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+    });
+}
+
+function browserZoneLabel() {
+    try {
+        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return zone === "Asia/Seoul" ? "한국 시간" : (zone || "브라우저 시간");
+    } catch {
+        return "브라우저 시간";
+    }
+}
+
+function initLogRange() {
+    const start = byId("log-start");
+    const end = byId("log-end");
+    const chips = [...document.querySelectorAll(".log-range [data-range]")];
+    const custom = document.querySelector("[data-range-custom]");
+    const startLocal = byId("log-start-local");
+    const endLocal = byId("log-end-local");
+    const summary = byId("log-range-summary");
+    if (!start || !end || !chips.length || !custom || !startLocal || !endLocal || !summary) return;
+
+    const zone = browserZoneLabel();
+    let mode = "";
+
+    const press = (value) => chips.forEach((chip) => chip.setAttribute("aria-pressed", String(chip.dataset.range === value)));
+    const show = (text, invalid = false) => {
+        summary.textContent = text;
+        summary.classList.toggle("is-invalid", invalid);
+        return !invalid;
+    };
+    const describePreset = (value) => {
+        const [label, span] = LOG_RANGE_PRESETS[value];
+        return show(`${label} · ${formatLogRangeTime(new Date(Date.now() - span))} ~ 지금 (${zone})`);
+    };
+    const usePreset = (value) => {
+        mode = value;
+        press(value);
+        custom.hidden = true;
+        start.value = value;
+        end.value = "now";
+        return describePreset(value);
+    };
+    const applyCustom = () => {
+        if (!startLocal.value || !endLocal.value) return show("시작과 끝을 모두 고르세요.", true);
+        const from = new Date(startLocal.value);
+        const to = new Date(endLocal.value);
+        if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return show("날짜 형식이 올바르지 않습니다.", true);
+        if (from >= to) return show("시작이 끝보다 앞서야 합니다.", true);
+        start.value = from.toISOString();
+        end.value = to.toISOString();
+        return show(`${formatLogRangeTime(from)} ~ ${formatLogRangeTime(to)} (${zone})`);
+    };
+    const useCustom = (from, to) => {
+        mode = "custom";
+        press("custom");
+        custom.hidden = false;
+        startLocal.value = toLocalInputValue(from);
+        endLocal.value = toLocalInputValue(to);
+        return applyCustom();
+    };
+
+    chips.forEach((chip) => chip.addEventListener("click", () => {
+        if (chip.dataset.range !== "custom") {
+            usePreset(chip.dataset.range);
+            return;
+        }
+        // Open on the period already selected, so switching is not a reset.
+        const to = parseLogTime(end.value) || new Date();
+        const from = parseLogTime(start.value) || new Date(to.getTime() - LOG_RANGE_PRESETS["now-24h"][1]);
+        useCustom(from, to < from ? new Date() : to);
+        startLocal.focus();
+    }));
+    [startLocal, endLocal].forEach((input) => {
+        input.addEventListener("input", applyCustom);
+        input.addEventListener("change", applyCustom);
+    });
+
+    // Re-checked right before each search: preset times move with the clock.
+    refreshLogRange = () => {
+        if (mode === "custom") return applyCustom();
+        if (LOG_RANGE_PRESETS[mode]) return describePreset(mode);
+        return true;
+    };
+
+    // First state comes from the hidden values (set from investigation links).
+    if (LOG_RANGE_PRESETS[start.value] && end.value === "now") {
+        usePreset(start.value);
+    } else if (LOG_ISO_INSTANT.test(start.value) && LOG_ISO_INSTANT.test(end.value)) {
+        useCustom(parseLogTime(start.value), parseLogTime(end.value));
+    } else {
+        press("");
+        custom.hidden = true;
+        show(`링크로 받은 기간 · ${describeLogTime(start.value)} ~ ${describeLogTime(end.value)}`);
+    }
+}
+
+// 로그 검색 · 검색 대상: the two Wazuh indices by name; any other pattern
+// stays possible under 고급 설정 (investigation links may carry one).
+function initLogTarget() {
+    const target = byId("log-target");
+    const index = byId("log-index");
+    const advanced = byId("log-advanced");
+    const note = document.querySelector("[data-target-note]");
+    const customOption = target?.querySelector("[data-target-custom]");
+    if (!target || !index || !customOption) return;
+
+    const sync = () => {
+        const value = index.value.trim();
+        const match = [...target.options].find((option) => option !== customOption && option.value === value);
+        customOption.hidden = Boolean(match);
+        target.value = match ? match.value : "__custom";
+        if (note) note.textContent = match ? (match.dataset.note || "") : `고급 설정의 인덱스: ${value || "(비어 있음)"}`;
+        if (!match && advanced) advanced.open = true;
+    };
+
+    target.addEventListener("change", () => {
+        if (target.value === "__custom") {
+            if (advanced) advanced.open = true;
+            index.focus();
+        } else {
+            index.value = target.value;
+        }
+        sync();
+    });
+    index.addEventListener("input", sync);
+    sync();
+}
+
+// 로그 검색 · 호스트 드롭다운: registered Wazuh agents with their status
+// (/api/log-search/hosts falls back to names seen in the last 7 days).
+const LOG_HOST_STATUS = {
+    active: "연결됨",
+    disconnected: "끊김",
+    pending: "대기",
+    never_connected: "연결된 적 없음",
+};
+
+async function initLogHosts() {
+    const builder = byId("log-builder");
+    const select = builder?.querySelector("[data-host-select]");
+    const input = builder?.querySelector("[data-host-custom]");
+    const note = builder?.querySelector("[data-host-note]");
+    if (!select || !input) return;
+    const customOption = select.querySelector('option[value="__custom"]');
+
+    const choose = ({ focus = true } = {}) => {
+        if (select.value === "__custom") {
+            input.hidden = false;
+            if (focus) input.focus();
+            return;
+        }
+        input.hidden = true;
+        input.value = select.value;
+        input.dispatchEvent(new Event("change"));
+    };
+    select.addEventListener("change", () => choose());
+    let listed = 0;
+    builder.querySelector("[data-builder-clear]")?.addEventListener("click", () => {
+        if (!listed) return; // no list: the typed field is the only way in
+        select.value = "";
+        input.hidden = true;
+    });
+
+    let data = null;
+    try {
+        data = await api("/api/log-search/hosts");
+    } catch {
+        data = null;
+    }
+    select.querySelector("[data-host-loading]")?.remove();
+
+    const hosts = Array.isArray(data?.hosts) ? data.hosts : [];
+    listed = hosts.length;
+    hosts.forEach((host) => {
+        const option = document.createElement("option");
+        option.value = host.name;
+        option.textContent = [
+            host.name,
+            host.id ? `(${host.id})` : "",
+            host.manager ? "· 관리자" : "",
+            LOG_HOST_STATUS[host.status] ? `· ${LOG_HOST_STATUS[host.status]}` : "",
+            Number.isFinite(host.events_7d) ? `· 7일 ${formatNumber(host.events_7d)}건` : "",
+        ].filter(Boolean).join(" ");
+        select.insertBefore(option, customOption);
+    });
+
+    if (!hosts.length) {
+        if (note) note.textContent = "호스트 목록을 가져오지 못했습니다. 이름을 직접 입력하세요.";
+        select.value = "__custom";
+        choose({ focus: false });
+    } else if (note) {
+        note.textContent = data.source === "indexer"
+            ? "Wazuh 관리자 API에 연결되지 않아 최근 7일 경보에 나온 호스트를 보여 줍니다."
+            : "";
+    }
+}
+
 function initLogs() {
     const form = byId("log-search-form");
     if (!form) return;
@@ -2535,6 +2795,10 @@ function initLogs() {
             element.value = value;
         }
     });
+
+    initLogTarget();
+    initLogRange();
+    initLogHosts();
 
     const pivotLabels = {
         same_source_ip: "동일 출발지 IP",
