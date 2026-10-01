@@ -64,6 +64,11 @@ from hawki_alert_analysis.siem import SiemService
 from hawki_alert_analysis.evidence_agent import run_evidence_agent
 from hawki_alert_analysis.redteam_bridge import (
     ANALYSIS_ID_PATTERN,
+    DEFAULT_JOBS_PATH,
+    HEALTH_PATH,
+    JOB_ID_PATTERN,
+    RedteamJobIndex,
+    jobs_path_or_default,
     RECURSION_HEADER,
     build_job_payload,
     dispatch_in_background,
@@ -274,6 +279,7 @@ CONFIG = {
     "redteam_runner_token": os.getenv("REDTEAM_RUNNER_TOKEN", "").strip(),
     "redteam_auto_tools": parse_tools(os.getenv("REDTEAM_AUTO_TOOLS", "promptfoo")),
     "redteam_runner_timeout": max(1.0, min(float(os.getenv("REDTEAM_RUNNER_TIMEOUT", "3") or 3), 30.0)),
+    "redteam_jobs_path": jobs_path_or_default(os.getenv("REDTEAM_JOBS_PATH", DEFAULT_JOBS_PATH)),
     "agent_max_tool_calls": max(0, min(int(os.getenv("AGENT_MAX_TOOL_CALLS", "3") or 3), 5)),
     "agent_context_max_chars": max(int(os.getenv("AGENT_CONTEXT_MAX_CHARS", "24000")), 6000),
     "verify_tls": env_bool("VERIFY_TLS", True),
@@ -285,6 +291,7 @@ CONFIG = {
 AUTO_REPORT_SETTINGS = AutoReportSettings.from_env()
 AUTO_REPORT_STORE = ReportStore(Path(os.getenv("AUTO_REPORT_ROOT", str(DATA_DIR / "auto_reports"))))
 AUTO_REPORT_ACTOR = {"username": "hawki-auto", "role": "system"}
+REDTEAM_JOB_INDEX = RedteamJobIndex(Path(os.getenv("REDTEAM_JOB_INDEX_PATH", str(DATA_DIR / "redteam_jobs.jsonl"))))
 FEEDBACK_STORE = FeedbackStore(Path(os.getenv("ANALYST_FEEDBACK_PATH", str(DATA_DIR / "analyst_feedback.jsonl"))))
 
 FIXTURE_EMBEDDED_ROOT = BASE_DIR / "hawki_alert_analysis" / "fixtures"
@@ -1343,8 +1350,8 @@ def api_status():
         ("wazuh_dashboard", CONFIG["wazuh_dashboard_internal_url"], "/api/status"),
         ("velociraptor", CONFIG["velociraptor_url"], ""),
         ("suricata", CONFIG["suricata_ui_url"], ""),
-        # Reachability only (any HTTP answer counts); no token is sent.
-        ("redteam_runner", CONFIG["redteam_runner_url"], ""),
+        # The runner's unauthenticated health check; no token is sent.
+        ("redteam_runner", CONFIG["redteam_runner_url"], HEALTH_PATH),
     ]
     services: dict[str, Any] = {}
     with ThreadPoolExecutor(max_workers=len(jobs)) as executor:
@@ -2222,7 +2229,8 @@ def api_analyze_alert(alert_id: str):
                 result=result,
                 tools=CONFIG["redteam_auto_tools"],
             ),
-            on_done=lambda outcome: append_audit("redteam_eval_dispatched", outcome),
+            jobs_path=CONFIG["redteam_jobs_path"],
+            on_done=lambda outcome: redteam_dispatch_done(outcome, alert_id=alert_id),
         )
     result["analysis_id"] = analysis_id
     result["hashes"] = {"prompt_sha256": prompt_sha256, "bundle_sha256": bundle_sha256}
@@ -2250,22 +2258,44 @@ def api_analyze_alert(alert_id: str):
     return jsonify(result)
 
 
-@app.get("/api/redteam/jobs/<analysis_id>")
+def redteam_dispatch_done(outcome: dict[str, Any], *, alert_id: str = "", actor: dict[str, Any] | None = None) -> None:
+    """Audit the runner's answer and remember which job evaluates which analysis."""
+    append_audit("redteam_eval_dispatched", outcome, actor=actor)
+    if outcome.get("dispatched") and outcome.get("job_id") and outcome.get("analysis_id"):
+        REDTEAM_JOB_INDEX.record(
+            analysis_id=str(outcome["analysis_id"]),
+            job_id=str(outcome["job_id"]),
+            alert_id=alert_id,
+        )
+
+
+@app.get("/api/redteam/jobs/<identifier>")
 @role_required("analyst")
-def api_redteam_job(analysis_id: str):
-    """Status of the red team evaluation of one analysis, read from the runner."""
-    if not ANALYSIS_ID_PATTERN.fullmatch(analysis_id):
+def api_redteam_job(identifier: str):
+    """Status of a red team evaluation, read from the runner.
+
+    Takes the HAW-KI analysis_id (looked up in the job index) or the runner's
+    own job id.
+    """
+    if ANALYSIS_ID_PATTERN.fullmatch(identifier):
+        analysis_id, job_id = identifier, REDTEAM_JOB_INDEX.job_for(identifier)
+    elif JOB_ID_PATTERN.fullmatch(identifier):
+        analysis_id, job_id = None, identifier
+    else:
         return jsonify({"error": "Analysis ID is invalid.", "code": "invalid_analysis_id"}), 400
     if not (CONFIG["redteam_runner_url"] and CONFIG["redteam_runner_token"]):
         return jsonify(
             {"error": "The red team runner is not configured.", "code": "redteam_not_configured"}
         ), 503
+    if not job_id:
+        return jsonify({"error": "Red team job not found.", "code": "redteam_job_not_found"}), 404
     try:
         status, body = fetch_job_status(
             runner_url=CONFIG["redteam_runner_url"],
             token=CONFIG["redteam_runner_token"],
             timeout=CONFIG["redteam_runner_timeout"],
-            analysis_id=analysis_id,
+            job_id=job_id,
+            jobs_path=CONFIG["redteam_jobs_path"],
         )
     except requests.RequestException as exc:
         return jsonify(
@@ -2281,7 +2311,7 @@ def api_redteam_job(analysis_id: str):
         return jsonify(
             {"error": "The red team runner returned an error.", "code": "redteam_runner_error", "runner_status": status}
         ), 502
-    return jsonify({"analysis_id": analysis_id, "runner": body})
+    return jsonify({"analysis_id": analysis_id, "job_id": job_id, "runner": body})
 
 
 @app.get("/api/hunts")
@@ -2366,7 +2396,9 @@ def api_log_search():
         ],
         "query": {
             "bool": {
-                "must": [{
+                # A bare "*" with leading wildcards disallowed matched nothing
+                # on the Wazuh indices, so "everything" returned 0 events.
+                "must": [{"match_all": {}} if query == "*" else {
                     "query_string": {
                         "query": query,
                         "allow_leading_wildcard": False,
@@ -7013,7 +7045,8 @@ def auto_forward_to_redteam(bundle: dict[str, Any], alert: dict[str, Any], resul
                 result=result,
                 tools=CONFIG["redteam_auto_tools"],
             ),
-            on_done=lambda outcome: append_audit("redteam_eval_dispatched", outcome, actor=AUTO_REPORT_ACTOR),
+            jobs_path=CONFIG["redteam_jobs_path"],
+            on_done=lambda outcome: redteam_dispatch_done(outcome, alert_id=str(alert.get("id") or ""), actor=AUTO_REPORT_ACTOR),
         )
     return decision
 

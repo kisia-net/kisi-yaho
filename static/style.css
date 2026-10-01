@@ -5076,3 +5076,16 @@ html[data-theme="light"] .output-panel .output-item { padding: 10px 12px; }
    card tiling (.structured-output grid below 1450px) and of its height cap. */
 .structured-output[data-analysis-xai],
 .structured-output[data-analyst-feedback] { display: block; max-height: none; overflow: visible; }
+
+/* 로그 검색 · 검색 도우미 */
+.log-builder { padding: 15px 15px 4px; border-bottom: 1px solid var(--line); }
+.log-builder-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.log-builder-head strong { font-size: 14px; }
+.log-builder-head .muted { font-size: 12px; }
+.log-builder-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, .8fr) 110px minmax(0, 1.2fr) auto; gap: 10px; align-items: end; }
+.log-builder-fields .button { align-self: end; }
+.log-builder-error { margin: 8px 0 0; color: var(--danger); font-size: 12.5px; }
+@media (max-width: 1100px) {
+    .log-builder-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.log-builder-fields input, .log-builder-fields select { height: 38px; box-sizing: border-box; }

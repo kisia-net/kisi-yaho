@@ -92,6 +92,8 @@ data/audit_log.jsonl
 data/auto_reports/
 data/analyst_feedback.jsonl
 data/analyst_feedback.lock
+data/redteam_jobs.jsonl
+data/redteam_jobs.lock
 
 # Flask stuff:
 instance/

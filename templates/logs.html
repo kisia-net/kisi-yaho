@@ -7,6 +7,32 @@
 
 {% block content %}
 <section class="panel">
+    <div class="log-builder" id="log-builder" aria-label="검색 도우미">
+        <div class="log-builder-head">
+            <strong>검색 도우미</strong>
+            <span class="muted">칸을 채우면 아래 쿼리가 자동으로 만들어집니다. 비워 둔 칸은 조건에서 빠집니다.</span>
+        </div>
+        <div class="log-builder-fields">
+            <label>출발지 IP<input data-builder="src_ip" placeholder="예: 207.175.220.59" autocomplete="off"></label>
+            <label>목적지 IP<input data-builder="dst_ip" placeholder="예: 10.0.10.20" autocomplete="off"></label>
+            <label>호스트(에이전트)<input data-builder="host" placeholder="예: web-01" autocomplete="off"></label>
+            <label>룰 ID<input data-builder="rule_id" placeholder="예: 31101, 31333" autocomplete="off"></label>
+            <label>최소 레벨
+                <select data-builder="min_level">
+                    <option value="">전체</option>
+                    <option value="3">3 이상</option>
+                    <option value="5">5 이상</option>
+                    <option value="8">8 이상</option>
+                    <option value="10">10 이상</option>
+                    <option value="12">12 이상</option>
+                </select>
+            </label>
+            <label>로그 내용 포함<input data-builder="keyword" placeholder="예: /.git/HEAD" autocomplete="off"></label>
+            <button class="button secondary" type="button" data-builder-clear>비우기</button>
+        </div>
+        <p class="log-builder-error" data-builder-error hidden></p>
+    </div>
+
     <form id="log-search-form" class="log-form">
         <label>
             인덱스 패턴

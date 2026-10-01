@@ -63,18 +63,31 @@ class DispatchTests(unittest.TestCase):
 
     def test_posts_with_token_and_reports_outcome(self):
         outcomes = []
-        response = mock.Mock(status_code=202, json=lambda: {"job_id": "job-7"})
+        response = mock.Mock(status_code=202, json=lambda: {"job": {"id": "6716f0c2a9e4b1d3c5f7a8b9"}, "status": "queued"})
         with mock.patch.object(bridge.requests, "post", return_value=response) as post:
             bridge.dispatch_in_background(
                 runner_url="http://10.0.10.59:8091/", token="secret", timeout=3, payload=self.payload(),
                 on_done=outcomes.append, start_thread=lambda thread: thread.run(),
             )
         url = post.call_args.args[0]
-        self.assertEqual(url, "http://10.0.10.59:8091/api/jobs")
+        self.assertEqual(url, "http://10.0.10.59:8091/v1/jobs")
         self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer secret")
         self.assertEqual(post.call_args.kwargs["timeout"], 3)
         self.assertNotIn("internal", post.call_args.kwargs["json"]["result"])
-        self.assertEqual(outcomes, [{"analysis_id": "a" * 32, "status_code": 202, "dispatched": True, "job_id": "job-7"}])
+        self.assertEqual(outcomes, [{"analysis_id": "a" * 32, "status_code": 202, "dispatched": True,
+                                     "job_id": "6716f0c2a9e4b1d3c5f7a8b9"}])
+
+    def test_job_ids_are_read_from_the_usual_shapes(self):
+        job = "6716f0c2a9e4b1d3c5f7a8b9"
+        for body in ({"job_id": job}, {"id": job}, {"job": {"job_id": job}}, {"job": job}):
+            self.assertEqual(bridge.extract_job_id(body), job)
+        self.assertIsNone(bridge.extract_job_id({"job_id": "../../etc"}))
+        self.assertIsNone(bridge.extract_job_id(["not", "a", "dict"]))
+
+    def test_the_jobs_path_is_configurable_but_sane(self):
+        self.assertEqual(bridge.jobs_path_or_default("/v2/evaluations/"), "/v2/evaluations")
+        self.assertEqual(bridge.jobs_path_or_default("http://evil/x"), "/v1/jobs")
+        self.assertEqual(bridge.jobs_path_or_default(""), "/v1/jobs")
 
     def test_runner_failure_is_recorded_not_raised(self):
         outcomes = []
@@ -126,16 +139,28 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(body["redteam"]["status"], "skipped_not_live")
 
     def test_status_api_validates_and_reports_unconfigured(self):
-        self.assertEqual(self.client.get("/api/redteam/jobs/not-an-id").status_code, 400)
+        self.assertEqual(self.client.get("/api/redteam/jobs/x").status_code, 400)
+        self.assertEqual(self.client.get("/api/redteam/jobs/a.b").status_code, 400)
         with mock.patch.dict(app.CONFIG, {"redteam_runner_url": "", "redteam_runner_token": ""}):
             self.assertEqual(self.client.get(f"/api/redteam/jobs/{'a' * 32}").status_code, 503)
 
-    def test_status_api_proxies_the_runner(self):
+    def test_status_api_finds_the_runner_job_for_an_analysis(self):
+        job = "6716f0c2a9e4b1d3c5f7a8b9"
+        index = bridge.RedteamJobIndex(Path(tempfile.mkdtemp()) / "jobs.jsonl")
         config = {"redteam_runner_url": "http://10.0.10.59:8091", "redteam_runner_token": "secret"}
-        with mock.patch.dict(app.CONFIG, config), \
-             mock.patch.object(app, "fetch_job_status", return_value=(200, {"status": "running"})):
+        with mock.patch.dict(app.CONFIG, config), mock.patch.object(app, "REDTEAM_JOB_INDEX", index), \
+             mock.patch.object(app, "fetch_job_status", return_value=(200, {"status": "running"})) as fetch:
+            missing = self.client.get(f"/api/redteam/jobs/{'a' * 32}")
+            app.redteam_dispatch_done({"analysis_id": "a" * 32, "dispatched": True, "status_code": 202, "job_id": job},
+                                      alert_id="alert-1")
             body = self.client.get(f"/api/redteam/jobs/{'a' * 32}").get_json()
+            direct = self.client.get(f"/api/redteam/jobs/{job}").get_json()
+        self.assertEqual(missing.status_code, 404)
         self.assertEqual(body["runner"]["status"], "running")
+        self.assertEqual(body["job_id"], job)
+        self.assertEqual(fetch.call_args.kwargs["job_id"], job)
+        self.assertEqual(fetch.call_args.kwargs["jobs_path"], "/v1/jobs")
+        self.assertEqual(direct["job_id"], job)
 
     def test_status_api_requires_login(self):
         anonymous = app.app.test_client()
