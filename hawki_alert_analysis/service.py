@@ -26,13 +26,15 @@ class AlertAnalysisService:
         host: str = "",
     ) -> list[dict[str, Any]]:
         live = callable(getattr(self.repository, "list_alerts_since", None))
-        if live and (min_level > 0 or category != "all" or since or order != "newest" or host):
-            # Live Wazuh: the indexer applies level, period, category, host
-            # and order, so the page holds the alerts asked for rather than a
-            # filtered copy of the newest hundred.
+        searched = False
+        if live and (min_level > 0 or category != "all" or since or order != "newest" or host or query):
+            # Live Wazuh: the indexer applies level, period, category, host,
+            # search text and order, so the page holds the alerts asked for
+            # rather than a filtered copy of the newest hundred.
             alerts = self.repository.list_alerts(
-                min_level=min_level, category=category, since=since, order=order, host=host,
+                min_level=min_level, category=category, since=since, order=order, host=host, text=query,
             )
+            searched = True
         else:
             alerts = self.repository.list_alerts()
             if category in {"attack", "vulnerability"}:
@@ -69,7 +71,7 @@ class AlertAnalysisService:
                 == status
             ]
 
-        if query:
+        if query and not searched:
             needle = query.lower()
             alerts = [
                 item
