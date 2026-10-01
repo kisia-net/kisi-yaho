@@ -120,6 +120,22 @@ app.jinja_env.auto_reload = True
 # four metadata blocks are published in a declared order.
 app.json.sort_keys = False
 
+# Behind nginx, request.remote_addr is the proxy (the Docker gateway,
+# 172.18.0.1), so every login in the audit log came from the same address.
+# TRUST_PROXY_HOPS=1 trusts exactly one X-Forwarded-For hop: the address nginx
+# appended. Set it only when the Flask port is reachable through nginx alone;
+# a client talking to Flask directly could otherwise name any address.
+try:
+    TRUST_PROXY_HOPS = max(0, min(int(os.getenv("TRUST_PROXY_HOPS", "0") or 0), 2))
+except ValueError:
+    TRUST_PROXY_HOPS = 0
+if TRUST_PROXY_HOPS:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+
+    # Only the client address: ProxyFix takes the rightmost N entries, the
+    # ones nginx appended. X-Forwarded-Proto is not trusted.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=TRUST_PROXY_HOPS)
+
 BUILD_ID = os.getenv("APP_BUILD_ID", "2026.08.11-hawki-runtime-stability-v5")
 
 
@@ -835,7 +851,7 @@ def login_page():
             error = "Invalid username or password."
             append_audit(
                 "login_failed",
-                {"username": username[:32], "remote_addr": request.remote_addr},
+                {"username": username[:32], **request_origin()},
             )
         else:
             session.clear()
@@ -847,7 +863,7 @@ def login_page():
                 (utc_now_iso(), user["id"]),
             )
             get_db().commit()
-            append_audit("login_succeeded", {"user_id": int(user["id"])})
+            append_audit("login_succeeded", {"user_id": int(user["id"]), **request_origin()})
             return redirect(safe_next_path(request.form.get("next", "/")))
 
     return render_template(
@@ -1033,6 +1049,19 @@ def api_auth_logout():
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def request_origin() -> dict[str, Any]:
+    """Where a sign-in came from, as far as this process can tell.
+
+    Through the SSM port forward every browser arrives from the instance
+    itself; the user agent and the proxy flag at least tell sessions apart.
+    """
+    return {
+        "remote_addr": request.remote_addr,
+        "via_proxy": bool(TRUST_PROXY_HOPS),
+        "user_agent": str(request.headers.get("User-Agent") or "")[:160],
+    }
 
 
 def append_audit(
@@ -1460,6 +1489,15 @@ def api_siem_hosts():
         ), 502
 
 
+@app.get("/api/siem/hosts/badges")
+@role_required("analyst")
+def api_siem_host_badges():
+    try:
+        return jsonify({"badges": SIEM.host_badges()})
+    except (WazuhIndexerError, ValueError) as exc:
+        return jsonify({"error": "Wazuh host alert query failed.", "detail": str(exc)}), 502
+
+
 @app.get("/api/siem/hosts/<agent_id>")
 @role_required("analyst")
 def api_siem_host_detail(agent_id: str):
@@ -1649,6 +1687,17 @@ def api_dashboard():
                 }
             ), 502
 
+        # 대시보드 "주요 경보": attack alerts of the last 24 hours, highest
+        # priority first. The newest six were usually level-5 scanner noise.
+        try:
+            top = ALERT_ANALYSIS.list_alerts(category="attack", since="now-24h", order="level")
+        except (WazuhIndexerError, ValueError):
+            top = []
+        top.sort(key=lambda item: (
+            -float((item.get("priority") or {}).get("score") or 0),
+            -(parse_time(item.get("time")).timestamp() if parse_time(item.get("time")) else 0),
+        ))
+
         return jsonify(
             {
                 "source": "wazuh_indexer",
@@ -1657,12 +1706,15 @@ def api_dashboard():
                     "level_8_plus_24h": (
                         summary["level_8_plus_24h"]
                     ),
+                    "level_8_plus_attack_24h": summary.get("level_8_plus_attack_24h"),
                     "archive_events_24h": (
                         summary["archive_events_24h"]
                     ),
                     "pending_actions": pending,
                 },
-                "recent_alerts": summary["recent_alerts"],
+                # Up to 60, so the page can fold repeats before showing six.
+                "recent_alerts": top[:60] or summary["recent_alerts"],
+                "recent_alerts_kind": "top_attack" if top else "newest",
                 "visuals": visuals,
             }
         )
@@ -1683,6 +1735,11 @@ def api_dashboard():
     )
 
 
+ALERT_CATEGORIES = {"all", "attack", "vulnerability"}
+# 보안 경보 기간: "" keeps the old behaviour (newest alerts, any age).
+ALERT_PERIODS = {"": "", "1h": "now-1h", "24h": "now-24h", "7d": "now-7d", "30d": "now-30d"}
+
+
 @app.get("/api/alerts")
 def api_alerts():
     query = (request.args.get("q") or "").strip()
@@ -1697,15 +1754,34 @@ def api_alerts():
             "error": "min_level must be an integer."
         }), 400
 
+    category = (request.args.get("category") or "all").strip()
+    if category not in ALERT_CATEGORIES:
+        return jsonify({"error": "Unsupported alert category."}), 400
+    period = (request.args.get("range") or "").strip()
+    if period not in ALERT_PERIODS:
+        return jsonify({"error": "Unsupported alert period."}), 400
+    order = "level" if request.args.get("sort") == "priority" else "newest"
+    host = (request.args.get("host") or "").strip()
+    if host and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", host):
+        return jsonify({"error": "Invalid host name."}), 400
+
+    options = {"category": category, "since": ALERT_PERIODS[period], "order": order}
+    if host:
+        options["host"] = host
     alerts = ALERT_ANALYSIS.list_alerts(
         min_level=min_level,
         query=query,
+        **options,
     )
 
     return jsonify(
         {
             "total": len(alerts),
             "alerts": alerts,
+            "category": category,
+            "range": period,
+            "host": host,
+            "limit": getattr(ALERT_REPOSITORY, "alert_limit", None),
             "source": (
                 "wazuh_indexer"
                 if isinstance(
@@ -1717,6 +1793,49 @@ def api_alerts():
             "repository_ready": True,
         }
     )
+
+
+@app.get("/api/alerts/<alert_id>/history")
+@role_required("analyst")
+def api_alert_history(alert_id: str):
+    """Earlier work on this alert: automatic reports and LLM analyses.
+
+    Shown on the alert page so an analyst opens the existing report instead
+    of spending another model call on the same evidence.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", alert_id):
+        return jsonify({"error": "Invalid alert id."}), 400
+    reports = []
+    for report in AUTO_REPORT_STORE.all():
+        alert = report.get("alert") or {}
+        group = report.get("group") or {}
+        if alert.get("id") != alert_id and alert_id not in (group.get("alert_ids") or []):
+            continue
+        reports.append({
+            "id": report.get("id"),
+            "created_at": report.get("created_at"),
+            "band": (report.get("priority") or {}).get("band"),
+            "ai_status": (report.get("ai") or {}).get("status"),
+            "review_status": (report.get("review") or {}).get("status", "unreviewed"),
+            "occurrences": group.get("occurrences"),
+        })
+    analyses = []
+    for record in reversed(read_jsonl(AUDIT_LOG_PATH)):
+        if record.get("event_type") != "alert_analysis_completed":
+            continue
+        detail = record.get("detail") or {}
+        if detail.get("alert_id") != alert_id:
+            continue
+        analyses.append({
+            "timestamp": record.get("timestamp"),
+            "analysis_id": detail.get("analysis_id"),
+            "model": detail.get("model"),
+            "by": (record.get("actor") or {}).get("username"),
+        })
+        if len(analyses) >= 5:
+            break
+    reports.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return jsonify({"alert_id": alert_id, "reports": reports[:5], "analyses": analyses})
 
 
 @app.get("/api/alerts/<alert_id>")
@@ -1879,6 +1998,19 @@ def evidence_agent_llm_call(
 def gather_more_evidence(alert_id: str, bundle: dict[str, Any]) -> dict[str, Any]:
     """Run the evidence agent; never let it break or oversize the analysis."""
     original = copy.deepcopy(bundle)
+    try:
+        serialize_agent_context({"alert_id": alert_id, "alert_case": bundle})
+    except ValueError:
+        # The package is already over the limit before the agent adds
+        # anything, so whatever it found would be reverted: up to
+        # AGENT_MAX_TOOL_CALLS model calls for nothing. The fit step trims it.
+        original["agent_retrieval"] = {
+            "schema": "hawki.evidence-agent/v1",
+            "stopped": "no_room",
+            "calls": [],
+        }
+        append_audit("evidence_agent_skipped", {"alert_id": alert_id, "reason": "context_already_full"})
+        return original
     try:
         run_evidence_agent(
             ALERT_REPOSITORY,
@@ -2417,6 +2549,72 @@ def api_log_search_hosts():
     order = {"active": 0, "pending": 1, "unknown": 2, "disconnected": 3, "never_connected": 4}
     hosts.sort(key=lambda host: (not host["manager"], order.get(host["status"], 5), host["name"].lower()))
     return jsonify({"source": source, "total": len(hosts), "hosts": hosts})
+
+
+LOG_CHECK_TARGETS = {"alerts": "wazuh-alerts-*", "archives": None}
+
+
+@app.get("/api/log-search/check")
+@role_required("analyst")
+def api_log_search_check():
+    """Count what a recommended search finds, without returning documents.
+
+    The XAI panel runs each wazuh query the model recommended, so a search
+    that matches nothing or does not parse is shown as such.
+    """
+    query = str(request.args.get("query") or "").strip()
+    target = str(request.args.get("target") or "alerts").strip()
+    start_time = str(request.args.get("start") or "now-24h").strip()
+    end_time = str(request.args.get("end") or "now").strip()
+    if not query or len(query) > 1000:
+        return jsonify({"error": "The query must be between 1 and 1000 characters."}), 400
+    if target not in LOG_CHECK_TARGETS:
+        return jsonify({"error": "Unsupported search target."}), 400
+    if not valid_log_time(start_time) or not valid_log_time(end_time):
+        return jsonify({"error": "The search period must be a relative time like now-24h or a full date and time with a time zone."}), 400
+    if not CONFIG["wazuh_search_enabled"]:
+        return jsonify({"error": "Wazuh Indexer search is disabled by server policy."}), 403
+    index = LOG_CHECK_TARGETS[target] or CONFIG["wazuh_archive_index"]
+    try:
+        response = requests.post(
+            f"{CONFIG['wazuh_indexer_url']}/{index}/_search",
+            json={
+                "size": 0,
+                "track_total_hits": True,
+                "query": {"bool": {
+                    "must": [{"match_all": {}} if query == "*" else {
+                        "query_string": {"query": query, "allow_leading_wildcard": False}
+                    }],
+                    "filter": [{"range": {"timestamp": {"gte": start_time, "lte": end_time}}}],
+                }},
+            },
+            headers={"Content-Type": "application/json"},
+            auth=wazuh_indexer_auth(),
+            timeout=10,
+            verify=CONFIG["wazuh_verify"],
+        )
+    except requests.RequestException as exc:
+        return jsonify({"error": "Wazuh Indexer request failed.", "detail": str(exc)[:200]}), 502
+    if response.status_code == 400:
+        # The indexer rejected the query itself: a parse error, not an outage.
+        try:
+            reason = ((response.json().get("error") or {}).get("root_cause") or [{}])[0].get("reason") or ""
+        except (ValueError, AttributeError, IndexError, TypeError):
+            reason = ""
+        append_audit("wazuh_log_search_check", {"index": index, "query": query[:300], "error": str(reason)[:160]})
+        return jsonify({"status": "error", "count": 0, "error": str(reason)[:160] or "query could not be parsed"})
+    try:
+        response.raise_for_status()
+        body = response.json()
+        if not isinstance(body, dict):
+            raise ValueError("unexpected indexer response")
+        total = (body.get("hits") or {}).get("total", 0)
+        count = int(total.get("value", 0) if isinstance(total, dict) else total or 0)
+    except (requests.RequestException, ValueError, TypeError, AttributeError) as exc:
+        return jsonify({"error": "Wazuh Indexer request failed.", "detail": str(exc)[:200]}), 502
+    # A count is still an answer about the logs: recorded like a search.
+    append_audit("wazuh_log_search_check", {"index": index, "query": query[:300], "result_count": count})
+    return jsonify({"status": "ok" if count else "empty", "count": count})
 
 
 @app.post("/api/log-search")
@@ -3262,6 +3460,9 @@ For `hawki.wazuh.live-evidence/v1` or `hawki.wazuh.live-evidence/v2`:
 - `retrieval.context_fit`, when present, records evidence shortened or removed so the package fits your context. Text ending in "…[truncated]" was shortened; `dropped_evidence_ids` were retrieved but not sent. Treat both as evidence gaps and never cite a dropped id.
 - Missing asset, exposure, threat-intelligence, process, user, or other context is an evidence gap. Never manufacture it.
 - Cite only `TRIGGER` and the `CTX-NNN` identifiers actually supplied.
+- Each supporting or contradictory statement cites only the ids that show that statement, normally one to five. A statement citing every supplied id says nothing about which evidence matters; split it into specific statements.
+- Bundle timestamps are UTC. When prose states a time, give the analyst's local time, Korea Standard Time (UTC+9), and mark it, e.g. `15:55:15 KST`. `trigger.timestamp_kst`, when present, is the trigger's local time.
+- `recommended_searches` and `queries` must run in HAW-KI. Prefer `language` `wazuh`: a Lucene query_string over Wazuh fields that appear in the bundle, such as `data.srcip:"203.0.113.5" AND rule.groups:web`, `agent.name:"web-01" AND rule.id:"31151"`, or `full_log:"/wp-login.php"`, with `index` `alerts` (Wazuh alerts) or `archives` (every raw event). Use `vql` only with a Velociraptor artifact you are certain exists (for example `Linux.Sys.Pslist`, `Linux.Network.Netstat`, `Generic.Client.Info`). Never invent artifact, table, index, or field names.
 
 For legacy `hawki.siem.evidence-bundle/v1`, the `metadata` object may contain security_alerts, security_events, assets, and threat_intelligence. Preserve their documented semantic roles.
 
@@ -3295,13 +3496,13 @@ OUTPUT_LANGUAGE_DIRECTIVES = {
         "recommended_response. The schema above is written in English only to describe the "
         "shape; its descriptions are not a template for the language of your values. "
         "Keep unchanged, never translated or transliterated: JSON keys, action `type` values, "
-        "query `language` and `value`, ATT&CK ids and their official English names, event ids, "
+        "query `language`, `index` and `value`, ATT&CK ids and their official English names, event ids, "
         "indicator ids, host names, user names, process names, file paths, domains, IP addresses. "
         "Where a Korean term would be ambiguous, put the English in parentheses after it. "
         "A query object mixes both: its `title` is Korean prose and its `value` is code left "
         "exactly as written. For example "
-        '{"title": "지속성 등록 여부 검색", "language": "vql", '
-        '"value": "SELECT * FROM Artifact.Windows.Registry WHERE Path LIKE \'%update.exe%\'"} '
+        '{"title": "같은 출발지의 다른 요청 검색", "language": "wazuh", "index": "alerts", '
+        '"value": "data.srcip:\\"203.0.113.5\\" AND agent.name:\\"web-01\\""} '
         "-- a query written in English is a defect, not a shortcut."
     ),
     "en": "",
@@ -4729,7 +4930,16 @@ def api_agent_chat():
             "live_enforcement_mode": "detection_only",
         }
 
-    append_audit("agent_request", {"mode": mode, "context": context})
+    # The context can carry a whole evidence package; the audit trail keeps
+    # what identifies it (keys, size, hash), not a second copy of the logs.
+    context_text = json.dumps(context, ensure_ascii=False, sort_keys=True, default=str)
+    append_audit("agent_request", {
+        "mode": mode,
+        "context_keys": sorted(context)[:20] if isinstance(context, dict) else [],
+        "alert_id": (context or {}).get("alert_id") if isinstance(context, dict) else None,
+        "context_chars": len(context_text),
+        "context_sha256": hashlib.sha256(context_text.encode("utf-8")).hexdigest(),
+    })
     try:
         result = call_llm(mode, message, history, context)
         result["mode"] = mode
@@ -7027,7 +7237,29 @@ def api_validate_rule():
 @role_required("approver")
 def api_audit():
     records = list(reversed(read_jsonl(AUDIT_LOG_PATH)))
-    return jsonify({"events": records[:300], "total": len(records)})
+    total = len(records)
+    event_types = sorted({str(record.get("event_type") or "") for record in records if record.get("event_type")})
+    actors = sorted({str((record.get("actor") or {}).get("username") or "") for record in records} - {""})
+    wanted_type = (request.args.get("type") or "").strip()
+    wanted_actor = (request.args.get("actor") or "").strip()
+    needle = (request.args.get("q") or "").strip().lower()
+    if wanted_type:
+        records = [record for record in records if record.get("event_type") == wanted_type]
+    if wanted_actor:
+        records = [record for record in records if (record.get("actor") or {}).get("username") == wanted_actor]
+    if needle:
+        records = [record for record in records if needle in json.dumps(record, ensure_ascii=False).lower()]
+    try:
+        limit = max(1, min(int(request.args.get("limit") or 300), 1000))
+    except ValueError:
+        limit = 300
+    return jsonify({
+        "events": records[:limit],
+        "matched": len(records),
+        "total": total,
+        "event_types": event_types,
+        "actors": actors,
+    })
 
 
 # -- Automatic analysis and reports (자동 보고서) ------------------------------
@@ -7041,7 +7273,9 @@ def auto_fetch_alerts(since: datetime, min_level: int, limit: int) -> list[dict[
     """New alerts at or above min_level since `since`, oldest first."""
     list_since = getattr(ALERT_REPOSITORY, "list_alerts_since", None)
     if callable(list_since):
-        return list_since(since, min_level=min_level, limit=limit)
+        # Excluded groups (CVE findings) are left in the indexer, so a scan of
+        # thousands of them cannot fill the cycle before an attack alert.
+        return list_since(since, min_level=min_level, limit=limit, exclude_groups=AUTO_REPORT_SETTINGS.exclude_groups)
 
     # Fixture scenarios: the whole (small) list, filtered here. Severity words
     # stand in for the Wazuh level, as they do in the queue priority.

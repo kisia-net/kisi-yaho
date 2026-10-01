@@ -5123,3 +5123,88 @@ html[data-theme="light"] .output-panel .output-item { padding: 10px 12px; }
     .log-form > .button { margin-top: 21px; }
     .log-range-summary { margin-left: 0; }
 }
+
+/* 보안 경보 · 공격/취약점 탭, 기간, 같은 경보 묶기 */
+.alert-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 12px 15px 0; }
+.alert-tab { padding: 7px 14px; border: 1px solid var(--line-2); border-radius: 999px; background: var(--panel-2); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.alert-tab[aria-selected="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.alert-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.alert-tab-note { margin-left: 6px; font-size: 12px; }
+#alert-filter-form.alert-filter-form { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto auto; align-items: end; }
+.alert-group-toggle { display: flex; align-items: center; gap: 6px; align-self: end; padding-bottom: 9px; white-space: nowrap; }
+.alert-group-toggle input { width: auto; margin: 0; }
+.alert-repeat { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); }
+.alert-repeat a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.alert-repeat a:hover { text-decoration: underline; }
+@media (max-width: 1100px) {
+    #alert-filter-form.alert-filter-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 대시보드 · 누를 수 있는 차트 */
+.activity-hit { fill: transparent; }
+.activity-link { cursor: pointer; }
+.activity-link:hover .activity-bar { fill: var(--accent); }
+a.level-distribution-row { color: inherit; text-decoration: none; border-radius: 6px; }
+a.level-distribution-row:hover { background: var(--accent-soft); }
+a.level-distribution-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 호스트 · 취약점이 많은 패키지 */
+.vuln-packages { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.vuln-packages-head { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.vuln-packages ol { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 4px; font-size: 12.5px; }
+.vuln-packages li code { font-size: 12px; }
+.vuln-package-count { float: right; color: var(--muted); }
+.vuln-packages-hint { margin: 0 0 8px; padding: 7px 9px; border-radius: 6px; background: var(--accent-soft); font-size: 12.5px; }
+
+/* 감사 로그 · 필터, 한 줄 요약, 접는 상세 */
+.audit-filter { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.6fr) auto; }
+.audit-row { grid-template-columns: 170px 190px 110px minmax(0, 1fr); align-items: start; }
+.audit-row .audit-type { font-weight: 600; }
+.audit-row-bad .audit-type { color: var(--danger); }
+.audit-row-warn .audit-type { color: var(--warning); }
+.audit-actor { color: var(--muted); }
+.audit-detail > summary { cursor: pointer; color: var(--text); overflow-wrap: anywhere; }
+.audit-detail > summary::marker { color: var(--muted); }
+.audit-detail pre { margin: 8px 0 0; padding: 10px; max-height: 320px; overflow: auto; border-radius: 6px; background: var(--panel-2); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+    .audit-filter { grid-template-columns: 1fr 1fr; }
+    .audit-row { grid-template-columns: 1fr; }
+}
+
+.xai-stat-warn, .xai-stat-warn strong { color: var(--warning) !important; }
+
+/* XAI · 추천 검색 확인 */
+.xai-searches { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
+.xai-search { display: grid; gap: 6px; }
+.xai-search-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.xai-search code { display: block; padding: 7px 9px; border-radius: 6px; background: var(--panel-2); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.xai-search .button { justify-self: start; }
+.xai-search-note { margin: -4px 0 8px; font-size: 12px; }
+
+/* 승인 대기열 · JSON 접기, 실행 안 됨 안내 */
+.approval-json-toggle > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.approval-json-toggle[open] > summary { margin-bottom: 6px; }
+.approval-outcome-note span, .approval-not-run { color: var(--warning); }
+.approval-not-run { margin: 6px 0 0; font-size: 12.5px; }
+
+/* 경보 상세 · 이전 기록 */
+.alert-history { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 15px; border-top: 1px solid var(--line); background: var(--accent-soft); font-size: 13px; }
+.alert-history[hidden] { display: none; }
+.alert-history-item { padding: 3px 9px; border: 1px solid var(--line-2); border-radius: 999px; background: var(--panel); color: var(--text); text-decoration: none; }
+a.alert-history-item:hover { border-color: var(--accent); color: var(--accent); }
+.alert-history .muted { flex-basis: 100%; font-size: 12px; }
+
+/* AI 분석 작업공간 · 시작 예시 */
+.agent-starters { margin: auto; max-width: 640px; padding: 24px 16px; text-align: center; }
+.agent-starters-title { margin: 0 0 12px; font-weight: 600; }
+.agent-starter-list { display: grid; gap: 8px; margin-bottom: 12px; }
+.agent-starter { padding: 10px 14px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel-2); color: var(--text); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.agent-starter:hover { border-color: var(--accent); background: var(--accent-soft); }
+.agent-starters .muted { font-size: 12.5px; }
+
+/* 호스트 목록 · 배지 */
+.host-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.host-badge { padding: 2px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.host-badge-high { color: var(--danger); border-color: currentColor; }
+.host-badge-vuln { color: var(--warning); border-color: currentColor; }
+.dashboard-repeat { color: var(--accent); font-weight: 600; }

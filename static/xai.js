@@ -49,6 +49,7 @@
         max_calls: "호출 상한 도달",
         error: "수집 실패",
         context_limit_reverted: "증거 한도 초과로 원래 증거 사용",
+        no_room: "증거가 이미 한도를 넘어 추가 수집 건너뜀",
     };
 
     const time = (value) => {
@@ -82,13 +83,99 @@
             return `<details class="xai-ref-detail"><summary class="xai-ref">${escapeHtml(id)}</summary>${evidenceDetail(record)}</details>`;
         }).join("");
         return `<li class="xai-claim xai-claim-${escapeHtml(claim.kind)}">
-            <div class="xai-claim-head">${chip(KIND[claim.kind] || claim.kind, claim.kind === "contradictory" ? "xai-info" : "xai-plain")} ${chip(label, cls)}</div>
+            <div class="xai-claim-head">${chip(KIND[claim.kind] || claim.kind, claim.kind === "contradictory" ? "xai-info" : "xai-plain")} ${chip(label, cls)}${claim.broad ? ` ${chip(`포괄 인용 · ${(claim.event_ids || []).length}건`, "xai-warn")}` : ""}</div>
             <p class="xai-statement">${escapeHtml(claim.statement)}</p>
             <div class="xai-refs">${refs || `<span class="muted">인용한 증거가 없습니다.</span>`}</div>
         </li>`;
     }
 
-    function render(container, explanation) {
+    // 추천 검색 확인: a wazuh query from the model is run as a count (size 0)
+    // around the trigger time, so "this search finds N events" is checked
+    // rather than taken on trust. VQL cannot be run from here and says so.
+    const RUNNABLE = new Set(["wazuh", "lucene", "query_string", "kql", "opensearch", "wazuh-lucene", ""]);
+    function searchKind(query) {
+        const language = String(query.language || "").trim().toLowerCase();
+        const value = String(query.value || "").trim();
+        if (!value) return "empty";
+        if (language === "vql") {
+            // Velociraptor artifacts are named <Platform>.<Area>.<Name>
+            // (Linux.Sys.Pslist, Windows.EventLogs.Evtx, Generic.Client.Info).
+            const artifact = /Artifact\.([A-Za-z0-9_.]+)/.exec(value);
+            if (artifact && !/^(Windows|Linux|MacOS|Generic|Server|Custom|Exchange|Admin|Demo|Elastic|Splunk)\./.test(artifact[1])) return "vql_unknown";
+            return "vql";
+        }
+        if (/^\s*select\s/i.test(value)) return "sql";
+        return RUNNABLE.has(language) ? "wazuh" : "other";
+    }
+    function searchWindow(evidence) {
+        const trigger = evidence.TRIGGER;
+        const when = Date.parse(trigger?.timestamp || "");
+        if (!Number.isFinite(when)) return { start: "now-7d", end: "now" };
+        return {
+            start: new Date(when - 24 * 60 * 60 * 1000).toISOString(),
+            end: new Date(Math.min(Date.now(), when + 60 * 60 * 1000)).toISOString(),
+        };
+    }
+    function searchesHtml(queries, evidence) {
+        if (!queries.length) return "";
+        const window_ = searchWindow(evidence);
+        const rows = queries.map((query, index) => {
+            const kind = searchKind(query);
+            const target = query.index === "archives" ? "archives" : "alerts";
+            const logsHref = `/logs?${new URLSearchParams({
+                index: target === "archives" ? "wazuh-archives-*" : "wazuh-alerts-*",
+                query: query.value || "*",
+                start: window_.start,
+                end: window_.end,
+                size: "100",
+                run: "1",
+            })}`;
+            const state = {
+                wazuh: `<span class="xai-chip xai-muted" data-search-state="${index}">확인 중…</span>`,
+                vql: `<span class="xai-chip xai-info">Velociraptor에서 실행 · 자동 확인 불가</span>`,
+                vql_unknown: `<span class="xai-chip xai-warn">없는 아티팩트일 수 있음 · Velociraptor에서 이름 확인</span>`,
+                sql: `<span class="xai-chip xai-bad">실행할 수 없는 형식 (SQL)</span>`,
+                other: `<span class="xai-chip xai-muted">${escapeHtml(query.language)} · 자동 확인 불가</span>`,
+                empty: `<span class="xai-chip xai-muted">쿼리 없음</span>`,
+            }[kind];
+            return `<li class="xai-search">
+                <div class="xai-search-head"><strong>${escapeHtml(query.title || "추천 검색")}</strong> ${state}</div>
+                <code>${escapeHtml(query.value || "")}</code>
+                ${kind === "wazuh" ? `<a class="button secondary small" href="${escapeHtml(logsHref)}">로그 검색에서 열기</a>` : ""}
+            </li>`;
+        }).join("");
+        return `<h4>추천 검색 확인</h4>
+            <p class="muted xai-search-note">Wazuh 쿼리는 트리거 24시간 전부터 1시간 뒤까지 실제로 실행해 결과 건수를 확인합니다.</p>
+            <ol class="xai-searches">${rows}</ol>`;
+    }
+    async function checkSearches(container, queries, evidence) {
+        const window_ = searchWindow(evidence);
+        await Promise.all(queries.map(async (query, index) => {
+            const badge = container.querySelector(`[data-search-state="${index}"]`);
+            if (!badge) return;
+            const params = new URLSearchParams({
+                query: query.value || "",
+                target: query.index === "archives" ? "archives" : "alerts",
+                start: window_.start,
+                end: window_.end,
+            });
+            try {
+                const response = await fetch(`/api/log-search/check?${params}`, { headers: { Accept: "application/json" } });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+                const label = data.status === "ok" ? `결과 ${Number(data.count).toLocaleString("ko-KR")}건`
+                    : data.status === "empty" ? "결과 0건 · 필드나 값 확인 필요"
+                    : `쿼리 오류${data.error ? ` · ${data.error}` : ""}`;
+                badge.className = `xai-chip ${data.status === "ok" ? "xai-ok" : data.status === "empty" ? "xai-warn" : "xai-bad"}`;
+                badge.textContent = label;
+            } catch (error) {
+                badge.className = "xai-chip xai-muted";
+                badge.textContent = `확인하지 못함 · ${error.message}`;
+            }
+        }));
+    }
+
+    function render(container, explanation, options = {}) {
         if (!container) return;
         if (!explanation || explanation.schema !== "hawki.explanation/v1") {
             container.hidden = true;
@@ -106,6 +193,7 @@
         const expected = (conclusion.expected_severity || []).map((level) => SEVERITY[level] || level).join("~");
 
         const claims = explanation.claims || [];
+        const queries = (Array.isArray(options.queries) ? options.queries : []).filter((query) => query && typeof query === "object").slice(0, 6);
         const factors = explanation.priority_factors || [];
         const maxPoints = Math.max(1, ...factors.map((f) => Number(f.points) || 0));
         const factorRows = factors.map((factor) => {
@@ -124,7 +212,7 @@
         const inputLines = [
             profile.name ? `상관분석 프로필 <strong>${escapeHtml(profile.name)}</strong> (경보 전 ${escapeHtml(Math.round((profile.seconds_before || 0) / 60))}분 · 후 ${escapeHtml(Math.round((profile.seconds_after || 0) / 60))}분${profile.cross_agent ? " · 다른 에이전트 포함" : ""})` : "",
             inputs.context_fit ? `문맥 한도에 맞추느라 증거 ${escapeHtml((inputs.context_fit.dropped_evidence_ids || []).length)}건 제외 · 긴 텍스트 ${escapeHtml(inputs.context_fit.shortened_fields || 0)}곳 축약${(inputs.context_fit.dropped_evidence_ids || []).length ? ` (${escapeHtml(inputs.context_fit.dropped_evidence_ids.join(", "))})` : ""}` : "",
-            inputs.agent_calls ? `증거 수집 에이전트 ${escapeHtml(inputs.agent_calls)}회 호출 · 추가 증거 ${escapeHtml((inputs.agent_added_evidence || []).length)}건 · ${escapeHtml(AGENT_STOP[inputs.agent_stopped] || inputs.agent_stopped || "")}` : "",
+            (inputs.agent_calls || inputs.agent_stopped === "no_room") ? `증거 수집 에이전트 ${escapeHtml(inputs.agent_calls)}회 호출 · 추가 증거 ${escapeHtml((inputs.agent_added_evidence || []).length)}건 · ${escapeHtml(AGENT_STOP[inputs.agent_stopped] || inputs.agent_stopped || "")}` : "",
         ].filter(Boolean).map((line) => `<li>${line}</li>`).join("");
 
         container.hidden = false;
@@ -137,7 +225,8 @@
                     </div>
                     <div class="xai-stats">
                         <span><strong>${escapeHtml(summary.grounded ?? 0)}</strong>/${escapeHtml(summary.claims ?? 0)} 주장 근거 확인</span>
-                        <span><strong>${escapeHtml(summary.evidence_cited ?? 0)}</strong>/${escapeHtml(summary.evidence_total ?? 0)} 증거 사용</span>
+                        <span><strong>${escapeHtml(summary.broad ? (summary.evidence_cited_specifically ?? 0) : (summary.evidence_cited ?? 0))}</strong>/${escapeHtml(summary.evidence_total ?? 0)} 증거 ${summary.broad ? "구체적으로 인용" : "사용"}</span>
+                        ${summary.broad ? `<span class="xai-stat-warn" title="주장 하나가 증거 대부분을 한꺼번에 인용했습니다. 어떤 증거가 그 주장을 뒷받침하는지 드러나지 않아 사용 수에서 뺐습니다."><strong>${escapeHtml(summary.broad)}</strong> 포괄 인용</span>` : ""}
                         ${summary.ungrounded || summary.partial ? `<span class="xai-stat-bad"><strong>${escapeHtml((summary.ungrounded || 0) + (summary.partial || 0))}</strong> 주장에 없는 ID 인용</span>` : ""}
                     </div>
                 </div>
@@ -158,6 +247,8 @@
 
                 ${factorRows ? `<h4>우선순위 요인</h4><ul class="xai-factors">${factorRows}</ul>` : ""}
 
+                ${searchesHtml(queries, evidence)}
+
                 ${inputLines || feedback ? `<h4>판단에 들어간 다른 입력</h4><ul class="xai-inputs">${inputLines}${feedback ? `<li>참고한 과거 분석가 판정 (근거가 아닌 맥락)<ul class="xai-feedback">${feedback}</ul></li>` : ""}</ul>` : ""}
 
                 <p class="xai-method">주장의 문장은 모델이 썼고, 연결·확인 상태·개수·우선순위 요인은 코드가 계산했습니다. 증거 묶음에 없는 ID를 인용하면 "근거 없음"으로 표시됩니다.</p>
@@ -166,6 +257,7 @@
         container.querySelectorAll(".xai-factor-bar i[data-width]").forEach((bar) => {
             bar.style.width = `${Number(bar.dataset.width) || 0}%`;
         });
+        if (queries.length) checkSearches(container, queries, evidence);
     }
 
     window.HawkiXai = { render };

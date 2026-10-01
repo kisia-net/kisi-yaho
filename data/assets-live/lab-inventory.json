@@ -31,6 +31,7 @@
     },
     {
       "id": "asset-vm",
+      "hostname": "ip-10-0-10-235",
       "ip_addresses": [
         "10.0.10.235"
       ],

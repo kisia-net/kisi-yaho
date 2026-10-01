@@ -716,7 +716,9 @@ function renderDashboardAlerts(alerts) {
 
     target.classList.remove("loading-block");
 
-    target.innerHTML = (alerts || []).map((alert) => {
+    // Same rule, source and host fold into one row with a count.
+    const rows = groupAlerts(alerts || []).slice(0, 6);
+    target.innerHTML = rows.map(({ lead: alert, count }) => {
         const timestamp = Date.parse(alert.time);
         const time = Number.isFinite(timestamp)
             ? new Date(timestamp).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
@@ -745,6 +747,8 @@ function renderDashboardAlerts(alerts) {
                         ${alert.rule_id
                             ? ` · 룰 ${escapeHtml(alert.rule_id)}`
                             : ""}
+                        ${alert.source_ip ? ` · ${escapeHtml(alert.source_ip)}` : ""}
+                        ${count > 1 ? ` · <span class="dashboard-repeat">같은 경보 ${escapeHtml(formatNumber(count))}건</span>` : ""}
                     </p>
                 </div>
             </a>
@@ -802,10 +806,23 @@ function renderDashboardVisuals(visuals) {
                     index === activity.length - 1 ||
                     index % 6 === 0;
 
+                const bucketStart = Number.isFinite(parsed) ? new Date(parsed) : null;
+                const href = bucketStart
+                    ? `/logs?${new URLSearchParams({
+                        index: "wazuh-alerts-*",
+                        query: "*",
+                        start: bucketStart.toISOString(),
+                        end: new Date(bucketStart.getTime() + 60 * 60 * 1000).toISOString(),
+                        size: "200",
+                        run: "1",
+                    })}`
+                    : "";
+
                 return `
                     <g>
-                        <title>${escapeHtml(label)} · 경보 ${count}건</title>
-
+                        <title>${escapeHtml(label)} · 경보 ${count}건${href ? " · 눌러서 검색" : ""}</title>
+                        ${href ? `<a href="${escapeHtml(href)}" class="activity-link">` : ""}
+                        <rect class="activity-hit" x="${Math.round(index * slot)}" y="0" width="${Math.ceil(slot)}" height="${baseline}"></rect>
                         <rect class="activity-bar"
                               x="${x}"
                               y="${y}"
@@ -813,6 +830,7 @@ function renderDashboardVisuals(visuals) {
                               height="${Math.max(1, barHeight)}"
                               rx="2">
                         </rect>
+                        ${href ? "</a>" : ""}
 
                         ${showLabel
                             ? `<text class="activity-axis-label"
@@ -852,15 +870,15 @@ function renderDashboardVisuals(visuals) {
             );
 
             levelTarget.innerHTML = levels.map((item) => `
-                <div class="level-distribution-row">
+                <a class="level-distribution-row" href="/alerts?min_level=${encodeURIComponent(item.level)}&range=24h&category=all&sort=priority" title="레벨 ${escapeHtml(item.level)} 이상 경보 보기">
                     <strong>L${escapeHtml(item.level)}</strong>
 
                     <progress max="${maxCount}"
                               value="${Number(item.count) || 0}">
                     </progress>
 
-                    <span>${escapeHtml(item.count)}</span>
-                </div>
+                    <span>${escapeHtml(formatNumber(item.count))}</span>
+                </a>
             `).join("");
         }
     }
@@ -881,6 +899,16 @@ async function initDashboard() {
 
     byId("metric-actions").textContent =
         formatNumber(stats.pending_actions || 0);
+
+    const attackOnly = stats.level_8_plus_attack_24h;
+    if (byId("metric-level8-note") && Number.isFinite(attackOnly)) {
+        byId("metric-level8-note").textContent = `CVE 취약점 경보 제외 ${formatNumber(attackOnly)}건`;
+    }
+    if (data.recent_alerts_kind === "top_attack") {
+        if (byId("dashboard-alert-kicker")) byId("dashboard-alert-kicker").textContent = "공격 경보 · 최근 24시간 · 우선순위 순";
+    } else if (byId("dashboard-alert-title")) {
+        byId("dashboard-alert-title").textContent = "최근 경보";
+    }
 
     renderDashboardAlerts(data.recent_alerts || []);
     renderDashboardVisuals(data.visuals || {});
@@ -1237,7 +1265,7 @@ function renderAgentAlertOptions(preferredAlertId = "") {
 
 async function loadAgentAlertContext() {
     try {
-        const data = await api("/api/alerts?q=&severity=&status=");
+        const data = await api("/api/alerts?category=all&range=7d&sort=priority");
         state.agentAlerts = Array.isArray(data.alerts) ? data.alerts : [];
         renderAgentHostOptions();
         renderAgentAlertOptions();
@@ -1314,6 +1342,7 @@ function setAgentMode(mode, persist = true) {
         button.setAttribute("aria-selected", String(active));
     });
     renderAgentModeContext();
+    renderAgentStarters();
     const input = byId("agent-input");
     if (input) {
         input.placeholder = modePlaceholders[mode] || "요청 내용을 입력하세요…";
@@ -1352,6 +1381,7 @@ function appendAgentMessage(role, text, meta = "", options = {}) {
         );
     }
 
+    byId("agent-messages").querySelector(".agent-starters")?.remove();
     byId("agent-messages").appendChild(item);
     byId("agent-messages").scrollTop = byId("agent-messages").scrollHeight;
     return item;
@@ -1381,6 +1411,60 @@ function addMessage(role, text, meta = "", record = true, options = {}) {
     return item;
 }
 
+// 새 대화의 빈 화면: what each mode is good for, as one-click starters.
+const AGENT_STARTERS = {
+    alert_summary: [
+        "선택한 경보를 설명하고, 오탐일 가능성과 그 근거를 알려 줘",
+        "이 경보의 출발지 IP가 다른 호스트에도 접근했는지 정리해 줘",
+        "이 경보에서 가장 먼저 확인해야 할 것 세 가지만 알려 줘",
+    ],
+    log_search: [
+        "최근 24시간 web-01에서 403/404를 많이 만든 출발지 IP를 찾는 쿼리를 만들어 줘",
+        "/.env, /.git 같은 민감 파일 요청을 찾는 Wazuh 쿼리를 만들어 줘",
+        "같은 IP가 짧은 간격으로 반복 요청한 흔적을 찾는 방법을 알려 줘",
+    ],
+    file_hunt: [
+        "웹 서버에서 최근 바뀐 실행 파일을 찾는 수집 계획을 세워 줘",
+        "웹 루트에 새로 생긴 PHP 파일을 찾는 Velociraptor 수집을 제안해 줘",
+    ],
+    velociraptor_response: [
+        "web-01에서 스캐닝 이후 침해 여부를 확인할 수집 순서를 제안해 줘",
+        "격리 전에 먼저 확보해야 할 증거 목록을 정리해 줘",
+    ],
+    suricata_rule: [
+        "/.env 요청을 탐지하는 Suricata 룰 초안을 만들어 줘",
+        "wp-login.php 무차별 요청을 탐지하는 룰을 탐지 전용으로 제안해 줘",
+    ],
+    incident_report: [
+        "오늘 web-01에서 있었던 스캐닝 활동을 사건 보고서로 정리해 줘",
+        "최근 P1 경보를 시간 순서대로 요약해 줘",
+    ],
+};
+
+function renderAgentStarters() {
+    const list = byId("agent-messages");
+    if (!list) return;
+    list.querySelector(".agent-starters")?.remove();
+    if (list.querySelector(".message")) return;
+    const starters = AGENT_STARTERS[state.agentMode] || [];
+    if (!starters.length) return;
+    const block = document.createElement("div");
+    block.className = "agent-starters";
+    block.innerHTML = `
+        <p class="agent-starters-title">${escapeHtml(modeTitles[state.agentMode] || "")} · 이렇게 시작해 보세요</p>
+        <div class="agent-starter-list">
+            ${starters.map((text) => `<button type="button" class="agent-starter">${escapeHtml(text)}</button>`).join("")}
+        </div>
+        <p class="muted">${escapeHtml(AGENT_GREETING)}</p>`;
+    block.querySelectorAll(".agent-starter").forEach((button) => button.addEventListener("click", () => {
+        const input = byId("agent-input");
+        if (!input) return;
+        input.value = button.textContent.trim();
+        input.focus();
+    }));
+    list.appendChild(block);
+}
+
 function renderAgentTranscript(session) {
     const list = byId("agent-messages");
     list.innerHTML = "";
@@ -1392,6 +1476,7 @@ function renderAgentTranscript(session) {
             suricataStaged: Boolean(item.suricataStaged),
         });
     });
+    renderAgentStarters();
 }
 
 function addTyping() {
@@ -1409,6 +1494,7 @@ function addTyping() {
             </strong>
             <span class="typing"><i></i><i></i><i></i></span>
         </div>`;
+    byId("agent-messages").querySelector(".agent-starters")?.remove();
     byId("agent-messages").appendChild(item);
     byId("agent-messages").scrollTop = byId("agent-messages").scrollHeight;
 }
@@ -2067,6 +2153,94 @@ async function loadAlerts() {
     }
 }
 
+const ALERT_CATEGORY_NOTES = {
+    attack: "CVE 취약점 경보를 뺀 공격·이상 행위 경보입니다.",
+    vulnerability: "Wazuh 취약점 탐지기가 CVE마다 하나씩 올리는 경보입니다. 호스트 화면의 취약점 요약에서 묶어 볼 수 있습니다.",
+    all: "모든 경보입니다.",
+};
+const ALERT_RANGE_LABELS = { "1h": "최근 1시간", "24h": "최근 24시간", "7d": "최근 7일", "30d": "최근 30일", "": "기간 제한 없음" };
+
+function formatAlertTime(value, withSeconds = true) {
+    const timestamp = Date.parse(value);
+    if (!Number.isFinite(timestamp)) return value || "—";
+    return new Date(timestamp).toLocaleString("ko-KR", {
+        year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+        ...(withSeconds ? { second: "2-digit" } : {}), hour12: false,
+    });
+}
+
+// 같은 룰·출발지·호스트 경보를 한 줄로: the row shows the highest-priority
+// (then newest) alert of the group, with how many and over what span.
+function groupAlerts(alerts) {
+    const groups = new Map();
+    alerts.forEach((alert) => {
+        const key = [alert.rule_id || alert.title, alert.source_ip || "-", alert.host || "-"].join("|");
+        const group = groups.get(key);
+        if (!group) {
+            groups.set(key, { lead: alert, count: 1, first: alert.time, last: alert.time });
+            return;
+        }
+        group.count += 1;
+        if ((Date.parse(alert.time) || 0) < (Date.parse(group.first) || 0)) group.first = alert.time;
+        if ((Date.parse(alert.time) || 0) > (Date.parse(group.last) || 0)) group.last = alert.time;
+        if (priorityScore(alert) > priorityScore(group.lead)
+            || (priorityScore(alert) === priorityScore(group.lead) && (Date.parse(alert.time) || 0) > (Date.parse(group.lead.time) || 0))) {
+            group.lead = alert;
+        }
+    });
+    return [...groups.values()];
+}
+
+function alertSearchLink(alert) {
+    const parts = [];
+    if (alert.rule_id) parts.push(`rule.id:"${alert.rule_id}"`);
+    if (alert.source_ip) parts.push(`(data.srcip:"${alert.source_ip}" OR data.src_ip:"${alert.source_ip}")`);
+    if (alert.host) parts.push(`agent.name:"${alert.host}"`);
+    const range = byId("alert-range")?.value ?? "24h";
+    const params = new URLSearchParams({
+        index: "wazuh-alerts-*",
+        query: parts.join(" AND ") || "*",
+        start: range ? `now-${range}` : "now-30d",
+        end: "now",
+        size: "200",
+        run: "1",
+    });
+    return `/logs?${params}`;
+}
+
+function renderAlertRow(alert, group = null) {
+    const ruleParts = [
+        alert.rule_id ? `룰 ${alert.rule_id}` : "",
+        alert.mitre && alert.mitre !== "—" ? `MITRE ${alert.mitre}` : "",
+        alert.decoder ? `디코더 ${alert.decoder}` : "",
+    ].filter(Boolean);
+    const repeated = group && group.count > 1;
+    const span = repeated
+        ? `<p class="alert-repeat"><a href="${escapeHtml(alertSearchLink(alert))}">같은 경보 ${formatNumber(group.count)}건</a> · ${escapeHtml(formatAlertTime(group.first, false))} ~ ${escapeHtml(formatAlertTime(group.last, false))}</p>`
+        : "";
+
+    return `
+        <div class="alert-row sev-row sev-${alertSeverity(alert).key}${repeated ? " alert-row-grouped" : ""}">
+            <span class="alert-time">${escapeHtml(formatAlertTime(alert.time))}</span>
+            <span class="wazuh-level">${priorityBadge(alert)} ${severityChip(alert)}</span>
+            <div class="alert-description">
+                <strong>${escapeHtml(alert.title || "Wazuh 경보")}</strong>
+                ${alert.summary ? `<p class="muted">${escapeHtml(alert.summary)}</p>` : ""}
+                ${span}
+                ${alert.groups?.length
+                    ? `<div class="action-meta">${alert.groups.slice(0, 4).map((name) => `<span class="tag">${escapeHtml(name)}</span>`).join("")}</div>`
+                    : ""}
+            </div>
+            <span>${escapeHtml(alert.host || "—")}</span>
+            <div class="alert-rule-meta">${ruleParts.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</div>
+            <a class="button secondary small" href="/alerts/${encodeURIComponent(alert.id)}">열기</a>
+        </div>`;
+}
+
+function currentAlertCategory() {
+    return document.querySelector(".alert-tab[aria-selected='true']")?.dataset.category || "attack";
+}
+
 async function loadAlertsInner() {
     const queryInput = byId("alert-query");
     const levelInput = byId("alert-min-level");
@@ -2077,30 +2251,44 @@ async function loadAlertsInner() {
         return;
     }
 
-    const q = encodeURIComponent(queryInput.value.trim());
-    const minLevel = encodeURIComponent(levelInput.value || "0");
+    const category = currentAlertCategory();
+    const range = byId("alert-range")?.value ?? "24h";
+    const sortMode = byId("alert-sort")?.value || "priority";
+    const grouped = byId("alert-group")?.checked ?? true;
+    const note = document.querySelector("[data-category-note]");
+    if (note) note.textContent = ALERT_CATEGORY_NOTES[category] || "";
 
-    const data = await api(
-        `/api/alerts?q=${q}&min_level=${minLevel}`
-    );
+    const params = new URLSearchParams({
+        q: queryInput.value.trim(),
+        min_level: levelInput.value || "0",
+        category,
+        range,
+        sort: sortMode,
+    });
+    if (state.alertHost) params.set("host", state.alertHost);
+    const data = await api(`/api/alerts?${params}`);
 
     const level = Number(levelInput.value || 0);
-
-    count.textContent =
-        `최근 경보 ${formatNumber(data.total)}건 불러옴` +
-        (level > 0 ? ` · Wazuh 레벨 ≥ ${level}` : "");
-
-    // Highest priority first by default (ties: newest first); "최신순"
-    // keeps the server's time order.
-    const sortMode = byId("alert-sort")?.value || "priority";
     const alerts = [...(data.alerts || [])];
+    // Highest priority first by default (ties: newest first). With 우선순위순
+    // the server already picked the highest levels of the period, so a page of
+    // newest scanner noise can no longer hide a level-12 alert.
     if (sortMode === "priority") {
         alerts.sort((left, right) =>
             priorityScore(right) - priorityScore(left)
             || (Date.parse(right.time) || 0) - (Date.parse(left.time) || 0));
     }
+    const rows = grouped ? groupAlerts(alerts) : alerts.map((alert) => ({ lead: alert, count: 1 }));
 
-    const header = alerts.length ? `
+    const capped = data.limit && data.total >= data.limit;
+    count.textContent = [
+        `${ALERT_RANGE_LABELS[range] ?? "최근"} 경보 ${formatNumber(data.total)}건${capped ? ` (${sortMode === "priority" ? "레벨 높은 순" : "최신순"} 상위 ${formatNumber(data.limit)}건)` : ""}`,
+        grouped && rows.length !== alerts.length ? `${formatNumber(rows.length)}개 묶음` : "",
+        level > 0 ? `Wazuh 레벨 ≥ ${level}` : "",
+        state.alertHost ? `호스트 ${state.alertHost}` : "",
+    ].filter(Boolean).join(" · ");
+
+    const header = rows.length ? `
         <div class="alert-row alert-row-head" role="row">
             <span>시각</span>
             <span>우선순위 · 심각도</span>
@@ -2110,65 +2298,7 @@ async function loadAlertsInner() {
             <span></span>
         </div>` : "";
 
-    table.innerHTML = header + alerts.map((a) => {
-        const timestamp = Date.parse(a.time);
-        const time = Number.isFinite(timestamp)
-            ? new Date(timestamp).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
-            : (a.time || "—");
-
-        const ruleParts = [
-            a.rule_id ? `룰 ${a.rule_id}` : "",
-            a.mitre && a.mitre !== "—"
-                ? `MITRE ${a.mitre}`
-                : "",
-            a.decoder
-                ? `디코더 ${a.decoder}`
-                : "",
-        ].filter(Boolean);
-
-        return `
-            <div class="alert-row sev-row sev-${alertSeverity(a).key}">
-                <span class="alert-time">
-                    ${escapeHtml(time)}
-                </span>
-
-                <span class="wazuh-level">
-                    ${priorityBadge(a)}
-                    ${severityChip(a)}
-                </span>
-
-                <div class="alert-description">
-                    <strong>${escapeHtml(a.title || "Wazuh 경보")}</strong>
-
-                    ${a.summary
-                        ? `<p class="muted">${escapeHtml(a.summary)}</p>`
-                        : ""}
-
-                    ${a.groups?.length
-                        ? `<div class="action-meta">
-                               ${a.groups.slice(0, 4).map(
-                                   (group) =>
-                                       `<span class="tag">${escapeHtml(group)}</span>`
-                               ).join("")}
-                           </div>`
-                        : ""}
-                </div>
-
-                <span>${escapeHtml(a.host || "—")}</span>
-
-                <div class="alert-rule-meta">
-                    ${ruleParts.map(
-                        (value) => `<span>${escapeHtml(value)}</span>`
-                    ).join("")}
-                </div>
-
-                <a class="button secondary small"
-                   href="/alerts/${encodeURIComponent(a.id)}">
-                    열기
-                </a>
-            </div>
-        `;
-    }).join("") || `
+    table.innerHTML = header + rows.map((row) => renderAlertRow(row.lead, row)).join("") || `
         <div class="empty-state">
             필터와 일치하는 경보가 없습니다.
         </div>
@@ -2188,16 +2318,36 @@ function initAlerts() {
         event.preventDefault();
         loadAlerts();
     });
-    byId("alert-sort")?.addEventListener("change", () => loadAlerts());
+    ["alert-sort", "alert-range", "alert-group", "alert-min-level"].forEach((id) => {
+        byId(id)?.addEventListener("change", () => loadAlerts());
+    });
+    const tabs = [...document.querySelectorAll(".alert-tab")];
+    const selectTab = (category) => tabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.category === category)));
+    tabs.forEach((tab) => tab.addEventListener("click", () => {
+        selectTab(tab.dataset.category);
+        loadAlerts();
+    }));
 
-    // Dashboard cards link here with a filter already chosen
-    // (e.g. /alerts?min_level=8), so the queue opens pre-filtered.
+    // Dashboard cards and charts link here with a filter already chosen
+    // (e.g. /alerts?min_level=8&range=24h), so the queue opens pre-filtered.
     const params = new URLSearchParams(window.location.search);
-    const levelSelect = byId("alert-min-level");
+    const preset = (id, value) => {
+        const select = byId(id);
+        if (select && value !== null && [...select.options].some((option) => option.value === value)) select.value = value;
+    };
+    // Dashboard level rows link with any level; add it when the list lacks it.
     const presetLevel = params.get("min_level");
-    if (levelSelect && presetLevel && [...levelSelect.options].some((o) => o.value === presetLevel)) {
-        levelSelect.value = presetLevel;
+    const levelSelect = byId("alert-min-level");
+    if (levelSelect && /^\d{1,2}$/.test(presetLevel || "") && Number(presetLevel) >= 1 && Number(presetLevel) <= 16
+        && ![...levelSelect.options].some((option) => option.value === presetLevel)) {
+        levelSelect.add(new Option(`레벨 ${presetLevel} 이상`, presetLevel));
     }
+    preset("alert-min-level", presetLevel);
+    state.alertHost = /^[A-Za-z0-9_.:-]{1,128}$/.test(params.get("host") || "") ? params.get("host") : "";
+    preset("alert-range", params.get("range"));
+    preset("alert-sort", params.get("sort"));
+    if (["attack", "vulnerability", "all"].includes(params.get("category"))) selectTab(params.get("category"));
+    if (params.get("group") === "0" && byId("alert-group")) byId("alert-group").checked = false;
     const presetQuery = params.get("q");
     if (presetQuery && byId("alert-query")) byId("alert-query").value = presetQuery;
 
@@ -2854,7 +3004,7 @@ async function initHunts() {
 
 function actionCard(a, decisionButtons = false) {
     const buttons = decisionButtons && a.status === "pending_approval" ? `<div class="approval-actions"><button class="button danger small action-decision" data-id="${escapeHtml(a.id)}" data-decision="reject">반려</button><button class="button primary small action-decision" data-id="${escapeHtml(a.id)}" data-decision="approve">승인</button></div>` : "";
-    return `<div class="approval-card"><div class="approval-top"><strong>${escapeHtml(a.id)} · ${escapeHtml(a.title)}</strong><span class="status-text ${escapeHtml(a.status)}">${escapeHtml(approvalStatusLabel(a.status))}</span></div><p>${escapeHtml(a.summary)}</p><div class="approval-meta"><span class="tag">${escapeHtml(a.type)}</span><span class="tag">위험도: ${escapeHtml(severityLabel(a.risk))}</span><span class="tag">${escapeHtml(a.created_at)}</span></div>${buttons}</div>`;
+    return `<div class="approval-card"><div class="approval-top"><strong>${escapeHtml(a.id)} · ${escapeHtml(a.title)}</strong><span class="status-text ${escapeHtml(a.status)}">${escapeHtml(approvalStatusLabel(a.status))}</span></div><p>${escapeHtml(a.summary)}</p><div class="approval-meta"><span class="tag" title="${escapeHtml(a.type)}">${escapeHtml(approvalLabel(a.type))}</span><span class="tag">위험도: ${escapeHtml(severityLabel(a.risk))}</span><span class="tag" title="${escapeHtml(a.created_at)}">${escapeHtml(formatAlertTime(a.created_at, false))}</span></div>${a.dispatch_result && DISPATCH_MESSAGES[normalizeApprovalValue(a.dispatch_result.message)] ? `<p class="muted approval-not-run">${escapeHtml(DISPATCH_MESSAGES[normalizeApprovalValue(a.dispatch_result.message)])}</p>` : ""}${buttons}</div>`;
 }
 
 async function loadActionList(containerId, prefix = "") {
@@ -2868,7 +3018,58 @@ function normalizeApprovalValue(value) {
     return String(value ?? "").trim();
 }
 
+// Raw action values shown on cards; anything not listed falls back to Title Case.
+const APPROVAL_VALUE_LABELS = {
+    velociraptor_collection: "Velociraptor 수집",
+    velociraptor_hunt: "Velociraptor 헌트",
+    velociraptor_isolation: "Velociraptor 격리",
+    velociraptor_remediation: "Velociraptor 조치",
+    suricata_rule: "Suricata 룰",
+    suricata_rule_disable: "Suricata 룰 비활성화",
+    staging: "스테이징",
+    production: "운영",
+    alert: "탐지(경보만)",
+    drop: "차단",
+    reject: "거부",
+    pass: "통과",
+    superseded: "대체됨",
+    verified: "검증됨",
+    passed: "통과",
+    detection_only: "탐지 전용",
+    draft: "초안",
+    review: "검토 필요",
+    deployment: "배포 단계",
+    requested_action: "요청 동작",
+    detection_spec: "탐지 명세",
+    verification: "검증 결과",
+    verification_status: "검증 상태",
+    live_enforcement_mode: "실제 적용 방식",
+    blocking_verified: "차단 검증",
+    validation: "검증 항목",
+    review_warnings: "검토 경고",
+    rule_id: "룰 ID",
+    host: "호스트",
+    interface: "인터페이스",
+    target_enabled: "적용 후 활성화",
+    previous_state: "이전 상태",
+    collection_type: "수집 종류",
+    filters: "조건",
+    artifact: "아티팩트",
+    agent_id: "에이전트 ID",
+    id: "ID",
+    low: "낮음",
+    medium: "중간",
+    high: "높음",
+    critical: "치명",
+};
+const DISPATCH_MESSAGES = {
+    "Execution is disabled by server policy.": "서버 정책(ENABLE_RESPONSE_ACTIONS=false)으로 실행이 꺼져 있어 승인만 기록했습니다.",
+    "No trusted action gateway is configured.": "조치 게이트웨이(Velociraptor 연동)가 설정되지 않아 승인만 기록했습니다.",
+};
+
 function approvalLabel(value) {
+    const key = normalizeApprovalValue(value).toLowerCase();
+    if (APPROVAL_VALUE_LABELS[key]) return APPROVAL_VALUE_LABELS[key];
     return normalizeApprovalValue(value)
         .replace(/^agent[:-]?/i, "")
         .replace(/_/g, " ")
@@ -2911,11 +3112,13 @@ function approvalModeLabel(mode) {
 function approvalStatusLabel(status) {
     const labels = {
         pending_approval: "승인 대기",
-        approved_staged: "승인됨 · 대기",
+        approved_staged: "승인됨 · 실행 안 됨",
         submitted: "제출됨",
         rejected: "반려됨",
         dispatch_failed: "전송 실패",
         approved: "승인됨",
+        superseded: "대체됨",
+        verification_blocked: "검증 차단",
         pending: "검토 대기",
         failed: "실패",
         unknown: "알 수 없음",
@@ -2988,16 +3191,24 @@ function approvalSearchText(action) {
     ].join(" ").toLowerCase();
 }
 
-function renderApprovalValue(value) {
+// Only these fields hold enum values worth translating; a host or name that
+// happens to read "production" stays as written.
+const APPROVAL_ENUM_KEYS = new Set(["deployment", "requested_action", "verification_status", "live_enforcement_mode", "status", "risk"]);
+
+function renderApprovalValue(value, key = "") {
     if (Array.isArray(value)) {
         return value.length
             ? `<ul>${value.map((item) => `<li>${escapeHtml(typeof item === "object" ? JSON.stringify(item) : item)}</li>`).join("")}</ul>`
             : `<span class="approval-empty-value">없음</span>`;
     }
     if (value && typeof value === "object") {
-        return `<pre class="approval-json"><code>${escapeHtml(JSON.stringify(value, null, 2))}</code></pre>`;
+        // Machine records (DetectionSpec, verification) stay one click away.
+        return `<details class="approval-json-toggle"><summary>JSON 보기 · ${escapeHtml(Object.keys(value).length)}개 항목</summary><pre class="approval-json"><code>${escapeHtml(JSON.stringify(value, null, 2))}</code></pre></details>`;
     }
-    return `<span>${escapeHtml(value ?? "")}</span>`;
+    if (typeof value === "boolean") return `<span>${value ? "예" : "아니요"}</span>`;
+    const text = normalizeApprovalValue(value);
+    const label = APPROVAL_ENUM_KEYS.has(String(key).toLowerCase()) ? APPROVAL_VALUE_LABELS[text.toLowerCase()] : "";
+    return label ? `<span title="${escapeHtml(text)}">${escapeHtml(label)}</span>` : `<span>${escapeHtml(text)}</span>`;
 }
 
 function suricataRuleIdentifiers(action) {
@@ -3064,7 +3275,7 @@ function renderApprovalPayload(action) {
                     ${entries.map(([key, value]) => `
                         <div>
                             <dt>${escapeHtml(approvalLabel(key))}</dt>
-                            <dd>${renderApprovalValue(value)}</dd>
+                            <dd>${renderApprovalValue(value, key)}</dd>
                         </div>
                     `).join("")}
                 </dl>
@@ -3097,7 +3308,15 @@ function renderApprovalOutcome(action) {
             </div>
         `);
     }
-    if (action.dispatch_result && typeof action.dispatch_result === "object") {
+    if (action.dispatch_result && typeof action.dispatch_result === "object"
+        && DISPATCH_MESSAGES[normalizeApprovalValue(action.dispatch_result.message)]) {
+        parts.push(`
+            <div class="approval-outcome-row approval-outcome-note">
+                <strong>실행 안 됨</strong>
+                <span>${escapeHtml(DISPATCH_MESSAGES[normalizeApprovalValue(action.dispatch_result.message)])}</span>
+            </div>
+        `);
+    } else if (action.dispatch_result && typeof action.dispatch_result === "object") {
         const routineMessage = normalizeApprovalValue(action.dispatch_result.message);
         const hiddenRoutineMessages = new Set([
             "서버 정책에 의해 실행이 비활성화되어 있습니다.",
@@ -3437,7 +3656,7 @@ const RULE_STATE_LABELS = {
     pending: "검토 대기",
     pending_approval: "검토 대기",
     approved: "승인됨",
-    approved_staged: "승인됨 · 대기",
+    approved_staged: "승인됨 · 실행 안 됨",
     submitted: "제출됨",
     deployed: "배포됨",
     rejected: "반려됨",
@@ -3843,7 +4062,129 @@ async function initActions() {
     await loadApprovalWorkspace();
 }
 
-async function initAudit() { const data = await api("/api/audit"); byId("audit-list").innerHTML = data.events.map((e) => `<div class="audit-row"><span>${escapeHtml(new Date(e.timestamp).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }))}</span><strong>${escapeHtml(e.event_type)}</strong><code>${escapeHtml(JSON.stringify(e.detail))}</code></div>`).join("") || `<div class="empty-state">아직 기록된 감사 이벤트가 없습니다.</div>`; }
+const AUDIT_LABELS = {
+    login_succeeded: "로그인 성공",
+    login_failed: "로그인 실패",
+    logout: "로그아웃",
+    password_changed: "비밀번호 변경",
+    user_created: "사용자 생성",
+    user_password_reset: "비밀번호 초기화",
+    user_role_changed: "역할 변경",
+    user_status_changed: "계정 상태 변경",
+    wazuh_log_search: "로그 검색",
+    wazuh_log_search_check: "추천 검색 건수 확인",
+    agent_request: "AI 작업공간 요청",
+    agent_processing_error: "AI 작업공간 처리 오류",
+    alert_analysis_request: "경보 분석 요청",
+    alert_analysis_completed: "경보 분석 완료",
+    evidence_fitted_to_context: "증거를 문맥 한도에 맞춤",
+    evidence_agent_completed: "증거 수집 에이전트 완료",
+    evidence_agent_failed: "증거 수집 에이전트 실패",
+    evidence_agent_reverted: "증거 수집 결과 되돌림",
+    evidence_agent_skipped: "증거 수집 에이전트 건너뜀",
+    analyst_feedback_recorded: "분석가 판정 저장",
+    redteam_eval_dispatched: "레드팀 평가 전송",
+    action_queued: "조치 승인 요청",
+    action_decision: "조치 승인 결정",
+    action_resubmitted: "조치 재요청",
+    action_updated: "조치 수정",
+    rule_validation: "룰 검증",
+    suricata_rule_created: "Suricata 룰 생성",
+    suricata_rule_updated: "Suricata 룰 수정",
+    suricata_rule_deleted: "Suricata 룰 삭제",
+    suricata_rule_verified: "Suricata 룰 검증 통과",
+    suricata_rule_verification_failed: "Suricata 룰 검증 실패",
+    suricata_rule_staged: "Suricata 룰 승인 요청",
+    suricata_rule_stage_blocked: "Suricata 룰 승인 요청 차단",
+    suricata_action_approval_blocked: "Suricata 승인 차단",
+    suricata_actions_superseded: "Suricata 이전 요청 대체",
+    suricata_verified_rule_imported: "검증된 룰 가져오기",
+    suricata_verified_import_blocked: "검증된 룰 가져오기 차단",
+    auto_report_created: "자동 보고서 생성",
+    auto_report_analyzed: "자동 보고서 AI 분석",
+    auto_report_ai_failed: "자동 보고서 AI 실패",
+    auto_report_ai_expired: "자동 보고서 AI 만료",
+    auto_report_bundle_failed: "자동 보고서 증거 수집 실패",
+    auto_report_fetch_failed: "자동 보고서 경보 조회 실패",
+    auto_report_cycle_failed: "자동 보고서 실행 실패",
+    auto_report_reviewed: "자동 보고서 검토",
+    auto_report_run_requested: "자동 보고서 수동 실행",
+};
+const AUDIT_TONE = {
+    login_failed: "bad", auto_report_ai_failed: "bad", auto_report_fetch_failed: "bad", auto_report_cycle_failed: "bad",
+    evidence_agent_failed: "bad", agent_processing_error: "bad", suricata_rule_verification_failed: "bad",
+    suricata_rule_stage_blocked: "warn", suricata_action_approval_blocked: "warn", suricata_verified_import_blocked: "warn",
+    evidence_agent_reverted: "warn", evidence_fitted_to_context: "warn",
+};
+// One readable line per event; the full record stays one click away.
+const AUDIT_SUMMARY_KEYS = [
+    ["username", "사용자"], ["query", "쿼리"], ["index", "인덱스"], ["result_count", "결과"],
+    ["alert_id", "경보"], ["report_id", "보고서"], ["analysis_id", "분석"], ["action_id", "조치"],
+    ["mode", "모드"], ["verdict", "판정"], ["decision", "결정"], ["status", "상태"], ["status_code", "HTTP"],
+    ["job_id", "작업"], ["dropped", "제외"], ["final_chars", "최종 글자 수"], ["reason", "이유"],
+    ["remote_addr", "접속 주소"], ["error", "오류"], ["redteam", "레드팀"],
+];
+
+function auditSummary(detail = {}) {
+    return AUDIT_SUMMARY_KEYS
+        .filter(([key]) => detail[key] !== undefined && detail[key] !== null && detail[key] !== "")
+        .slice(0, 5)
+        .map(([key, label]) => `${label} ${typeof detail[key] === "object" ? JSON.stringify(detail[key]) : String(detail[key])}`)
+        .map((text) => (text.length > 90 ? `${text.slice(0, 89)}…` : text))
+        .join(" · ");
+}
+
+async function initAudit() {
+    const list = byId("audit-list");
+    const typeSelect = byId("audit-type");
+    const actorSelect = byId("audit-actor");
+    const params = new URLSearchParams({
+        type: typeSelect?.value || "",
+        actor: actorSelect?.value || "",
+        q: byId("audit-q")?.value.trim() || "",
+    });
+    const data = await api(`/api/audit?${params}`);
+
+    const fill = (select, values, label) => {
+        if (!select) return;
+        const current = select.value;
+        select.innerHTML = `<option value="">전체</option>` + values
+            .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(label(value))}</option>`).join("");
+        select.value = values.includes(current) ? current : "";
+    };
+    fill(typeSelect, data.event_types || [], (value) => AUDIT_LABELS[value] ? `${AUDIT_LABELS[value]} (${value})` : value);
+    fill(actorSelect, data.actors || [], (value) => value);
+
+    if (byId("audit-count")) {
+        byId("audit-count").textContent = data.matched === data.total
+            ? `전체 ${formatNumber(data.total)}건 중 최근 ${formatNumber((data.events || []).length)}건`
+            : `조건에 맞는 ${formatNumber(data.matched)}건 (전체 ${formatNumber(data.total)}건) 중 최근 ${formatNumber((data.events || []).length)}건`;
+    }
+    list.classList.remove("loading-block");
+    list.innerHTML = (data.events || []).map((event) => {
+        const actor = event.actor?.username || (event.actor?.kind === "system" ? "자동" : "");
+        const summary = auditSummary(event.detail || {});
+        return `<div class="audit-row audit-row-${AUDIT_TONE[event.event_type] || "plain"}">
+            <span class="audit-time">${escapeHtml(new Date(event.timestamp).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }))}</span>
+            <strong class="audit-type" title="${escapeHtml(event.event_type)}">${escapeHtml(AUDIT_LABELS[event.event_type] || event.event_type)}</strong>
+            <span class="audit-actor">${escapeHtml(actor || "—")}</span>
+            <details class="audit-detail">
+                <summary>${escapeHtml(summary || "상세 보기")}</summary>
+                <pre>${escapeHtml(JSON.stringify(event.detail, null, 2))}</pre>
+            </details>
+        </div>`;
+    }).join("") || `<div class="empty-state">조건에 맞는 감사 이벤트가 없습니다.</div>`;
+}
+
+function initAuditPage() {
+    byId("refresh-audit")?.addEventListener("click", initAudit);
+    byId("audit-filter")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        initAudit();
+    });
+    ["audit-type", "audit-actor"].forEach((id) => byId(id)?.addEventListener("change", initAudit));
+    return initAudit();
+}
 
 async function init() {
     initSidebarNavigation();
@@ -3862,6 +4203,6 @@ async function init() {
     if (page === "response") initResponse();
     if (page === "rules") initRules();
     if (page === "actions") await initActions();
-    if (page === "audit") { await initAudit(); byId("refresh-audit").addEventListener("click", initAudit); }
+    if (page === "audit") await initAuditPage();
 }
 init();

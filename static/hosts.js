@@ -68,6 +68,29 @@
         return HOST_STATUS_LABELS[key] || value;
     }
 
+    // 24시간 공격 경보 (레벨 10 이상) · 치명 취약점, added to each card.
+    async function loadHostBadges(list) {
+        let data;
+        try {
+            data = await requestJson("/api/siem/hosts/badges");
+        } catch {
+            return;
+        }
+        const badges = data.badges || {};
+        list.querySelectorAll("[data-agent-id]").forEach((row) => {
+            const badge = badges[row.dataset.agentId] || {};
+            const parts = [
+                `<span class="host-badge" title="CVE 경보를 뺀 최근 24시간 경보">경보 ${Number(badge.alerts_24h || 0).toLocaleString("ko-KR")}</span>`,
+                badge.high_24h ? `<span class="host-badge host-badge-high" title="레벨 10 이상">고위험 ${Number(badge.high_24h).toLocaleString("ko-KR")}</span>` : "",
+                badge.critical_vulnerabilities ? `<span class="host-badge host-badge-vuln" title="치명 등급 취약점">치명 취약점 ${Number(badge.critical_vulnerabilities).toLocaleString("ko-KR")}</span>` : "",
+            ].filter(Boolean).join("");
+            const holder = document.createElement("div");
+            holder.className = "host-badges";
+            holder.innerHTML = parts;
+            row.querySelector("div")?.appendChild(holder);
+        });
+    }
+
     async function initHosts(root) {
         const list = root.querySelector("[data-host-list]");
         const summary = root.querySelector("[data-host-summary]");
@@ -80,6 +103,7 @@
 
             list.innerHTML = (data.hosts || []).map((host) => `
                 <a class="host-row"
+                   data-agent-id="${escapeHtml(host.id)}"
                    href="/hosts/${encodeURIComponent(host.id)}">
 
                     <span class="host-status ${escapeHtml(host.status)}">
@@ -120,6 +144,7 @@
                     모니터링 중인 Wazuh 엔드포인트가 반환되지 않았습니다.
                 </div>
             `;
+            loadHostBadges(list);
         } catch (error) {
             summary.textContent = "호스트 조회 실패";
 
@@ -272,7 +297,7 @@
         `;
     }
 
-    async function loadHostSecurity(root, agentId) {
+    async function loadHostSecurity(root, agentId, hostName = "") {
         const target = root.querySelector("[data-host-security]");
         if (!target) return;
 
@@ -427,6 +452,23 @@
                             vulnerabilities.under_evaluation ?? 0
                         )}
                     </p>
+
+                    ${(vulnerabilities.top_packages || []).length ? `
+                        <div class="vuln-packages">
+                            <p class="vuln-packages-head">취약점이 많은 패키지</p>
+                            <ol>
+                                ${vulnerabilities.top_packages.map((item) => `
+                                    <li>
+                                        <code>${escapeHtml(item.name)}</code>
+                                        ${item.version ? `<span class="muted">${escapeHtml(item.version)}</span>` : ""}
+                                        <span class="vuln-package-count">${escapeHtml(Number(item.findings).toLocaleString("ko-KR"))}건${item.critical_or_high ? ` · 치명·높음 ${escapeHtml(Number(item.critical_or_high).toLocaleString("ko-KR"))}` : ""}</span>
+                                    </li>`).join("")}
+                            </ol>
+                            ${vulnTotal && vulnerabilities.top_packages[0].findings / vulnTotal >= 0.3
+                                ? `<p class="vuln-packages-hint">${escapeHtml(vulnerabilities.top_packages[0].name)} 업데이트로 ${escapeHtml(Math.round(vulnerabilities.top_packages[0].findings / vulnTotal * 100))}%(${escapeHtml(Number(vulnerabilities.top_packages[0].findings).toLocaleString("ko-KR"))}건)가 함께 해소될 수 있습니다.</p>`
+                                : ""}
+                            <a class="button secondary small" href="/alerts?category=vulnerability&amp;range=7d&amp;host=${encodeURIComponent(hostName)}">CVE 경보 보기</a>
+                        </div>` : ""}
                 </article>
 
                 <article class="host-security-card">
@@ -569,7 +611,7 @@
                 </div>
             `;
 
-            loadHostSecurity(root, agentId);
+            loadHostSecurity(root, agentId, host.name || "");
 
         } catch (error) {
             root.innerHTML = `

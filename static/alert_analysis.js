@@ -657,9 +657,38 @@
         }).join("");
     }
 
+    const REVIEW_LABELS = { unreviewed: "검토 전", investigating: "추가 조사", confirmed: "확인됨", false_positive: "오탐" };
+    const AI_LABELS = { completed: "AI 분석 완료", pending: "AI 대기", failed: "AI 실패", expired: "AI 만료" };
+    async function renderAlertHistory(root, alertId) {
+        const target = root.querySelector("[data-alert-history]");
+        if (!target) return;
+        let data;
+        try {
+            data = await requestJson(`/api/alerts/${encodeURIComponent(alertId)}/history`);
+        } catch {
+            return;
+        }
+        const reports = data.reports || [];
+        const analyses = data.analyses || [];
+        if (!reports.length && !analyses.length) return;
+        const when = (value) => {
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? String(value || "") : date.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+        };
+        target.hidden = false;
+        target.innerHTML = `
+            <strong>이 경보의 이전 기록</strong>
+            ${reports.map((report) => `<a class="alert-history-item" href="/auto-reports?id=${encodeURIComponent(report.id)}">
+                자동 보고서 ${escapeHtml(report.id)} · ${escapeHtml(report.band || "")} · ${escapeHtml(AI_LABELS[report.ai_status] || report.ai_status || "")} · ${escapeHtml(REVIEW_LABELS[report.review_status] || report.review_status || "")}${report.occurrences > 1 ? ` · 묶인 경보 ${escapeHtml(report.occurrences)}건` : ""}
+            </a>`).join("")}
+            ${analyses.length ? `<span class="alert-history-item">LLM 분석 ${escapeHtml(analyses.length)}회 · 마지막 ${escapeHtml(when(analyses[0].timestamp))}${analyses[0].by ? ` (${escapeHtml(analyses[0].by)})` : ""}</span>` : ""}
+            ${reports.some((report) => report.ai_status === "completed") ? `<span class="muted">완료된 자동 보고서가 있으면 다시 분석하기 전에 먼저 열어 보세요. 같은 증거로 GPU를 한 번 더 쓰게 됩니다.</span>` : ""}`;
+    }
+
     async function initDetail(root) {
         const alertId = root.dataset.alertId;
         const csrf = root.dataset.csrf;
+        renderAlertHistory(root, alertId);
         try {
             renderCase(root, await requestJson(`/api/alerts/${encodeURIComponent(alertId)}`));
             try {
@@ -771,7 +800,7 @@
                 output.innerHTML = `<div class="markdown-body">${markdown(result.answer || "반환된 분석 결과가 없습니다.")}</div>`;
                 if (typeof window.enhanceRenderedContent === "function") window.enhanceRenderedContent(output);
                 renderReview(root, result);
-                window.HawkiXai?.render(root.querySelector("[data-analysis-xai]"), result.explanation);
+                window.HawkiXai?.render(root.querySelector("[data-analysis-xai]"), result.explanation, { queries: result.queries });
                 renderFeedbackForm(root, result, alertId, csrf);
                 const counts = result.metadata_counts || {};
                 const bundled = [

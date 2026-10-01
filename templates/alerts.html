@@ -7,7 +7,13 @@
 
 {% block content %}
 <section class="panel">
-    <form id="alert-filter-form" class="toolbar-form">
+    <div class="alert-tabs" role="tablist" aria-label="경보 구분">
+        <button type="button" class="alert-tab" role="tab" data-category="attack" aria-selected="true">공격 경보</button>
+        <button type="button" class="alert-tab" role="tab" data-category="vulnerability" aria-selected="false">취약점 (CVE)</button>
+        <button type="button" class="alert-tab" role="tab" data-category="all" aria-selected="false">전체</button>
+        <span class="alert-tab-note muted" data-category-note></span>
+    </div>
+    <form id="alert-filter-form" class="toolbar-form alert-filter-form">
         <label>
             검색
             <input id="alert-query" placeholder="에이전트, IP, 룰, 그룹, MITRE, 탐지명">
@@ -26,11 +32,27 @@
         </label>
 
         <label>
+            기간
+            <select id="alert-range">
+                <option value="1h">최근 1시간</option>
+                <option value="24h" selected>최근 24시간</option>
+                <option value="7d">최근 7일</option>
+                <option value="30d">최근 30일</option>
+                <option value="">기간 제한 없음</option>
+            </select>
+        </label>
+
+        <label>
             정렬
             <select id="alert-sort">
                 <option value="priority">우선순위순</option>
                 <option value="time">최신순</option>
             </select>
+        </label>
+
+        <label class="alert-group-toggle">
+            <input type="checkbox" id="alert-group" checked>
+            같은 룰·출발지 묶기
         </label>
 
         <button class="button primary" type="submit">

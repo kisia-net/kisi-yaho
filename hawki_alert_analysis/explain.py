@@ -21,10 +21,13 @@ the model's; the links, statuses, counts and factors are not.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 EXPLANATION_SCHEMA = "hawki.explanation/v1"
 MAX_LOG_CHARS = 500
+BROAD_CITATION_MIN = 6
+BROAD_CITATION_SHARE = 0.6
 
 SEVERITY_ORDER = ("info", "low", "medium", "high", "critical")
 # The severities a well-calibrated analysis would usually give each band.
@@ -137,19 +140,29 @@ def build_explanation(
 
     claims = []
     cited_anywhere: set[str] = set()
+    cited_specifically: set[str] = set()
+    # A claim citing (nearly) every record says nothing about which evidence
+    # supports it, yet would count every record as "used". Flagged, and left
+    # out of the specific-use count.
+    broad_at = max(BROAD_CITATION_MIN, math.ceil(len(records) * BROAD_CITATION_SHARE))
     for kind, section in (("supporting", "supporting_evidence"), ("contradictory", "contradictory_evidence")):
         for entry in assessment.get(section) or []:
             if not isinstance(entry, dict) or not entry.get("statement"):
                 continue
             cited = [str(value) for value in entry.get("event_ids") or []]
             unknown = [value for value in cited if value not in records]
-            cited_anywhere.update(value for value in cited if value in records)
+            known = {value for value in cited if value in records}
+            cited_anywhere.update(known)
+            broad = len(records) >= BROAD_CITATION_MIN and len(known) >= broad_at
+            if not broad:
+                cited_specifically.update(known)
             claims.append({
                 "kind": kind,
                 "statement": str(entry["statement"])[:600],
                 "event_ids": cited,
                 "unknown_event_ids": unknown,
                 "status": _claim_status(cited, unknown),
+                "broad": broad,
             })
 
     counts = {status: sum(1 for claim in claims if claim["status"] == status)
@@ -170,6 +183,8 @@ def build_explanation(
             **counts,
             "evidence_total": len(records),
             "evidence_cited": len(cited_anywhere),
+            "evidence_cited_specifically": len(cited_specifically),
+            "broad": sum(1 for claim in claims if claim["broad"]),
             "observations": len(assessment.get("confirmed_observations") or []),
             "missing_sections": list(_dict(result.get("assessment_review")).get("missing_sections") or []),
         },

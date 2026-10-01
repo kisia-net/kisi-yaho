@@ -7,7 +7,7 @@ is included.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .assets import NullAssetInventory, live_observed_values, match_live_assets
@@ -181,6 +181,26 @@ def _provenance(
     }
 
 
+KST = timezone(timedelta(hours=9), "KST")
+
+
+def _kst(value: Any) -> str | None:
+    """The trigger time as the analyst reads it on screen (KST)."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    # Wazuh writes "+0000"; fromisoformat before 3.11 wants "+00:00".
+    if len(text) > 5 and text[-5] in "+-" and text[-4:].isdigit():
+        text = f"{text[:-2]}:{text[-2:]}"
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST")
+
+
 def _native_trigger(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "evidence_id": "TRIGGER",
@@ -192,6 +212,7 @@ def _native_trigger(record: dict[str, Any]) -> dict[str, Any]:
         "id": record.get("id"),
         "index": record.get("index"),
         "timestamp": record.get("timestamp"),
+        "timestamp_kst": _kst(record.get("timestamp")),
         "agent": record.get("agent") or {},
         "manager": record.get("manager") or {},
         "rule": record.get("rule") or {},
