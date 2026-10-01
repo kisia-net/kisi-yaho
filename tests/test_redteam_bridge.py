@@ -61,6 +61,42 @@ class DispatchTests(unittest.TestCase):
             result={"answer": "x", "model": "hawki-local", "internal": "not sent"}, tools=["promptfoo"],
         )
 
+    def test_payload_meets_the_runner_contract(self):
+        payload = self.payload()
+        for key in ("schema", "analysis_id", "alert_id", "created_at", "tools", "model",
+                    "request", "hashes", "evidence_bundle", "result"):
+            self.assertIn(key, payload)
+        for key in ("request", "hashes", "evidence_bundle", "result"):
+            self.assertIsInstance(payload[key], dict, key)
+        self.assertEqual(payload["request"]["text"], "Analyze.")
+        self.assertIs(payload["result"]["demo"], False)
+        self.assertEqual(payload["result"]["analysis_id"], payload["analysis_id"])
+        self.assertEqual(payload["result"]["alert_id"], payload["alert_id"])
+        self.assertEqual(payload["result"]["bundle_schema"], payload["evidence_bundle"]["schema"])
+        self.assertNotIn("internal", payload["result"])
+        self.assertIsNone(bridge.payload_problem(payload))
+
+    def test_what_the_runner_refuses_is_not_sent(self):
+        bad = self.payload()
+        bad["analysis_id"] = "A" * 32
+        self.assertEqual(bridge.payload_problem(bad), "analysis_id_not_32_hex")
+        demo = self.payload()
+        demo["result"]["demo"] = True
+        self.assertEqual(bridge.payload_problem(demo), "demo_result")
+        outcomes = []
+        with mock.patch.object(bridge.requests, "post") as post:
+            bridge.dispatch_in_background(
+                runner_url="http://10.0.10.59:8091", token="secret", timeout=3, payload=bad,
+                on_done=outcomes.append, start_thread=lambda thread: thread.run(),
+            )
+        post.assert_not_called()
+        self.assertFalse(outcomes[0]["dispatched"])
+
+    def test_the_runner_job_id_is_read_from_any_of_its_four_places(self):
+        job_id = "6716f0c2a9e4b1d3c5f7a8b9"
+        body = {"job_id": job_id, "id": job_id, "job": {"job_id": job_id, "id": job_id}}
+        self.assertEqual(bridge.extract_job_id(body), job_id)
+
     def test_posts_with_token_and_reports_outcome(self):
         outcomes = []
         response = mock.Mock(status_code=202, json=lambda: {"job": {"id": "6716f0c2a9e4b1d3c5f7a8b9"}, "status": "queued"})

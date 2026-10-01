@@ -22,7 +22,11 @@ Rules this module enforces, whatever the caller does:
 Runner contract, as the siem-redteam runner implements it (2026-10-01):
     GET  {REDTEAM_RUNNER_URL}/healthz            no token     -> 200
     POST {REDTEAM_RUNNER_URL}/v1/jobs            Bearer token -> 202 + the job
-         body: build_job_payload(...)
+         body: build_job_payload(...); the runner requires all ten fields,
+         request/hashes/evidence_bundle/result as objects, a 32-hex
+         analysis_id, a live bundle and result.demo == false (4 MB limit).
+         202 means accepted, not passed. The 24-character job id comes back
+         as job_id, id, job.job_id and job.id.
     GET  {REDTEAM_RUNNER_URL}/v1/jobs/<job_id>   Bearer token -> status, results
 The path is REDTEAM_JOBS_PATH (default /v1/jobs). The runner names jobs by its
 own 24-character id, so the job id it returns is kept per analysis_id
@@ -107,6 +111,22 @@ def forwarding_decision(
     return "send"
 
 
+def payload_problem(payload: dict[str, Any]) -> str | None:
+    """What the runner would refuse, checked before the request is made."""
+    if not ANALYSIS_ID_PATTERN.fullmatch(str(payload.get("analysis_id") or "")):
+        return "analysis_id_not_32_hex"
+    if not str(payload.get("alert_id") or "").strip():
+        return "missing_alert_id"
+    for key in ("request", "hashes", "evidence_bundle", "result"):
+        if not isinstance(payload.get(key), dict):
+            return f"{key}_not_object"
+    if str(payload["evidence_bundle"].get("schema") or "") not in LIVE_SCHEMAS:
+        return "bundle_not_live"
+    if payload["result"].get("demo") is not False:
+        return "demo_result"
+    return None
+
+
 def build_job_payload(
     *,
     analysis_id: str,
@@ -118,6 +138,9 @@ def build_job_payload(
     result: dict[str, Any],
     tools: list[str],
 ) -> dict[str, Any]:
+    # The runner (2026-10-01) requires all ten fields; request, hashes,
+    # evidence_bundle and result must be objects, result.demo must be false,
+    # and analysis_id / alert_id / bundle_schema inside result must match.
     return {
         "schema": "hawki.redteam-job/v1",
         "analysis_id": analysis_id,
@@ -125,12 +148,18 @@ def build_job_payload(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "tools": tools,
         "model": result.get("model"),
-        "request": request_text,
+        "request": {"kind": "alert_analysis", "text": request_text},
         "hashes": {"prompt_sha256": prompt_sha256, "bundle_sha256": bundle_sha256},
         "evidence_bundle": bundle,
         "result": {
-            key: result.get(key)
-            for key in ("answer", "assessment", "assessment_review", "evidence", "queries", "actions", "generation")
+            **{
+                key: result.get(key)
+                for key in ("answer", "assessment", "assessment_review", "evidence", "queries", "actions", "generation")
+            },
+            "analysis_id": analysis_id,
+            "alert_id": alert_id,
+            "bundle_schema": str(bundle.get("schema") or ""),
+            "demo": bool(result.get("demo")),
         },
     }
 
@@ -215,6 +244,11 @@ def dispatch_in_background(
 
     def run() -> None:
         outcome: dict[str, Any] = {"analysis_id": payload.get("analysis_id")}
+        problem = payload_problem(payload)
+        if problem:
+            outcome.update(dispatched=False, error=f"not sent: {problem}")
+            on_done(outcome)
+            return
         try:
             response = requests.post(
                 runner_url.rstrip("/") + jobs_path_or_default(jobs_path),
