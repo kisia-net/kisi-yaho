@@ -147,6 +147,10 @@ class AutoReportSettings:
     forward_redteam: bool = False
     max_alerts_per_cycle: int = 200
     max_attempts: int = 3
+    # Rule groups never reported one alert at a time. The vulnerability
+    # detector raises one alert per CVE per package (hundreds at level 10-13
+    # after each scan); those are inventory findings, read on the host page.
+    exclude_groups: tuple[str, ...] = ("vulnerability-detector",)
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "AutoReportSettings":
@@ -166,6 +170,11 @@ class AutoReportSettings:
             lookback_seconds=_env_int(env, "AUTO_ANALYSIS_LOOKBACK_SECONDS", 900, 60, 7 * 86400),
             pending_ttl_seconds=_env_int(env, "AUTO_ANALYSIS_PENDING_TTL_SECONDS", 86400, 3600, 7 * 86400),
             forward_redteam=_env_bool(env, "AUTO_ANALYSIS_FORWARD_REDTEAM", False),
+            exclude_groups=tuple(
+                group
+                for group in (part.strip() for part in str(env.get("AUTO_ANALYSIS_EXCLUDE_GROUPS", "vulnerability-detector")).split(","))
+                if group and len(group) <= 64
+            ),
         )
 
     def public(self) -> dict[str, Any]:
@@ -178,6 +187,7 @@ class AutoReportSettings:
             "poll_seconds": self.poll_seconds,
             "pending_ttl_seconds": self.pending_ttl_seconds,
             "forward_redteam": self.forward_redteam,
+            "exclude_groups": list(self.exclude_groups),
         }
 
 
@@ -564,6 +574,10 @@ class AutoReporter:
 
             level = alert_level(item)
             if level is None or level < settings.min_level:
+                continue
+            groups_of_alert = item.get("groups") if isinstance(item.get("groups"), list) else []
+            if settings.exclude_groups and any(group in settings.exclude_groups for group in groups_of_alert):
+                summary["excluded"] = summary.get("excluded", 0) + 1
                 continue
             summary["alerts_read"] += 1
 

@@ -1,6 +1,19 @@
 // 자동 보고서 page. Self-contained like alert_analysis.js; app.js helpers
 // (renderMarkdown, enhanceRenderedContent) are used when present.
 (() => {
+    const REDTEAM_LABELS = {
+        not_sent: "보내지 않음",
+        send: "전송함",
+        disabled: "꺼짐",
+        queued: "전송함",
+        dispatched: "전송함",
+        skipped_no_token: "토큰 없음",
+        skipped_not_live: "실데이터 아님",
+        skipped_demo_result: "데모 결과",
+        skipped_recursive_request: "평가 요청에서 온 분석",
+        skipped_no_runner_url: "실행기 주소 없음",
+        skipped_no_tools: "도구 미지정",
+    };
     const escapeHtml = (value) => String(value ?? "")
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
@@ -143,6 +156,7 @@
                 `선정 기준: Wazuh 레벨 ${settings.min_level ?? 8} 이상 AND (우선순위 ${bands} 또는 위협 인텔리전스 일치) · `
                 + `같은 룰·출발지·호스트는 ${Math.round((settings.group_seconds || 600) / 60)}분 안에 한 보고서로 묶음 · `
                 + `AI 분석 시간당 최대 ${settings.max_ai_per_hour ?? 20}건 · `
+                + ((settings.exclude_groups || []).includes("vulnerability-detector") ? "CVE 취약점 경보는 제외(호스트 화면에서 확인) · " : "")
                 + `제안 조치는 자동 실행·자동 대기열 등록 없음 · 레드팀 전송 ${settings.forward_redteam ? "켜짐" : "꺼짐"}`;
             const runNow = root.querySelector("[data-run-now]");
             if (runNow) runNow.hidden = !(isAdmin && settings.enabled);
@@ -305,9 +319,9 @@
                     </form>
                     <p class="muted auto-report-feedback-hint">확인됨·오탐 판정은 같은 룰·호스트 또는 출발지 경보의 다음 분석에 참고 맥락으로 쓰입니다 (근거로는 쓰이지 않음).</p>
                     ${history ? `<ol class="auto-report-history">${history}</ol>` : ""}`, "no-print-controls")}
-                <p class="auto-report-trace muted">추적 정보: 증거 스키마 <code>${escapeHtml(evidence.bundle_schema || "—")}</code> · prompt <code>${escapeHtml(String(ai.hashes?.prompt_sha256 || "—").slice(0, 16))}</code> · bundle <code>${escapeHtml(String(ai.hashes?.bundle_sha256 || "—").slice(0, 16))}</code> · 레드팀 <code>${escapeHtml(report.redteam || "not_sent")}</code></p>`;
+                <p class="auto-report-trace muted">추적 정보: 증거 스키마 <code>${escapeHtml(evidence.bundle_schema || "—")}</code> · prompt <code>${escapeHtml(String(ai.hashes?.prompt_sha256 || "—").slice(0, 16))}</code> · bundle <code>${escapeHtml(String(ai.hashes?.bundle_sha256 || "—").slice(0, 16))}</code> · 레드팀 ${escapeHtml(REDTEAM_LABELS[report.redteam || "not_sent"] || report.redteam)}</p>`;
 
-            window.HawkiXai?.render(detail.querySelector("[data-xai]"), ai.explanation);
+            window.HawkiXai?.render(detail.querySelector("[data-xai]"), ai.explanation, { queries: ai.queries });
             const answer = detail.querySelector("[data-ai-answer]");
             if (answer && typeof window.enhanceRenderedContent === "function") window.enhanceRenderedContent(answer);
             list.querySelectorAll("[data-report-id]").forEach((node) => node.classList.toggle("selected", node.dataset.reportId === report.id));

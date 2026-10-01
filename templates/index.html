@@ -8,10 +8,10 @@
         <small>Wazuh 탐지 건수</small>
     </a>
 
-    <a class="metric-card metric-critical" href="/alerts?min_level=8" title="레벨 8 이상 경보만 보기">
+    <a class="metric-card metric-critical" href="/alerts?min_level=8&amp;range=24h&amp;category=all" title="레벨 8 이상 경보만 보기">
         <span>레벨 8 이상 · 최근 24시간</span>
         <strong id="metric-level8-24h">—</strong>
-        <small>Wazuh 룰 레벨 기준</small>
+        <small id="metric-level8-note">Wazuh 룰 레벨 기준</small>
     </a>
 
     <a class="metric-card metric-neutral" href="/logs" title="로그 검색 열기">
@@ -31,11 +31,11 @@
     <article class="panel notices-panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Wazuh</p>
-                <h2>최근 경보</h2>
+                <p class="panel-kicker" id="dashboard-alert-kicker">Wazuh</p>
+                <h2 id="dashboard-alert-title">주요 경보</h2>
             </div>
 
-            <a class="button secondary small" href="/alerts">
+            <a class="button secondary small" href="/alerts?category=attack&amp;range=24h&amp;sort=priority">
                 전체 보기
             </a>
         </div>
@@ -76,7 +76,7 @@
     <article class="panel dashboard-activity-panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">탐지 추이</p>
+                <p class="panel-kicker">탐지 추이 · 막대를 누르면 그 시간의 경보를 검색</p>
                 <h2>최근 24시간</h2>
             </div>
         </div>
@@ -90,7 +90,7 @@
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Wazuh 탐지 메타데이터</p>
+                <p class="panel-kicker">Wazuh 탐지 메타데이터 · 레벨을 누르면 경보 목록</p>
                 <h2>룰 레벨 분포</h2>
             </div>
         </div>

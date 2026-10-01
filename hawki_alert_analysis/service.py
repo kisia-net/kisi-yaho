@@ -6,6 +6,7 @@ from .bundle import BUNDLE_SCHEMA
 from .live_bundle import LIVE_BUNDLE_SCHEMA, build_live_evidence_bundle
 from .priority import priority_for_alert_item
 from .repository import EventRepository
+from .wazuh import is_vulnerability_alert
 
 
 class AlertAnalysisService:
@@ -19,13 +20,26 @@ class AlertAnalysisService:
         severity: str = "all",
         status: str = "all",
         query: str = "",
+        category: str = "all",
+        since: str = "",
+        order: str = "newest",
+        host: str = "",
     ) -> list[dict[str, Any]]:
-        if min_level > 0 and callable(getattr(self.repository, "list_alerts_since", None)):
-            # Live Wazuh: let the indexer apply the level, so the page holds
-            # the newest alerts at that level rather than the newest alerts.
-            alerts = self.repository.list_alerts(min_level=min_level)
+        live = callable(getattr(self.repository, "list_alerts_since", None))
+        if live and (min_level > 0 or category != "all" or since or order != "newest" or host):
+            # Live Wazuh: the indexer applies level, period, category, host
+            # and order, so the page holds the alerts asked for rather than a
+            # filtered copy of the newest hundred.
+            alerts = self.repository.list_alerts(
+                min_level=min_level, category=category, since=since, order=order, host=host,
+            )
         else:
             alerts = self.repository.list_alerts()
+            if category in {"attack", "vulnerability"}:
+                want = category == "vulnerability"
+                alerts = [item for item in alerts if is_vulnerability_alert(item.get("groups")) == want]
+            if host:
+                alerts = [item for item in alerts if str(item.get("host") or "") == host]
 
         if min_level > 0:
             filtered = []

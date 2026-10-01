@@ -67,6 +67,13 @@ def _event_source_ip(record: dict[str, Any]) -> str:
 
 
 DEFAULT_ALERT_INDEX = "wazuh-alerts-*"
+# Wazuh's vulnerability detector raises one alert per CVE per package: an
+# inventory finding, not an attack. Listed apart from attack alerts.
+VULNERABILITY_GROUPS = ("vulnerability-detector",)
+
+
+def is_vulnerability_alert(groups: Any) -> bool:
+    return isinstance(groups, (list, tuple)) and any(group in VULNERABILITY_GROUPS for group in groups)
 DEFAULT_EVENT_INDEX = "wazuh-alerts-*"
 
 # Document shapes this repository knows how to normalize, checked in order.
@@ -225,7 +232,15 @@ class WazuhEventRepository:
             event.correlation = {**event.correlation, "index": str(hit["_index"])}
         return event
 
-    def _alert_query(self, min_level: int = 0) -> dict[str, Any]:
+    def _alert_query(
+        self,
+        min_level: int = 0,
+        *,
+        category: str = "all",
+        since: str = "",
+        order: str = "newest",
+        host: str = "",
+    ) -> dict[str, Any]:
         query: dict[str, Any] = {
             "bool": {
                 "should": [
@@ -236,16 +251,30 @@ class WazuhEventRepository:
                 "minimum_should_match": 1,
             }
         }
+        filters: list[dict[str, Any]] = []
         if min_level > 0:
             # Filtered in the indexer. Filtering the newest page afterwards
             # found nothing whenever the last alert_limit alerts were all
             # low level, while the dashboard counted thousands at level 8+.
-            query["bool"]["filter"] = [{"range": {"rule.level": {"gte": int(min_level)}}}]
-        return {
-            "size": self.alert_limit,
-            "sort": [{self.timestamp_field: {"order": "desc"}}],
-            "query": query,
-        }
+            filters.append({"range": {"rule.level": {"gte": int(min_level)}}})
+        if since:
+            filters.append({"range": {self.timestamp_field: {"gte": since, "lte": "now"}}})
+        if host:
+            filters.append({"term": {"agent.name": host}})
+        if category == "vulnerability":
+            filters.append({"terms": {"rule.groups": list(VULNERABILITY_GROUPS)}})
+        elif category == "attack":
+            query["bool"]["must_not"] = [{"terms": {"rule.groups": list(VULNERABILITY_GROUPS)}}]
+        if filters:
+            query["bool"]["filter"] = filters
+        # "level": the highest levels in the period first, so a page of 100
+        # holds the alerts that matter instead of the newest scanner noise.
+        sort = (
+            [{"rule.level": {"order": "desc", "unmapped_type": "long"}}, {self.timestamp_field: {"order": "desc"}}]
+            if order == "level"
+            else [{self.timestamp_field: {"order": "desc"}}]
+        )
+        return {"size": self.alert_limit, "sort": sort, "query": query}
 
     def _candidate_query(self, trigger: CanonicalEvent) -> dict[str, Any]:
         start = trigger.timestamp_dt.timestamp() - self.window_seconds
@@ -301,13 +330,21 @@ class WazuhEventRepository:
             if callable(reload_collection):
                 reload_collection()
 
-    def list_alerts(self, min_level: int = 0) -> list[dict[str, Any]]:
+    def list_alerts(
+        self,
+        min_level: int = 0,
+        *,
+        category: str = "all",
+        since: str = "",
+        order: str = "newest",
+        host: str = "",
+    ) -> list[dict[str, Any]]:
         """Return recent alerts using native Wazuh rule semantics."""
 
         try:
             payload = self.client.search(
                 self.alert_index,
-                self._alert_query(min_level),
+                self._alert_query(min_level, category=category, since=since, order=order, host=host),
             )
         except (WazuhIndexerError, ValueError) as exc:
             self.last_error = str(exc)
@@ -315,10 +352,11 @@ class WazuhEventRepository:
 
         self.last_error = ""
         alerts = self._alert_items(_hits(payload))
-        alerts.sort(
-            key=lambda item: str(item.get("time") or ""),
-            reverse=True,
-        )
+        if order != "level":
+            alerts.sort(
+                key=lambda item: str(item.get("time") or ""),
+                reverse=True,
+            )
         return alerts
 
     def list_alerts_since(
@@ -327,6 +365,7 @@ class WazuhEventRepository:
         *,
         min_level: int,
         limit: int = 100,
+        exclude_groups: tuple[str, ...] | list[str] = (),
     ) -> list[dict[str, Any]]:
         """Alerts at or above min_level from `since` on, oldest first.
 
@@ -354,6 +393,8 @@ class WazuhEventRepository:
                 }
             },
         }
+        if exclude_groups:
+            body["query"]["bool"]["must_not"] = [{"terms": {"rule.groups": list(exclude_groups)}}]
         payload = self.client.search(self.alert_index, body)
         return self._alert_items(_hits(payload))
 
@@ -547,9 +588,22 @@ class WazuhEventRepository:
             window,
         )
 
+        # The same level-8+ count without the vulnerability detector's
+        # one-alert-per-CVE findings: the number of attack alerts to look at.
+        level_8_plus_attack = count(
+            self.alert_index,
+            {
+                "bool": {
+                    "filter": [window, {"range": {"rule.level": {"gte": 8}}}],
+                    "must_not": [{"terms": {"rule.groups": list(VULNERABILITY_GROUPS)}}],
+                }
+            },
+        )
+
         return {
             "alerts_24h": alerts_24h,
             "level_8_plus_24h": level_8_plus,
+            "level_8_plus_attack_24h": level_8_plus_attack,
             "archive_events_24h": archive_events_24h,
             "recent_alerts": self.list_alerts()[:6],
         }

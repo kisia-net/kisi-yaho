@@ -476,6 +476,49 @@ class SiemService:
             "levels": levels,
         }
 
+    def host_badges(self) -> dict[str, dict[str, int]]:
+        """Per-agent numbers for the host list, in two indexer queries.
+
+        Attack alerts in the last 24 hours (all, and level 10+) exclude the
+        vulnerability detector, whose findings are counted separately from
+        the vulnerability state index.
+        """
+        alerts = self.indexer.search(
+            self.alert_index,
+            {
+                "size": 0,
+                "query": {"bool": {
+                    "filter": [{"range": {self.timestamp_field: {"gte": "now-24h", "lte": "now"}}}],
+                    "must_not": [{"terms": {"rule.groups": ["vulnerability-detector"]}}],
+                }},
+                "aggs": {"by_agent": {
+                    "terms": {"field": "agent.id", "size": 200},
+                    "aggs": {"high": {"filter": {"range": {"rule.level": {"gte": 10}}}}},
+                }},
+            },
+        )
+        badges: dict[str, dict[str, int]] = {}
+        for bucket in ((alerts.get("aggregations") or {}).get("by_agent") or {}).get("buckets") or []:
+            badges.setdefault(str(bucket.get("key")), {})
+            badges[str(bucket.get("key"))].update({
+                "alerts_24h": int(bucket.get("doc_count") or 0),
+                "high_24h": int((bucket.get("high") or {}).get("doc_count") or 0),
+            })
+        try:
+            vulns = self.indexer.search(
+                "wazuh-states-vulnerabilities-*",
+                {
+                    "size": 0,
+                    "query": {"terms": {"vulnerability.severity": ["Critical", "critical"]}},
+                    "aggs": {"by_agent": {"terms": {"field": "agent.id", "size": 200}}},
+                },
+            )
+        except Exception:  # noqa: BLE001 - the vulnerability index is optional
+            vulns = {}
+        for bucket in ((vulns.get("aggregations") or {}).get("by_agent") or {}).get("buckets") or []:
+            badges.setdefault(str(bucket.get("key")), {})["critical_vulnerabilities"] = int(bucket.get("doc_count") or 0)
+        return badges
+
     def host_security_context(
         self,
         agent_id: str,
@@ -567,6 +610,16 @@ class SiemService:
                             }
                         }
                     },
+                    # Which packages carry the findings: on a cloud VM one
+                    # kernel package often holds most of them, so one update
+                    # clears hundreds of CVE alerts.
+                    "by_package": {
+                        "terms": {"field": "package.name", "size": 5},
+                        "aggs": {
+                            "severe": {"filter": {"terms": {"vulnerability.severity": ["Critical", "High", "critical", "high"]}}},
+                            "version": {"terms": {"field": "package.version", "size": 1}},
+                        },
+                    },
                 },
             },
         )
@@ -649,6 +702,16 @@ class SiemService:
                     .get("under_evaluation", {})
                     .get("doc_count", 0)
                 ),
+                "top_packages": [
+                    {
+                        "name": str(bucket.get("key") or ""),
+                        "version": str(((bucket.get("version") or {}).get("buckets") or [{}])[0].get("key") or ""),
+                        "findings": int(bucket.get("doc_count") or 0),
+                        "critical_or_high": int((bucket.get("severe") or {}).get("doc_count") or 0),
+                    }
+                    for bucket in (vuln_aggs.get("by_package") or {}).get("buckets") or []
+                    if bucket.get("key")
+                ],
             },
             "fim": {
                 "tracked_entries": tracked_entries,

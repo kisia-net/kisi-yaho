@@ -65,7 +65,7 @@ ASSESSMENT_CONTRACT = """The assessment object must contain these keys:
 - supporting_evidence: array of objects with statement and event_ids citing ids from the bundle
 - contradictory_evidence: array of objects with statement and event_ids, empty only if genuinely none exists
 - evidence_gaps: array of strings naming what is missing or unverifiable
-- recommended_searches: array of objects with title, language, and value
+- recommended_searches: array of objects with title, language, value, and index (alerts or archives) when language is wazuh; a wazuh value is a Lucene query_string over fields present in the bundle
 - recommended_response: array of strings, each an approval-required next step
 Cite event ids exactly as they appear in the bundle. Never invent an id.
 The `answer` field is a short analyst-facing briefing, at most twelve lines: what happened,
@@ -185,6 +185,7 @@ def _queries(value: Any) -> list[dict[str, str]]:
                     "title": _text(item.get("title") or item.get("name")),
                     "language": _text(item.get("language") or item.get("lang")),
                     "value": _text(item.get("value") or item.get("query")),
+                    "index": _text(item.get("index")) if _text(item.get("index")) in {"alerts", "archives"} else "",
                 }
             )
     return [item for item in queries if item["value"] or item["title"]]

@@ -42,10 +42,20 @@ class GatherMoreEvidenceTests(unittest.TestCase):
 
     def test_oversized_result_is_reverted(self):
         model = ScriptedModel(tool_call("widen_window", seconds_before=1800, seconds_after=0, reason="x"))
+        # Fits before the agent runs, too big after it added evidence.
+        with mock.patch.object(app, "evidence_agent_llm_call", model), \
+             mock.patch.object(app, "serialize_agent_context", side_effect=[None, ValueError("too big")]):
+            result = app.gather_more_evidence("alert-1", self.bundle)
+        self.assertEqual(result["agent_retrieval"]["stopped"], "context_limit_reverted")
+        self.assertEqual(len(result["investigation_context"]), 1)
+
+    def test_a_package_already_over_the_limit_skips_the_agent(self):
+        model = mock.Mock(side_effect=AssertionError("the agent must not be called"))
         with mock.patch.object(app, "evidence_agent_llm_call", model), \
              mock.patch.object(app, "serialize_agent_context", side_effect=ValueError("too big")):
             result = app.gather_more_evidence("alert-1", self.bundle)
-        self.assertEqual(result["agent_retrieval"]["stopped"], "context_limit_reverted")
+        model.assert_not_called()
+        self.assertEqual(result["agent_retrieval"]["stopped"], "no_room")
         self.assertEqual(len(result["investigation_context"]), 1)
 
     def test_added_evidence_reaches_the_analysis(self):
