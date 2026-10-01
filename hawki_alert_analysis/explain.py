@@ -192,6 +192,10 @@ def build_explanation(
             "agent_calls": len(agent.get("calls") or []),
             "agent_added_evidence": list(agent.get("added_evidence_ids") or []),
             "agent_stopped": agent.get("stopped"),
+            "context_fit": {
+                key: _dict(_dict(bundle.get("retrieval")).get("context_fit")).get(key)
+                for key in ("dropped_evidence_ids", "shortened_fields", "original_chars", "final_chars")
+            } if _dict(_dict(bundle.get("retrieval")).get("context_fit")) else None,
             "feedback": [
                 {key: item.get(key) for key in ("feedback_id", "verdict", "recorded_at", "match")}
                 for item in feedback.get("items") or []
