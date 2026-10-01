@@ -127,8 +127,17 @@
         <div class="structured-output"
              data-analysis-review
              hidden></div>
+
+        <div class="structured-output"
+             data-analysis-xai
+             hidden></div>
+
+        <div class="structured-output"
+             data-analyst-feedback
+             hidden></div>
     </section>
 </div>
 
+<script src="{{ url_for('static', filename='xai.js', v=asset_version) }}"></script>
 <script src="{{ url_for('static', filename='alert_analysis.js', v=asset_version) }}"></script>
 {% endblock %}

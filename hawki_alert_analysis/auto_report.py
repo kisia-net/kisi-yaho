@@ -43,6 +43,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from .explain import BAND_EXPECTED_SEVERITY, severity_agreement
 from .priority import SEVERITY_AS_LEVEL
 
 try:  # POSIX (the containers). Windows development runs one process anyway.
@@ -812,6 +813,16 @@ class AutoReporter:
             return status
 
         facts = evidence_facts(bundle, alert, now)
+        explanation = result.get("explanation") if isinstance(result.get("explanation"), dict) else None
+        if explanation is not None:
+            conclusion = explanation.setdefault("conclusion", {})
+            if not (conclusion.get("priority") or {}).get("band"):
+                # Fixture packages carry no priority block; use the report's.
+                priority = report.get("priority") or {}
+                conclusion["priority"] = {"band": priority.get("band"), "score": priority.get("score")}
+                conclusion["agreement"] = severity_agreement((conclusion.get("severity") or {}).get("level"), priority.get("band"))
+                conclusion["expected_severity"] = list(BAND_EXPECTED_SEVERITY.get(str(priority.get("band") or ""), ()))
+                explanation["priority_factors"] = list(priority.get("factors") or [])
         redteam = "not_sent"
         if self.settings.forward_redteam and self.forward is not None:
             try:
@@ -833,6 +844,8 @@ class AutoReporter:
                 "evidence": [str(value)[:400] for value in (result.get("evidence") or [])][:12],
                 "queries": [value for value in (result.get("queries") or []) if isinstance(value, dict)][:6],
                 "suggested_actions": suggested_actions(result.get("actions")),
+                "explanation": explanation,
+                "feedback_used": len(((bundle.get("analyst_feedback") or {}).get("items")) or []),
             }
             # The evidence the model actually saw, which may be newer than at creation.
             r["evidence"] = {
@@ -896,6 +909,13 @@ AI_LABELS = {
     "failed": "AI 분석 실패",
     "expired": "AI 분석 만료",
 }
+AGREEMENT_LABELS = {
+    "consistent": "일치",
+    "model_lower": "모델이 더 낮게 판단",
+    "model_higher": "모델이 더 높게 판단",
+    "unknown": "비교할 값 없음",
+}
+CLAIM_LABELS = {"grounded": "근거 확인", "partial": "일부만 확인", "ungrounded": "근거 없음", "uncited": "인용 없음"}
 VERDICT_LABELS = {"malicious": "악성", "suspicious": "의심", "benign": "정상", "unknown": "알 수 없음"}
 WAITING_LABELS = {
     "model_unavailable": "모델 꺼짐",
@@ -994,6 +1014,24 @@ def render_markdown(report: dict[str, Any]) -> str:
         waiting = WAITING_LABELS.get(ai.get("waiting_reason") or "", "")
         add(f"{label}{f' ({waiting})' if waiting else ''}. 위의 1~4절은 모델 없이 계산한 사실입니다.")
     add("")
+
+    explanation = ai.get("explanation") if isinstance(ai.get("explanation"), dict) else None
+    if explanation:
+        summary = explanation.get("summary") or {}
+        conclusion = explanation.get("conclusion") or {}
+        add("### 판단 근거 (코드로 확인)")
+        add("")
+        add(f"- 근거가 확인된 주장 {summary.get('grounded', 0)}/{summary.get('claims', 0)}건 · "
+            f"사용된 증거 {summary.get('evidence_cited', 0)}/{summary.get('evidence_total', 0)}건")
+        add(f"- 모델 심각도 `{(conclusion.get('severity') or {}).get('level') or '—'}` ↔ "
+            f"우선순위 `{(conclusion.get('priority') or {}).get('band') or '—'}`: "
+            f"{AGREEMENT_LABELS.get(conclusion.get('agreement'), '비교할 값 없음')}")
+        for claim in explanation.get("claims") or []:
+            ids = ", ".join(claim.get("event_ids") or []) or "인용 없음"
+            missing = claim.get("unknown_event_ids") or []
+            flag = f" (없는 ID: {', '.join(missing)})" if missing else ""
+            add(f"- [{CLAIM_LABELS.get(claim.get('status'), claim.get('status'))}] {claim.get('statement')} — {ids}{flag}")
+        add("")
 
     actions = ai.get("suggested_actions") or []
     add("## 6. 제안 조치 (실행되지 않음 · 승인 필요)")

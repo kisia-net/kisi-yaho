@@ -90,6 +90,8 @@ data/action_queue.jsonl
 data/audit_log.jsonl
 # Automatic analysis reports and worker state (hawki_alert_analysis/auto_report.py).
 data/auto_reports/
+data/analyst_feedback.jsonl
+data/analyst_feedback.lock
 
 # Flask stuff:
 instance/

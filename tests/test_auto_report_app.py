@@ -22,6 +22,7 @@ os.environ.setdefault("WAZUH_API_PASSWORD", "test")
 
 import app  # noqa: E402
 from hawki_alert_analysis.auto_report import AutoReportSettings, ReportStore  # noqa: E402
+from hawki_alert_analysis.feedback import FeedbackStore  # noqa: E402
 
 
 class AutoReportRouteTests(unittest.TestCase):
@@ -31,6 +32,7 @@ class AutoReportRouteTests(unittest.TestCase):
         self.store = ReportStore(Path(self.dir.name))
         patches = [
             mock.patch.object(app, "AUTO_REPORT_STORE", self.store),
+            mock.patch.object(app, "FEEDBACK_STORE", FeedbackStore(Path(self.dir.name) / "feedback.jsonl")),
             mock.patch.object(app, "AUTO_REPORT_SETTINGS", AutoReportSettings(enabled=True, lookback_seconds=7 * 86400)),
             mock.patch.dict(app.CONFIG, {"llm_base_url": "http://127.0.0.1:9/v1",
                                          "llm_api_url": "http://127.0.0.1:9/v1/chat/completions"}),
