@@ -912,6 +912,99 @@ async function initDashboard() {
 
     renderDashboardAlerts(data.recent_alerts || []);
     renderDashboardVisuals(data.visuals || {});
+    loadDashboardCti();
+    loadDashboardRedteam();
+}
+
+const CTI_STATE = {
+    ok: ["정상", "ok"],
+    stale: ["오래됨", "warn"],
+    empty: ["비어 있음", "warn"],
+    no_key: ["키 없음 (건너뜀)", "muted"],
+    error: ["가져오기 실패", "bad"],
+    missing: ["아직 안 받음", "muted"],
+};
+
+function shortTime(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+// 대시보드 CTI 카드: what each feed holds, when it was refreshed, and how
+// many of the last 24 hours' alerts came from a listed address.
+async function loadDashboardCti() {
+    const root = byId("dashboard-cti");
+    if (!root) return;
+    let data;
+    try {
+        data = await api("/api/threat-intel/status");
+    } catch (error) {
+        root.querySelector("[data-cti-summary]").textContent = `확인 실패 · ${error.message}`;
+        return;
+    }
+    const feeds = data.feeds || [];
+    const total = feeds.reduce((sum, feed) => sum + (Number(feed.indicators) || 0), 0);
+    const healthy = feeds.filter((feed) => feed.state === "ok").length;
+    root.querySelector("[data-cti-summary]").textContent = data.configured
+        ? `지표 ${formatNumber(total)}개 · 정상 피드 ${healthy}/${feeds.length}`
+        : "피드 없음 · tools/import_cti.py 실행 필요";
+    root.querySelector("[data-cti-feeds]").innerHTML = feeds.map((feed) => {
+        const [label, tone] = CTI_STATE[feed.state] || [feed.state, "muted"];
+        const refreshed = feed.generated_at ? `${shortTime(feed.generated_at)} 갱신` : "";
+        return `<li title="${escapeHtml(feed.message || feed.kind || "")}">
+            <span class="cti-dot cti-${escapeHtml(tone)}"></span>
+            <strong>${escapeHtml(feed.label)}</strong>
+            <span class="muted">${escapeHtml(feed.kind || "")}</span>
+            <span class="cti-count">${feed.indicators ? `지표 ${formatNumber(feed.indicators)}` : ""}${refreshed ? ` · ${escapeHtml(refreshed)}` : ""}</span>
+            <span class="cti-state cti-${escapeHtml(tone)}">${escapeHtml(label)}</span>
+        </li>`;
+    }).join("");
+    const matches = data.matches_24h;
+    const target = root.querySelector("[data-cti-matches]");
+    if (!matches) {
+        target.textContent = "";
+    } else if (matches.error) {
+        target.textContent = `최근 24시간 일치 확인 실패 · ${matches.error}`;
+    } else if (!matches.alerts) {
+        target.textContent = "최근 24시간 경보 중 CTI와 일치한 출발지 없음 (일치가 없다고 안전하다는 뜻은 아닙니다)";
+    } else {
+        const top = (matches.top || []).slice(0, 3).map((item) =>
+            `<a href="/alerts?range=24h&amp;category=all&amp;q=${encodeURIComponent(item.ip)}">${escapeHtml(item.ip)}</a> ${escapeHtml(item.verdict === "malicious" ? "악성" : "의심")} · 경보 ${escapeHtml(formatNumber(item.alerts))}`).join(" / ");
+        target.innerHTML = `최근 24시간 <strong>경보 ${escapeHtml(formatNumber(matches.alerts))}건</strong>이 CTI 등재 주소 ${escapeHtml(matches.addresses)}곳에서 옴 · ${top}`;
+    }
+}
+
+const RT_DECISION_SHORT = {
+    send: "전송", queued: "전송", disabled: "꺼짐", skipped_no_token: "토큰 없음",
+    skipped_not_live: "실데이터 아님", skipped_demo_result: "데모", skipped_no_runner_url: "주소 없음",
+};
+
+// 대시보드 레드팀 목록: the latest analyses and where their evaluation stands.
+async function loadDashboardRedteam() {
+    const root = byId("dashboard-redteam");
+    if (!root) return;
+    let data;
+    try {
+        data = await api("/api/redteam/recent");
+    } catch (error) {
+        root.querySelector("[data-rt-summary]").textContent = `확인 실패 · ${error.message}`;
+        return;
+    }
+    const setup = !data.enabled ? "자동평가 꺼짐" : (!data.token_configured ? "토큰 없음" : "자동평가 켜짐");
+    root.querySelector("[data-rt-summary]").textContent = setup;
+    const items = data.items || [];
+    root.querySelector("[data-rt-recent]").innerHTML = items.slice(0, 5).map((item) => {
+        const dispatch = item.dispatch;
+        let outcome;
+        if (dispatch?.dispatched) outcome = `<span class="cti-state cti-ok">접수 ${escapeHtml(dispatch.status_code || "")}</span>`;
+        else if (dispatch) outcome = `<span class="cti-state cti-bad">거부 ${escapeHtml(dispatch.status_code || dispatch.error || "")}</span>`;
+        else outcome = `<span class="cti-state cti-muted">${escapeHtml(RT_DECISION_SHORT[item.redteam] || item.redteam || "—")}</span>`;
+        return `<li>
+            <a href="/alerts/${encodeURIComponent(item.alert_id || "")}">${escapeHtml(shortTime(item.timestamp))} · 경보 ${escapeHtml(String(item.alert_id || "").slice(0, 12))}</a>
+            ${outcome}
+        </li>`;
+    }).join("") || `<li class="muted">아직 LLM 분석 기록이 없습니다. 경보를 열고 "LLM으로 분석"을 누르면 여기에 나옵니다.</li>`;
 }
 
 

@@ -5075,6 +5075,7 @@ html[data-theme="light"] .output-panel .output-item { padding: 10px 12px; }
 /* The XAI and verdict panels are long-form, like the assessment: opt out of the
    card tiling (.structured-output grid below 1450px) and of its height cap. */
 .structured-output[data-analysis-xai],
+.structured-output[data-analysis-redteam],
 .structured-output[data-analyst-feedback] { display: block; max-height: none; overflow: visible; }
 
 /* 로그 검색 · 검색 도우미 */
@@ -5208,3 +5209,41 @@ a.alert-history-item:hover { border-color: var(--accent); color: var(--accent); 
 .host-badge-high { color: var(--danger); border-color: currentColor; }
 .host-badge-vuln { color: var(--warning); border-color: currentColor; }
 .dashboard-repeat { color: var(--accent); font-weight: 600; }
+
+/* 레드팀 평가 패널 (경보 상세 · 자동 보고서 · 대시보드) */
+.rt-panel { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.rt-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.rt-head h3 { margin: 2px 0 0; }
+.rt-chip { display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line-2); font-size: 12px; font-weight: 600; }
+.rt-ok { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.rt-info { color: var(--blue, var(--accent)); }
+.rt-warn { color: var(--warning); border-color: currentColor; }
+.rt-bad { color: var(--danger); border-color: currentColor; }
+.rt-muted { color: var(--muted); }
+.rt-summary { font-weight: 600; }
+.rt-raw > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.rt-raw pre { max-height: 260px; overflow: auto; padding: 8px; border-radius: 6px; background: var(--panel-2); font-size: 12px; white-space: pre-wrap; }
+.rt-note { font-size: 12px; }
+.auto-report-redteam { margin-top: 12px; }
+
+/* 대시보드 · CTI 상태와 최근 레드팀 평가 */
+.dashboard-subpanel { margin: 0 15px 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.dashboard-subpanel-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 13.5px; }
+.dashboard-subpanel-head .muted { font-size: 12.5px; }
+.cti-feed-list, .rt-recent-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 12.5px; }
+.cti-feed-list li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.cti-feed-list li > .muted { display: none; }
+.rt-recent-list li { display: flex; justify-content: space-between; gap: 8px; }
+.rt-recent-list a, .cti-matches a { color: var(--accent); text-decoration: none; }
+.cti-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.cti-dot.cti-ok { background: var(--accent); }
+.cti-dot.cti-warn { background: var(--warning); }
+.cti-dot.cti-bad { background: var(--danger); }
+.cti-count { color: var(--muted); }
+.cti-state { font-weight: 600; }
+.cti-state.cti-ok { color: var(--accent); }
+.cti-state.cti-warn { color: var(--warning); }
+.cti-state.cti-bad { color: var(--danger); }
+.cti-state.cti-muted { color: var(--muted); }
+.cti-matches { margin: 8px 0 0; font-size: 12.5px; }
+.cti-matches:empty { display: none; }

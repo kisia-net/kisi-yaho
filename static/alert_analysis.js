@@ -746,6 +746,7 @@
         const TOOL_LABELS = {
             widen_window: "시간창 확장",
             search_address: "주소 검색(전체 에이전트)",
+            search_events: "조건 검색(룰·로그 형식·URL·주소)",
             lookup_asset: "자산 조회",
             lookup_indicator: "위협 인텔리전스 조회",
             finish: "수집 종료",
@@ -756,11 +757,14 @@
             max_calls: "호출 상한 도달",
             error: "수집 실패(원래 증거로 분석)",
             context_limit_reverted: "증거가 너무 많아 원래 증거로 분석",
+            no_room: "증거가 이미 한도를 넘어 추가 수집 건너뜀",
         };
         const REFUSAL_LABELS = {
             value_not_in_evidence: "증거에 없는 값",
             unknown_tool: "허용되지 않은 도구",
             not_an_ip_address: "IP 주소가 아님",
+            no_filter: "검색 조건 없음",
+            text_length: "검색어 길이 범위 밖",
         };
         function renderAgentRetrieval(output, trace) {
             if (!trace || !output) return;
@@ -802,6 +806,10 @@
                 renderReview(root, result);
                 window.HawkiXai?.render(root.querySelector("[data-analysis-xai]"), result.explanation, { queries: result.queries });
                 renderFeedbackForm(root, result, alertId, csrf);
+                window.HawkiRedteam?.render(root.querySelector("[data-analysis-redteam]"), {
+                    analysisId: result.analysis_id,
+                    decision: result.redteam?.status,
+                });
                 const counts = result.metadata_counts || {};
                 const bundled = [
                     `경보 ${counts.security_alerts ?? 0}`,

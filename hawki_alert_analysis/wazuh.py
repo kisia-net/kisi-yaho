@@ -1040,6 +1040,82 @@ class WazuhEventRepository:
             })
         return events
 
+    def search_events(
+        self,
+        *,
+        around: str,
+        hours: int,
+        agent_name: str = "",
+        rule_id: str = "",
+        decoder: str = "",
+        text: str = "",
+        address: str = "",
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Archive events matching structured filters, within +/- hours.
+
+        Reached only through the evidence agent's validated search_events
+        call: every value has already been checked to appear in the evidence,
+        and the filters are fixed fields, never a free query string.
+        """
+        from datetime import datetime, timedelta
+
+        value = str(around or "").strip()
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        center = datetime.fromisoformat(value)
+        span = timedelta(hours=max(1, min(int(hours), 24)))
+        filters: list[dict[str, Any]] = [{
+            "range": {self.timestamp_field: {"gte": (center - span).isoformat(), "lte": (center + span).isoformat()}}
+        }]
+        if agent_name:
+            filters.append({"term": {"agent.name": agent_name}})
+        if rule_id:
+            filters.append({"term": {"rule.id": rule_id}})
+        if decoder:
+            filters.append({"term": {"decoder.name": decoder}})
+        if address:
+            filters.append({"bool": {
+                "should": [{"term": {field: address}} for field in SOURCE_IP_FIELDS + DESTINATION_IP_FIELDS],
+                "minimum_should_match": 1,
+            }})
+        query: dict[str, Any] = {"bool": {"filter": filters}}
+        if text:
+            query["bool"]["must"] = [{"multi_match": {"query": text, "type": "phrase", "fields": ["data.url", "full_log"]}}]
+        body = {
+            "size": max(1, min(int(limit), 50)),
+            "sort": [{self.timestamp_field: {"order": "desc"}}],
+            "_source": ["timestamp", "agent", "rule", "decoder", "location", "data", "full_log"],
+            "query": query,
+        }
+        try:
+            payload = self.client.search(self.archive_index, body)
+        except (WazuhIndexerError, ValueError) as exc:
+            self.last_error = str(exc)
+            raise WazuhIndexerError(str(exc)) from exc
+
+        events: list[dict[str, Any]] = []
+        for hit in _hits(payload):
+            source = hit.get("_source")
+            if not isinstance(source, dict):
+                continue
+            events.append({
+                "origin": "agent_search",
+                "id": str(hit.get("_id", "")),
+                "index": str(hit.get("_index", "")),
+                "timestamp": source.get("timestamp"),
+                "agent": source.get("agent") or {},
+                "rule": source.get("rule") or {},
+                "decoder": source.get("decoder") or {},
+                "location": source.get("location"),
+                "data": source.get("data") or {},
+                "full_log": source.get("full_log"),
+                "relevance_score": None,
+                "relevance_reasons": ["agent_tool:search_events"],
+                "delta_seconds": None,
+            })
+        return events
+
     def get_alert(self, alert_id: str) -> CanonicalEvent:
         body = {"size": 1, "query": {"ids": {"values": [str(alert_id)]}}}
         try:

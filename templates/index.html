@@ -58,6 +58,15 @@
             </div>
             {% endfor %}
         </div>
+        <div class="dashboard-subpanel" id="dashboard-cti" aria-live="polite">
+            <div class="dashboard-subpanel-head"><strong>위협 인텔리전스 (CTI)</strong><span class="muted" data-cti-summary>확인 중</span></div>
+            <ul class="cti-feed-list" data-cti-feeds></ul>
+            <p class="cti-matches" data-cti-matches></p>
+        </div>
+        <div class="dashboard-subpanel" id="dashboard-redteam">
+            <div class="dashboard-subpanel-head"><strong>최근 레드팀 평가</strong><span class="muted" data-rt-summary>확인 중</span></div>
+            <ul class="rt-recent-list" data-rt-recent></ul>
+        </div>
     </article>
 </section>
 

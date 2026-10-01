@@ -256,7 +256,8 @@
                 const feedbackNote = Number(ai.feedback_used) > 0 ? ` · 과거 판정 ${escapeHtml(ai.feedback_used)}건 참고` : "";
                 aiBody = `<p class="muted">모델 ${escapeHtml(ai.model || "—")} · 분석 ID <code>${escapeHtml(ai.analysis_id || "—")}</code> · ${escapeHtml(formatDateTime(ai.completed_at))}${feedbackNote}</p>
                     <div class="markdown-body" data-ai-answer>${markdown(ai.answer || "반환된 분석 결과가 없습니다.")}</div>
-                    <div class="auto-report-xai" data-xai hidden></div>`;
+                    <div class="auto-report-xai" data-xai hidden></div>
+                    <div class="auto-report-redteam" data-redteam hidden></div>`;
             } else {
                 const waiting = WAITING_LABELS[ai.waiting_reason] ? ` (${WAITING_LABELS[ai.waiting_reason]})` : "";
                 aiBody = `<div class="empty-state auto-report-ai-waiting">${escapeHtml(AI_LABELS[ai.status] || "AI 분석 대기")}${escapeHtml(waiting)}
@@ -322,6 +323,10 @@
                 <p class="auto-report-trace muted">추적 정보: 증거 스키마 <code>${escapeHtml(evidence.bundle_schema || "—")}</code> · prompt <code>${escapeHtml(String(ai.hashes?.prompt_sha256 || "—").slice(0, 16))}</code> · bundle <code>${escapeHtml(String(ai.hashes?.bundle_sha256 || "—").slice(0, 16))}</code> · 레드팀 ${escapeHtml(REDTEAM_LABELS[report.redteam || "not_sent"] || report.redteam)}</p>`;
 
             window.HawkiXai?.render(detail.querySelector("[data-xai]"), ai.explanation, { queries: ai.queries });
+            // Only shown once something was sent (AUTO_ANALYSIS_FORWARD_REDTEAM=true).
+            if (ai.analysis_id && report.redteam && report.redteam !== "not_sent") {
+                window.HawkiRedteam?.render(detail.querySelector("[data-redteam]"), { analysisId: ai.analysis_id, decision: report.redteam });
+            }
             const answer = detail.querySelector("[data-ai-answer]");
             if (answer && typeof window.enhanceRenderedContent === "function") window.enhanceRenderedContent(answer);
             list.querySelectorAll("[data-report-id]").forEach((node) => node.classList.toggle("selected", node.dataset.reportId === report.id));

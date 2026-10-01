@@ -551,6 +551,8 @@ def run_chat(*, config, message, history, context, service, extract_content):
 
         ref = "R-" + prefix + "-" + str(len(trace) + 1)
         trace.append({"ref": ref, "tool": name, "result": result})
+        evidence_budget = _evidence_budget(config, instruction, message, recent)
+        evidence_records = _fit_records(trace, evidence_budget)
         messages = [
             {
                 "role": "system",
@@ -578,7 +580,7 @@ def run_chat(*, config, message, history, context, service, extract_content):
                         item["content"] for item in reversed(recent)
                         if item["role"] == "user"
                     ][-3:],
-                    "evidence_records": trace,
+                    "evidence_records": evidence_records,
                 }, ensure_ascii=False),
             },
         ]
@@ -727,3 +729,57 @@ def _summary_evidence(payload, start, end):
         ),
     }
     return aggregations
+
+
+
+# -- Keeping the evidence inside AGENT_CONTEXT_MAX_CHARS ----------------------
+#
+# Each tool result is already bounded (_bounded, 9000 bytes), but six of them
+# plus the instruction can still exceed what the model accepts. The same rule
+# as the alert analysis applies: the configured AGENT_CONTEXT_MAX_CHARS is the
+# ceiling, and what does not fit is shortened in a recorded way, oldest first.
+
+EVIDENCE_FLOOR_CHARS = 6000
+OVERHEAD_CHARS = 2500
+_SUMMARY_KEYS = ("status", "scope", "total_matches", "total_relation", "returned", "matching_records",
+                 "error", "error_type", "coverage")
+
+
+def _size(value):
+    return len(json.dumps(value, ensure_ascii=False))
+
+
+def _evidence_budget(config, instruction, message, recent):
+    try:
+        limit = int(config.get("agent_context_max_chars") or 32000)
+    except (TypeError, ValueError):
+        limit = 32000
+    used = len(instruction) + len(message) + sum(len(item.get("content", "")) for item in recent) + OVERHEAD_CHARS
+    return max(EVIDENCE_FLOOR_CHARS, limit - used)
+
+
+def _fit_records(trace, budget):
+    """The evidence records for the model, compacted oldest-first to fit."""
+    records = copy.deepcopy(trace)
+    if _size(records) <= budget:
+        return records
+    # 1. Older results keep their outcome and counts, not their contents.
+    for record in records[:-1]:
+        result = record.get("result") or {}
+        record["result"] = {
+            **{key: result[key] for key in _SUMMARY_KEYS if key in result},
+            "compacted": "contents removed to fit AGENT_CONTEXT_MAX_CHARS; cite counts only",
+        }
+        if _size(records) <= budget:
+            return records
+    # 2. The newest result loses its largest lists, one item at a time.
+    newest = records[-1].get("result") or {}
+    while _size(records) > budget:
+        lists = [value for value in newest.values() if isinstance(value, list) and value]
+        if not lists:
+            break
+        max(lists, key=_size).pop()
+        newest["compacted"] = "partially removed to fit AGENT_CONTEXT_MAX_CHARS"
+    if "events" in newest:
+        newest["returned"] = len(newest["events"])
+    return records
