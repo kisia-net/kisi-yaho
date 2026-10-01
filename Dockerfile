@@ -7,8 +7,10 @@ WORKDIR /app
 RUN python -m venv "$VIRTUAL_ENV"
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
+RUN python -c "from pyvelociraptor import api_pb2, api_pb2_grpc"
 RUN groupadd --system hawki && useradd --system --gid hawki --home-dir /app hawki
 COPY app.py .
+COPY hawki_chat_agent.py .
 COPY hawki_alert_analysis ./hawki_alert_analysis
 COPY data ./data
 COPY templates ./templates

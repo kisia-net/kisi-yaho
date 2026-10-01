@@ -918,6 +918,7 @@ async function initDashboard() {
 const AGENT_GREETING = "모드를 고르고 경보·증거·지표 또는 궁금한 점을 적어 주세요. 실제 변경을 일으키는 결과는 제안 상태로만 올라갑니다.";
 
 const modeTitles = {
+    conversation: "일반 대화",
     alert_summary: "경보 설명",
     log_search: "로그 검색",
     file_hunt: "의심 파일 추적",
@@ -927,6 +928,7 @@ const modeTitles = {
 };
 
 const modePlaceholders = {
+    conversation: "메시지를 입력하세요.",
     alert_summary: "경보를 고르거나 경보 내용을 붙여넣으세요. 심각도, 증거, 공격 맥락, 다음 확인 순서를 물어볼 수 있습니다.",
     log_search: "찾으려는 이벤트나 지표를 적어 주세요. 관련 사용자, 호스트, IP, 프로세스, 예상되는 동작을 함께 적으면 좋습니다.",
     file_hunt: "의심스러운 파일이나 지표를 적어 주세요. 해시, 경로, 파일명, 서명자, 관찰된 동작을 함께 적으면 좋습니다.",
@@ -1020,7 +1022,7 @@ async function loadAgentSessions() {
     }
 }
 
-async function persistAgentSession(session) {
+async function persistAgentSessionNow(session) {
     if (!session) return;
     try {
         const data = await api("/api/chat-sessions", {
@@ -1079,6 +1081,7 @@ function selectedAgentAlert() {
 }
 
 function readModeContext(mode = state.agentMode) {
+    if (mode === "conversation") return {};
     if (mode === "alert_summary") {
         const alert = selectedAgentAlert();
         const selectedHost = byId("agent-alert-host")?.value.trim() || "";
@@ -1199,7 +1202,7 @@ function renderAgentModeContext() {
     });
     const container = byId("agent-mode-context");
     if (container) {
-        container.hidden = state.agentMode === "suricata_rule";
+        container.hidden = ["suricata_rule", "conversation"].includes(state.agentMode);
     }
 }
 
@@ -1413,6 +1416,11 @@ function addMessage(role, text, meta = "", record = true, options = {}) {
 
 // 새 대화의 빈 화면: what each mode is good for, as one-click starters.
 const AGENT_STARTERS = {
+    conversation: [
+        "지난 24시간 동안 web-01에서 가장 많이 걸린 룰과 출발지를 정리해 줘",
+        "오늘 공격 경보를 시간대별로 요약하고 눈에 띄는 변화를 알려 줘",
+        "자산 목록에서 인터넷에 노출된 서버를 알려 줘",
+    ],
     alert_summary: [
         "선택한 경보를 설명하고, 오탐일 가능성과 그 근거를 알려 줘",
         "이 경보의 출발지 IP가 다른 호스트에도 접근했는지 정리해 줘",
@@ -1477,6 +1485,7 @@ function renderAgentTranscript(session) {
         });
     });
     renderAgentStarters();
+    if (conversationPending.has(session.id)) addTyping();
 }
 
 function addTyping() {
@@ -1774,6 +1783,13 @@ function renderActionCard(action, index, originMode) {
 }
 
 function renderStructured(result) {
+    if (result?.mode === "conversation") {
+        result.actions = [];
+        state.lastAgentResult = result;
+        const output = byId("agent-structured-output");
+        if (output) renderConversationTools(output, result.tool_trace || []);
+        return;
+    }
     const originMode = result?.mode || currentAgentSession()?.mode || state.agentMode;
     const actionItems = (Array.isArray(result?.actions) ? result.actions : []).map((action) => ({
         ...action,
@@ -1888,6 +1904,10 @@ function selectAgentSession(sessionId) {
 }
 
 async function deleteAgentSession(sessionId) {
+    if (conversationPending.has(sessionId)) {
+        toast("응답을 받은 뒤에 이 대화를 삭제할 수 있습니다.");
+        return;
+    }
     try {
         await api(`/api/chat-sessions/${encodeURIComponent(sessionId)}`, {
             method: "DELETE",
@@ -1917,6 +1937,10 @@ function startNewAgentChat(mode = state.agentMode, context = {}) {
 }
 
 async function clearAgentHistory() {
+    if (conversationPending.size) {
+        toast("진행 중인 응답이 끝난 뒤에 기록을 지울 수 있습니다.");
+        return;
+    }
     try {
         await api("/api/chat-sessions", { method: "DELETE" });
     } catch (error) {
@@ -1979,7 +2003,144 @@ async function importVerifiedSuricataRule(action) {
 }
 
 
+
+const conversationPending = new Set();
+const agentSessionWrites = new Map();
+
+function persistAgentSession(session) {
+    if (!session) return Promise.resolve();
+    const snapshot = JSON.parse(JSON.stringify(session));
+    const previous = agentSessionWrites.get(session.id) || Promise.resolve();
+    const task = previous.catch(() => {}).then(() => persistAgentSessionNow(snapshot));
+    agentSessionWrites.set(session.id, task);
+    const cleanup = () => {
+        if (agentSessionWrites.get(session.id) === task) {
+            agentSessionWrites.delete(session.id);
+        }
+    };
+    task.then(cleanup, cleanup);
+    return task;
+}
+
+function renderConversationTools(container, trace) {
+    container.replaceChildren();
+    const labels = {
+        summarize_logs: "로그 집계",
+        search_logs: "로그 검색",
+        get_alert: "경보 증거",
+        list_assets: "자산",
+        lookup_indicator: "위협 인텔리전스",
+        environment: "환경 설정",
+    };
+    for (const entry of trace) {
+        const item = document.createElement("div");
+        item.className = "output-item";
+        const heading = document.createElement("strong");
+        heading.textContent = `${entry.ref} · ${labels[entry.tool] || entry.tool}`;
+        const body = document.createElement("p");
+        const result = entry.result || {};
+        const statusLabels = { success: "성공", partial: "일부만", failed: "실패", disabled: "검색 꺼짐", invalid_request: "잘못된 요청", duplicate: "중복 요청" };
+        const parts = [statusLabels[result.status] || result.status || "알 수 없음"];
+        if (result.total_matches != null) parts.push(`일치 ${result.total_matches}건`);
+        if (result.returned != null) parts.push(`모델에 ${result.returned}건 제공`);
+        if (result.scope) {
+            parts.push(result.scope.host, `${result.scope.start} – ${result.scope.end}`);
+        }
+        if (result.context_truncated || result.content_truncated) {
+            parts.push("증거 일부 축약");
+        }
+        body.textContent = parts.filter(Boolean).join(" · ");
+        item.append(heading, body);
+        container.appendChild(item);
+    }
+}
+
+async function sendConversation(message) {
+    let session = currentAgentSession();
+    if (!session) {
+        session = createAgentSession("conversation", readAgentWorkspaceContext(), false);
+    }
+    const sessionId = session.id;
+    const context = readAgentContext();
+    const history = session.history.slice(-16);
+    conversationPending.add(sessionId);
+    session.context = readAgentWorkspaceContext();
+    session.mode = "conversation";
+    if (session.title === "새 분석") session.title = deriveAgentSessionTitle(message);
+
+    session.history = [...history, {role: "user", content: message}].slice(-16);
+    session.transcript.push({
+        id: agentSessionId(), role: "user", text: message,
+        meta: "", mode: "conversation", suricataAction: null, suricataStaged: false,
+    });
+    session.transcript = session.transcript.slice(-50);
+    session.updatedAt = new Date().toISOString();
+    state.history = session.history.slice();
+    renderAgentTranscript(session);
+    renderAgentHistory();
+    byId("agent-session-state").textContent = session.title;
+
+    try {
+        await persistAgentSession(session);
+        const result = await api("/api/agent/conversation", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({message, context, history}),
+        });
+        const target = state.agentSessions.find(item => item.id === sessionId);
+        if (!target) return;
+
+        result.mode = "conversation";
+        result.actions = [];
+        const answer = result.answer || "응답을 받지 못했습니다.";
+        target.transcript.push({
+            id: agentSessionId(), role: "assistant", text: answer,
+            meta: result.model || "", mode: "conversation",
+            suricataAction: null, suricataStaged: false,
+        });
+        target.transcript = target.transcript.slice(-50);
+        if (!result.incomplete) {
+            target.history = [
+                ...target.history, {role: "assistant", content: answer},
+            ].slice(-16);
+        }
+        target.lastResult = result;
+        target.updatedAt = new Date().toISOString();
+        await persistAgentSession(target);
+    } catch (error) {
+        const target = state.agentSessions.find(item => item.id === sessionId);
+        if (target) {
+            target.transcript.push({
+                id: agentSessionId(), role: "assistant", text: error.message,
+                meta: "error", mode: "conversation",
+                suricataAction: null, suricataStaged: false,
+            });
+            target.transcript = target.transcript.slice(-50);
+            target.updatedAt = new Date().toISOString();
+            await persistAgentSession(target);
+        }
+    } finally {
+        conversationPending.delete(sessionId);
+        const target = state.agentSessions.find(item => item.id === sessionId);
+        if (target && state.currentAgentSessionId === sessionId) {
+            state.history = target.history.slice(-16);
+            state.lastAgentResult = target.lastResult;
+            renderAgentTranscript(target);
+            if (target.lastResult) renderStructured(target.lastResult);
+            byId("agent-session-state").textContent = target.title;
+        }
+        renderAgentHistory();
+    }
+}
+
 async function sendAgent(message) {
+    if (conversationPending.has(state.currentAgentSessionId)) {
+        byId("agent-input").value = message;
+        toast("아직 응답을 기다리는 중입니다.");
+        return;
+    }
+    if (state.agentMode === "conversation") return sendConversation(message);
+    const requestMode = state.agentMode;
     let session = currentAgentSession();
     if (!session) {
         session = createAgentSession(state.agentMode, readAgentContext(), false);
@@ -1998,7 +2159,7 @@ async function sendAgent(message) {
     addTyping();
     const context = readAgentContext();
     try {
-        const result = await api("/api/agent/chat", {
+        const result = await api(requestMode === "conversation" ? "/api/agent/conversation" : "/api/agent/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -2009,7 +2170,7 @@ async function sendAgent(message) {
             }),
         });
         byId("agent-typing")?.remove();
-        const suricataAction = getSuricataAction(result, message);
+        const suricataAction = requestMode === "conversation" ? null : getSuricataAction(result, message);
         const structuredResult = suricataAction ? withoutSuricataActions(result) : result;
         addMessage(
             "assistant",
@@ -4074,6 +4235,7 @@ const AUDIT_LABELS = {
     wazuh_log_search: "로그 검색",
     wazuh_log_search_check: "추천 검색 건수 확인",
     agent_request: "AI 작업공간 요청",
+    agent_conversation: "AI 일반 대화",
     agent_processing_error: "AI 작업공간 처리 오류",
     alert_analysis_request: "경보 분석 요청",
     alert_analysis_completed: "경보 분석 완료",
