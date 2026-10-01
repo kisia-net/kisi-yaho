@@ -1830,6 +1830,7 @@ def api_alert_history(alert_id: str):
             "timestamp": record.get("timestamp"),
             "analysis_id": detail.get("analysis_id"),
             "model": detail.get("model"),
+            "redteam": detail.get("redteam"),
             "by": (record.get("actor") or {}).get("username"),
         })
         if len(analyses) >= 5:

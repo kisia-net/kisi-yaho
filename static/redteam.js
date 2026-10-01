@@ -63,7 +63,7 @@
             .map(([key, label]) => `${label} ${escapeHtml(source[key])}`);
     }
 
-    function draw(container, decision, data) {
+    function draw(container, decision, data, caption) {
         const [decisionLabel, decisionClass] = DECISION[decision] || [decision || "알 수 없음", "rt-muted"];
         let body = "";
         let state = "";
@@ -92,7 +92,7 @@
         container.innerHTML = `
             <div class="rt-panel">
                 <div class="rt-head">
-                    <div><p class="panel-kicker">AI 판단 견고성 검증</p><h3>레드팀 평가</h3></div>
+                    <div><p class="panel-kicker">${escapeHtml(caption || "AI 판단 견고성 검증")}</p><h3>레드팀 평가</h3></div>
                     <div>${chip(decisionLabel, decisionClass)} <button type="button" class="button secondary small" data-rt-refresh>새로고침</button></div>
                 </div>
                 ${body}
@@ -101,7 +101,7 @@
     }
 
     // Polls every 5 s while the evaluation is moving, for up to 10 minutes.
-    function render(container, { analysisId, decision }) {
+    function render(container, { analysisId, decision, caption = "" }) {
         if (!container) return;
         if (!analysisId) {
             container.hidden = true;
@@ -120,13 +120,14 @@
             } catch (error) {
                 data = { stage: "refused", error: error.message };
             }
-            const state = draw(container, decision, data);
+            if (container.hidden) return;
+            const state = draw(container, decision, data, caption);
             container.querySelector("[data-rt-refresh]")?.addEventListener("click", () => { rounds = 0; tick(); });
             rounds += 1;
             const moving = data && (data.stage === "sending" || (data.stage === "accepted" && !TERMINAL.has(state)));
-            if (moving && rounds < 120 && document.body.contains(container)) timer = setTimeout(tick, 5000);
+            if (moving && rounds < 120 && !container.hidden && document.body.contains(container)) timer = setTimeout(tick, 5000);
         };
-        draw(container, decision, null);
+        draw(container, decision, null, caption);
         if (decision === "send" || decision === "queued") tick();
     }
 

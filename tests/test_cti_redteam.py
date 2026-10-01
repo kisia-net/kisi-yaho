@@ -184,3 +184,72 @@ class RedteamStatusTests(Signed):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AlertSearchPushdownTests(unittest.TestCase):
+    """The alert-list search runs in the indexer, not on the 100 rows returned."""
+
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def search(self, index, body):
+            self.bodies.append(body)
+            return {"hits": {"hits": [{
+                "_id": "cve-free", "_index": "wazuh-alerts-4.x-2026.10.01",
+                "_source": {"timestamp": "2026-10-01T06:55:17+00:00",
+                            "rule": {"id": "31151", "level": 10, "description": "Multiple web server 400 error codes"},
+                            "agent": {"name": "web-01"}, "full_log": "207.175.220.59 - - GET /.amplifyrc 403"},
+            }]}}
+
+    def service(self):
+        from hawki_alert_analysis.service import AlertAnalysisService
+        from hawki_alert_analysis.wazuh import WazuhEventRepository
+
+        client = self.Client()
+        return client, AlertAnalysisService(WazuhEventRepository(client))
+
+    @staticmethod
+    def text_clause(body):
+        for clause in body["query"]["bool"].get("filter", []):
+            if "bool" in clause and "should" in clause["bool"]:
+                return clause["bool"]["should"]
+        return None
+
+    def test_ip_search_reaches_the_indexer_for_all_categories(self):
+        client, service = self.service()
+        alerts = service.list_alerts(query="207.175.220.59", category="all", since="now-24h", order="level")
+        should = self.text_clause(client.bodies[-1])
+        self.assertIn({"term": {"data.srcip": "207.175.220.59"}}, should)
+        self.assertIn({"match_phrase": {"full_log": "207.175.220.59"}}, should)
+        self.assertNotIn("must_not", client.bodies[-1]["query"]["bool"])
+        # The indexer already matched; the row is kept even though the
+        # address is only in full_log, which the row does not carry.
+        self.assertEqual([a["id"] for a in alerts], ["cve-free"])
+
+    def test_query_alone_uses_the_indexer(self):
+        client, service = self.service()
+        service.list_alerts(query="web-01")
+        self.assertIsNotNone(self.text_clause(client.bodies[-1]))
+
+    def test_plain_text_has_no_address_terms_and_is_escaped(self):
+        from hawki_alert_analysis.wazuh import alert_text_clause
+
+        should = alert_text_clause("a*b?c")["bool"]["should"]
+        self.assertFalse(any("data.srcip" in item.get("term", {}) for item in should))
+        wildcard = next(item["wildcard"]["rule.description"] for item in should if "wildcard" in item and "rule.description" in item["wildcard"])
+        self.assertEqual(wildcard["value"], "*a\\*b\\?c*")
+        self.assertIsNone(alert_text_clause("   "))
+        self.assertEqual(len(alert_text_clause("x" * 500)["bool"]["should"][0]["match_phrase"]["full_log"]), 128)
+
+    def test_without_search_no_text_clause(self):
+        client, service = self.service()
+        service.list_alerts(category="attack", since="now-24h")
+        self.assertIsNone(self.text_clause(client.bodies[-1]))
+
+
+class AlertHistoryRedteamTests(unittest.TestCase):
+    def test_history_carries_the_red_team_decision(self):
+        source = Path(app.__file__).read_text(encoding="utf-8")
+        start = source.index("def api_alert_history")
+        self.assertIn('"redteam": detail.get("redteam")', source[start:start + 3000])

@@ -20,6 +20,7 @@ page that lists alerts; `last_error` says why the list is empty.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from dataclasses import replace
 from datetime import datetime
@@ -74,6 +75,48 @@ VULNERABILITY_GROUPS = ("vulnerability-detector",)
 
 def is_vulnerability_alert(groups: Any) -> bool:
     return isinstance(groups, (list, tuple)) and any(group in VULNERABILITY_GROUPS for group in groups)
+
+
+ALERT_TEXT_MAX = 128
+
+
+def _wildcard_literal(text: str) -> str:
+    return re.sub(r"([\\*?])", r"\\\1", text)
+
+
+def alert_text_clause(text: str) -> dict[str, Any] | None:
+    """Indexer clause for the alert-list search box.
+
+    The search used to filter the 100 rows the indexer returned. With
+    "전체" and 우선순위순 those rows were CVE alerts, so searching an
+    attacker IP found nothing while the IP had hundreds of alerts.
+    Matches the log text, rule description, URL, rule id, host, decoder,
+    rule group, MITRE id, and for an IP address the source/destination/agent address fields.
+    """
+    text = str(text or "").strip()[:ALERT_TEXT_MAX]
+    if not text:
+        return None
+    pattern = f"*{_wildcard_literal(text)}*"
+    should: list[dict[str, Any]] = [
+        {"match_phrase": {"full_log": text}},
+        {"wildcard": {"rule.description": {"value": pattern, "case_insensitive": True}}},
+        {"wildcard": {"data.url": {"value": pattern, "case_insensitive": True}}},
+        {"term": {"rule.id": text}},
+        {"term": {"agent.name": text}},
+        {"term": {"agent.id": text}},
+        {"term": {"decoder.name": text}},
+        {"term": {"rule.groups": text}},
+        {"term": {"rule.mitre.id": text}},
+    ]
+    try:
+        address = str(ipaddress.ip_address(text))
+    except ValueError:
+        address = ""
+    if address:
+        should.extend({"term": {field: address}} for field in SOURCE_IP_FIELDS + DESTINATION_IP_FIELDS + ["agent.ip"])
+    return {"bool": {"should": should, "minimum_should_match": 1}}
+
+
 DEFAULT_EVENT_INDEX = "wazuh-alerts-*"
 
 # Document shapes this repository knows how to normalize, checked in order.
@@ -240,6 +283,7 @@ class WazuhEventRepository:
         since: str = "",
         order: str = "newest",
         host: str = "",
+        text: str = "",
     ) -> dict[str, Any]:
         query: dict[str, Any] = {
             "bool": {
@@ -261,6 +305,9 @@ class WazuhEventRepository:
             filters.append({"range": {self.timestamp_field: {"gte": since, "lte": "now"}}})
         if host:
             filters.append({"term": {"agent.name": host}})
+        text_clause = alert_text_clause(text)
+        if text_clause:
+            filters.append(text_clause)
         if category == "vulnerability":
             filters.append({"terms": {"rule.groups": list(VULNERABILITY_GROUPS)}})
         elif category == "attack":
@@ -338,13 +385,14 @@ class WazuhEventRepository:
         since: str = "",
         order: str = "newest",
         host: str = "",
+        text: str = "",
     ) -> list[dict[str, Any]]:
         """Return recent alerts using native Wazuh rule semantics."""
 
         try:
             payload = self.client.search(
                 self.alert_index,
-                self._alert_query(min_level, category=category, since=since, order=order, host=host),
+                self._alert_query(min_level, category=category, since=since, order=order, host=host, text=text),
             )
         except (WazuhIndexerError, ValueError) as exc:
             self.last_error = str(exc)

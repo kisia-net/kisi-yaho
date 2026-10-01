@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">중요 알림, 승인 대기 현황, 서비스 연결 상태를 봅니다. 상세 작업은 각 전용 화면에서 하도록 의도적으로 분리했습니다.</p>{% endblock %}
+{% block subtitle %}<p class="page-description">중요 알림, 승인 대기 현황, 서비스 연결 상태를 봅니다. 상세 작업은 각 전용 화면에서 하도록 의도적으로 분리했습니다.</p><script src="{{ url_for('static', filename='redteam.js', v=asset_version) }}"></script>
+{% endblock %}
 {% block content %}
 <section class="metric-grid compact" id="dashboard-metrics">
     <a class="metric-card" href="/alerts" title="보안 경보 목록 열기">
