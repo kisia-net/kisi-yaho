@@ -1209,7 +1209,12 @@ def host_detail_page(agent_id: str):
 @app.get("/logs")
 @role_required("analyst")
 def logs_page():
-    return render_template("logs.html", **template_context("logs"))
+    return render_template(
+        "logs.html",
+        **template_context("logs"),
+        log_alert_index="wazuh-alerts-*",
+        log_archive_index=CONFIG["wazuh_archive_index"],
+    )
 
 
 @app.get("/hunts")
@@ -2325,14 +2330,103 @@ def wazuh_indexer_auth() -> tuple[str, str] | None:
     return CONFIG["wazuh_indexer_username"], CONFIG["wazuh_indexer_password"]
 
 
+# 로그 검색 기간: OpenSearch date math ("now-24h", "now-7d/d") or an ISO 8601
+# instant. The page sends ISO with "Z"; a bare local time would be read as UTC
+# by the indexer, so anything without an explicit zone is refused here.
+LOG_TIME_MATH = re.compile(r"^now(?:[+-]\d{1,4}[smhdwMy])*(?:/[smhdwMy])?$")
+LOG_TIME_ISO = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})$"
+)
+LOG_HOST_STATUSES = ("active", "disconnected", "pending", "never_connected")
+
+
+def valid_log_time(value: str) -> bool:
+    return bool(LOG_TIME_MATH.fullmatch(value) or LOG_TIME_ISO.fullmatch(value))
+
+
+def log_search_hosts_from_api() -> list[dict[str, Any]]:
+    payload = WAZUH_API.agents()
+    hosts = []
+    for item in (payload.get("data") or {}).get("affected_items") or []:
+        if not isinstance(item, dict) or not str(item.get("name") or "").strip():
+            continue
+        status = str(item.get("status") or "")
+        hosts.append({
+            "name": str(item["name"]).strip(),
+            "id": str(item.get("id") or ""),
+            "ip": str(item.get("ip") or ""),
+            "status": status if status in LOG_HOST_STATUSES else "unknown",
+            "manager": str(item.get("id") or "") == "000",
+        })
+    return hosts
+
+
+def log_search_hosts_from_indexer() -> list[dict[str, Any]]:
+    response = requests.post(
+        f"{CONFIG['wazuh_indexer_url']}/wazuh-alerts-*/_search",
+        json={
+            "size": 0,
+            "query": {"range": {"timestamp": {"gte": "now-7d", "lte": "now"}}},
+            "aggs": {"hosts": {
+                "terms": {"field": "agent.name", "size": 100},
+                "aggs": {"agent_id": {"terms": {"field": "agent.id", "size": 1}}},
+            }},
+        },
+        headers={"Content-Type": "application/json"},
+        auth=wazuh_indexer_auth(),
+        timeout=10,
+        verify=CONFIG["wazuh_verify"],
+    )
+    response.raise_for_status()
+    buckets = (((response.json() or {}).get("aggregations") or {}).get("hosts") or {}).get("buckets") or []
+    hosts = []
+    for bucket in buckets:
+        name = str(bucket.get("key") or "").strip()
+        if not name:
+            continue
+        ids = (bucket.get("agent_id") or {}).get("buckets") or []
+        agent_id = str(ids[0].get("key") or "") if ids else ""
+        hosts.append({
+            "name": name, "id": agent_id, "ip": "", "status": "unknown",
+            "manager": agent_id == "000", "events_7d": bucket.get("doc_count"),
+        })
+    return hosts
+
+
+@app.get("/api/log-search/hosts")
+@role_required("analyst")
+def api_log_search_hosts():
+    """Hosts for the 로그 검색 dropdown: registered Wazuh agents, or, when the
+    manager API cannot be reached, the agent names seen in the last 7 days."""
+    hosts: list[dict[str, Any]] = []
+    source = None
+    try:
+        hosts = log_search_hosts_from_api()
+        source = "wazuh_api"
+    except (WazuhServerAPIError, ValueError):
+        hosts = []
+    if not hosts and CONFIG["wazuh_search_enabled"]:
+        try:
+            hosts = log_search_hosts_from_indexer()
+            source = "indexer"
+        except (requests.RequestException, ValueError):
+            hosts = []
+    if not hosts:
+        source = None
+    # Manager first, then connected agents, then by name.
+    order = {"active": 0, "pending": 1, "unknown": 2, "disconnected": 3, "never_connected": 4}
+    hosts.sort(key=lambda host: (not host["manager"], order.get(host["status"], 5), host["name"].lower()))
+    return jsonify({"source": source, "total": len(hosts), "hosts": hosts})
+
+
 @app.post("/api/log-search")
 @role_required("analyst")
 def api_log_search():
     payload = request.get_json(silent=True) or {}
     index = str(payload.get("index", "wazuh-alerts-*")).strip()
     query = str(payload.get("query", "*")).strip() or "*"
-    start_time = str(payload.get("start_time", "now-24h")).strip()
-    end_time = str(payload.get("end_time", "now")).strip()
+    start_time = str(payload.get("start_time", "now-24h")).strip() or "now-24h"
+    end_time = str(payload.get("end_time", "now")).strip() or "now"
 
     try:
         size = min(
@@ -2384,6 +2478,8 @@ def api_log_search():
 
     if not INDEX_PATTERN.fullmatch(index):
         return jsonify({"error": "The index pattern contains unsupported characters."}), 400
+    if not valid_log_time(start_time) or not valid_log_time(end_time):
+        return jsonify({"error": "The search period must be a relative time like now-24h or a full date and time with a time zone."}), 400
     if not CONFIG["wazuh_search_enabled"]:
         return jsonify({"error": "Wazuh Indexer search is disabled by server policy."}), 403
 

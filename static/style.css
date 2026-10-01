@@ -5089,3 +5089,37 @@ html[data-theme="light"] .output-panel .output-item { padding: 10px 12px; }
     .log-builder-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .log-builder-fields input, .log-builder-fields select { height: 38px; box-sizing: border-box; }
+
+/* 로그 검색 · 검색 대상 / 기간 / 고급 설정 / 호스트 드롭다운 */
+.log-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) 120px auto; align-items: start; }
+.log-form > .button { align-self: start; margin-top: 21px; height: 38px; }
+.log-form > label > select, .log-form > label > input { height: 38px; box-sizing: border-box; }
+.log-field-note { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.45; }
+.log-field-note:empty { display: none; }
+.log-field-note code { font-size: 11.5px; }
+.log-range { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.log-range-label { color: var(--muted); font-size: 12.5px; font-weight: 500; min-width: 30px; }
+.log-range-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.range-chip { padding: 6px 12px; border: 1px solid var(--line-2); border-radius: 999px; background: var(--panel-2); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.range-chip:hover { border-color: var(--accent); }
+.range-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.range-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.log-range-custom { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.log-range-custom[hidden] { display: none; }
+.log-range-custom label { display: flex; align-items: center; gap: 6px; }
+.log-range-custom input { width: auto; margin-top: 0; height: 36px; box-sizing: border-box; }
+.log-range-custom > span { color: var(--muted); padding-bottom: 8px; }
+.log-range-summary { flex-basis: 100%; margin: 0 0 0 42px; color: var(--muted); font-size: 12.5px; }
+.log-range-summary.is-invalid { color: var(--danger); }
+.log-advanced { grid-column: 1 / -1; font-size: 12.5px; }
+.log-advanced > summary { cursor: pointer; color: var(--muted); width: max-content; }
+.log-advanced[open] > summary { margin-bottom: 8px; }
+.log-advanced label { display: block; max-width: 420px; }
+.log-advanced .log-field-note { margin: 6px 0 0; }
+.log-builder-fields [data-host-custom] { margin-top: 6px; }
+@media (max-width: 1100px) {
+    .log-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .log-form .span-two { grid-column: 1 / -1; }
+    .log-form > .button { margin-top: 21px; }
+    .log-range-summary { margin-left: 0; }
+}

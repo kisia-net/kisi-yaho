@@ -59,6 +59,8 @@ ERROR_MESSAGES_KO: dict[str, str] = {
     "The agent received or produced data that could not be processed.": "에이전트가 처리할 수 없는 데이터를 받거나 만들었습니다.",
     "The alert analysis response could not be processed.": "경보 분석 결과를 처리하지 못했습니다.",
     "The index pattern contains unsupported characters.": "인덱스 패턴에 사용할 수 없는 문자가 있습니다.",
+    "The search period must be a relative time like now-24h or a full date and time with a time zone.":
+        "기간은 now-24h 같은 상대 시간이거나 시간대가 붙은 날짜·시각이어야 합니다.",
     "The verified Suricata inventory target is not configured correctly.": "검증된 Suricata 룰 목록 대상이 올바르게 설정되지 않았습니다.",
     "This action is already pending approval.": "이미 승인 대기 중인 조치입니다.",
     "Unsupported DetectionSpec schema.": "지원하지 않는 DetectionSpec 형식입니다.",
