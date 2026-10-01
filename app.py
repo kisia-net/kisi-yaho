@@ -4903,14 +4903,32 @@ def api_agent_conversation():
         context = {}
 
     try:
-        return jsonify(run_chat(
+        result = run_chat(
             config=CONFIG,
             message=message.strip(),
             history=clean_history(payload.get("history")),
             context=context,
             service=ALERT_ANALYSIS,
             extract_content=extract_llm_content,
-        ))
+        )
+        # Its tools search the logs, so each turn is audited like a search:
+        # which tools ran, on what scope, with what outcome, not the content.
+        append_audit("agent_conversation", {
+            "message_chars": len(message),
+            "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+            "incomplete": bool(result.get("incomplete")),
+            "tools": [
+                {
+                    "tool": entry.get("tool"),
+                    "status": (entry.get("result") or {}).get("status"),
+                    "total_matches": (entry.get("result") or {}).get("total_matches"),
+                    "scope": (entry.get("result") or {}).get("scope"),
+                }
+                for entry in (result.get("tool_trace") or [])[:8]
+                if isinstance(entry, dict)
+            ],
+        })
+        return jsonify(result)
     except requests.RequestException:
         return jsonify({
             "error": "The conversation request failed.",

@@ -1416,6 +1416,11 @@ function addMessage(role, text, meta = "", record = true, options = {}) {
 
 // 새 대화의 빈 화면: what each mode is good for, as one-click starters.
 const AGENT_STARTERS = {
+    conversation: [
+        "지난 24시간 동안 web-01에서 가장 많이 걸린 룰과 출발지를 정리해 줘",
+        "오늘 공격 경보를 시간대별로 요약하고 눈에 띄는 변화를 알려 줘",
+        "자산 목록에서 인터넷에 노출된 서버를 알려 줘",
+    ],
     alert_summary: [
         "선택한 경보를 설명하고, 오탐일 가능성과 그 근거를 알려 줘",
         "이 경보의 출발지 IP가 다른 호스트에도 접근했는지 정리해 줘",
@@ -1900,7 +1905,7 @@ function selectAgentSession(sessionId) {
 
 async function deleteAgentSession(sessionId) {
     if (conversationPending.has(sessionId)) {
-        toast("Wait for the response before deleting this conversation.");
+        toast("응답을 받은 뒤에 이 대화를 삭제할 수 있습니다.");
         return;
     }
     try {
@@ -1933,7 +1938,7 @@ function startNewAgentChat(mode = state.agentMode, context = {}) {
 
 async function clearAgentHistory() {
     if (conversationPending.size) {
-        toast("Wait for pending responses before clearing history.");
+        toast("진행 중인 응답이 끝난 뒤에 기록을 지울 수 있습니다.");
         return;
     }
     try {
@@ -2020,12 +2025,12 @@ function persistAgentSession(session) {
 function renderConversationTools(container, trace) {
     container.replaceChildren();
     const labels = {
-        summarize_logs: "Log summary",
-        search_logs: "Log search",
-        get_alert: "Alert evidence",
-        list_assets: "Assets",
-        lookup_indicator: "Threat intelligence",
-        environment: "Environment",
+        summarize_logs: "로그 집계",
+        search_logs: "로그 검색",
+        get_alert: "경보 증거",
+        list_assets: "자산",
+        lookup_indicator: "위협 인텔리전스",
+        environment: "환경 설정",
     };
     for (const entry of trace) {
         const item = document.createElement("div");
@@ -2034,14 +2039,15 @@ function renderConversationTools(container, trace) {
         heading.textContent = `${entry.ref} · ${labels[entry.tool] || entry.tool}`;
         const body = document.createElement("p");
         const result = entry.result || {};
-        const parts = [result.status || "unknown"];
-        if (result.total_matches != null) parts.push(`${result.total_matches} matches`);
-        if (result.returned != null) parts.push(`${result.returned} events supplied`);
+        const statusLabels = { success: "성공", partial: "일부만", failed: "실패", disabled: "검색 꺼짐", invalid_request: "잘못된 요청", duplicate: "중복 요청" };
+        const parts = [statusLabels[result.status] || result.status || "알 수 없음"];
+        if (result.total_matches != null) parts.push(`일치 ${result.total_matches}건`);
+        if (result.returned != null) parts.push(`모델에 ${result.returned}건 제공`);
         if (result.scope) {
             parts.push(result.scope.host, `${result.scope.start} – ${result.scope.end}`);
         }
         if (result.context_truncated || result.content_truncated) {
-            parts.push("Evidence shortened");
+            parts.push("증거 일부 축약");
         }
         body.textContent = parts.filter(Boolean).join(" · ");
         item.append(heading, body);
@@ -2086,7 +2092,7 @@ async function sendConversation(message) {
 
         result.mode = "conversation";
         result.actions = [];
-        const answer = result.answer || "No response received.";
+        const answer = result.answer || "응답을 받지 못했습니다.";
         target.transcript.push({
             id: agentSessionId(), role: "assistant", text: answer,
             meta: result.model || "", mode: "conversation",
@@ -2130,7 +2136,7 @@ async function sendConversation(message) {
 async function sendAgent(message) {
     if (conversationPending.has(state.currentAgentSessionId)) {
         byId("agent-input").value = message;
-        toast("A response is still in progress.");
+        toast("아직 응답을 기다리는 중입니다.");
         return;
     }
     if (state.agentMode === "conversation") return sendConversation(message);
@@ -4229,6 +4235,7 @@ const AUDIT_LABELS = {
     wazuh_log_search: "로그 검색",
     wazuh_log_search_check: "추천 검색 건수 확인",
     agent_request: "AI 작업공간 요청",
+    agent_conversation: "AI 일반 대화",
     agent_processing_error: "AI 작업공간 처리 오류",
     alert_analysis_request: "경보 분석 요청",
     alert_analysis_completed: "경보 분석 완료",

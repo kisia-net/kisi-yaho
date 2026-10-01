@@ -556,7 +556,9 @@ def run_chat(*, config, message, history, context, service, extract_content):
     incomplete = not bool(answer)
     if incomplete:
         answer = (
-            "I could not complete this response within the available processing "
+            "처리 시간 안에 답을 마치지 못했습니다. 기간이나 호스트를 좁혀서 다시 물어봐 주세요."
+            if str(config.get("llm_output_language", "ko")) == "ko"
+            else "I could not complete this response within the available processing "
             "budget. Please retry with a narrower request."
         )
 
