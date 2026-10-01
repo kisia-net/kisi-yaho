@@ -77,12 +77,19 @@
             return;
         }
         const badges = data.badges || {};
+        let ctiByAgent = {};
+        try {
+            ctiByAgent = ((await requestJson("/api/threat-intel/status")).matches_24h || {}).by_agent || {};
+        } catch {
+            ctiByAgent = {};
+        }
         list.querySelectorAll("[data-agent-id]").forEach((row) => {
             const badge = badges[row.dataset.agentId] || {};
             const parts = [
                 `<span class="host-badge" title="CVE 경보를 뺀 최근 24시간 경보">경보 ${Number(badge.alerts_24h || 0).toLocaleString("ko-KR")}</span>`,
                 badge.high_24h ? `<span class="host-badge host-badge-high" title="레벨 10 이상">고위험 ${Number(badge.high_24h).toLocaleString("ko-KR")}</span>` : "",
                 badge.critical_vulnerabilities ? `<span class="host-badge host-badge-vuln" title="치명 등급 취약점">치명 취약점 ${Number(badge.critical_vulnerabilities).toLocaleString("ko-KR")}</span>` : "",
+                ctiByAgent[row.dataset.agentId] ? `<span class="host-badge host-badge-high" title="최근 24시간 경보 중 CTI 등재 출발지에서 온 것">CTI 일치 ${Number(ctiByAgent[row.dataset.agentId]).toLocaleString("ko-KR")}</span>` : "",
             ].filter(Boolean).join("");
             const holder = document.createElement("div");
             holder.className = "host-badges";

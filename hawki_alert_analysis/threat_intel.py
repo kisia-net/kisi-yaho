@@ -204,26 +204,46 @@ class FileThreatIntelFeed:
 
         indicators: list[ThreatIndicator] = []
         index: dict[str, list[ThreatIndicator]] = {}
+        files: list[dict[str, Any]] = []
+        now = datetime.now(timezone.utc)
         if self.root.exists():
             for path in sorted(self.root.glob("*.json")):
                 payload = json.loads(path.read_text(encoding="utf-8"))
+                generated_at = ""
                 if isinstance(payload, list):
                     records, feed = payload, path.stem
                 elif isinstance(payload, dict):
                     records = payload.get("indicators", [])
                     feed = str(payload.get("source", path.stem))
+                    generated_at = str(payload.get("generated_at") or "")
                 else:
                     continue
+                count = expired = 0
                 for record in records:
                     if not isinstance(record, dict):
                         continue
                     indicator = indicator_from_record(record, feed=feed)
                     indicators.append(indicator)
                     index.setdefault(indicator.value.strip().lower(), []).append(indicator)
+                    count += 1
+                    expired += indicator.is_expired(now)
+                files.append({
+                    "file": path.name,
+                    "feed": feed,
+                    "generated_at": generated_at,
+                    "indicators": count,
+                    "expired": expired,
+                })
 
         self._indicators = indicators
         self._index = index
+        self._files = files
         return indicators
+
+    def file_status(self) -> list[dict[str, Any]]:
+        """Per file: feed name, generation time, indicator and expired counts."""
+        self._load()
+        return [dict(item) for item in getattr(self, "_files", [])]
 
     def lookup(self, value: str) -> list[ThreatIndicator]:
         self._load()

@@ -156,3 +156,44 @@ class EvidenceAgentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SearchEventsTests(unittest.TestCase):
+    """search_events: structured, add-only, values copied from the evidence."""
+
+    def setUp(self):
+        self.repo = FakeRepository()
+        self.repo.event_calls = []
+
+        def search_events(**kwargs):
+            self.repo.event_calls.append(kwargs)
+            return [dict(event("ev-1", 30, log="GET /../../etc/shadow"), origin="agent_search")]
+
+        self.repo.search_events = search_events
+        self.bundle = build_live_evidence_bundle(self.repo, "alert-1")
+
+    def run_agent(self, *calls):
+        model = ScriptedModel(*calls, tool_call("finish", reason="enough"))
+        return run_evidence_agent(self.repo, "alert-1", self.bundle, model, max_calls=3)
+
+    def test_evidence_values_are_searched_on_the_trigger_agent(self):
+        trace = self.run_agent(tool_call("search_events", rule_id="31106", text="/etc/passwd", hours=6, reason="same rule"))
+        call = self.repo.event_calls[0]
+        self.assertEqual((call["rule_id"], call["text"], call["agent_name"], call["hours"]), ("31106", "/etc/passwd", "web-01", 6))
+        self.assertEqual(trace["added_evidence_ids"], ["CTX-002"])
+        added = self.bundle["investigation_context"][-1]
+        self.assertEqual(added["provenance"]["source_kind"], "agent_expansion")
+
+    def test_values_not_in_the_evidence_are_refused(self):
+        trace = self.run_agent(
+            tool_call("search_events", rule_id="99999", hours=2, reason="planted"),
+            tool_call("search_events", text="/admin/secret-panel", hours=2, reason="planted"),
+            tool_call("search_events", hours=2, reason="nothing"),
+        )
+        self.assertEqual(self.repo.event_calls, [])
+        self.assertEqual([call["refused"] for call in trace["calls"]], ["value_not_in_evidence", "value_not_in_evidence", "no_filter"])
+
+    def test_any_agent_scope_and_hours_are_clamped(self):
+        self.run_agent(tool_call("search_events", decoder="web-accesslog", scope="any_agent", hours=500, reason="x"))
+        call = self.repo.event_calls[0]
+        self.assertEqual((call["agent_name"], call["hours"], call["decoder"]), ("", 24, "web-accesslog"))

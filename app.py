@@ -1950,6 +1950,213 @@ def api_threat_intel():
     )
 
 
+# -- CTI 상태 (dashboard card) -------------------------------------------------
+
+CTI_FEEDS = (
+    ("abusech-feodo.json", "abuse.ch Feodo", "봇넷 C2 서버"),
+    ("blocklistde.json", "blocklist.de", "최근 48시간 공격 IP (의심)"),
+    ("abusech-threatfox.json", "abuse.ch ThreatFox", "악성코드 인프라 IOC"),
+)
+CTI_STALE_HOURS = 36
+
+
+def cti_feed_state(file_info: dict[str, Any] | None, imported: dict[str, Any] | None, now: datetime) -> str:
+    """ok / stale / empty / no_key / error / missing, for one feed."""
+    imported = imported or {}
+    if not file_info:
+        state = str(imported.get("state") or "")
+        return state if state in {"no_key", "error"} else "missing"
+    if not file_info.get("indicators"):
+        return "empty"
+    generated = parse_time(file_info.get("generated_at"))
+    if generated is None or now - generated > timedelta(hours=CTI_STALE_HOURS):
+        return "stale"
+    if imported.get("state") == "error":
+        return "stale"
+    return "ok"
+
+
+def cti_matches_24h(feed: Any) -> dict[str, Any]:
+    """Alerts of the last 24 hours whose source address is a live indicator."""
+    body = {
+        "size": 0,
+        "query": {"range": {"timestamp": {"gte": "now-24h", "lte": "now"}}},
+        "aggs": {
+            "ips": {"terms": {"field": "data.srcip", "size": 500}},
+            "agents": {
+                "terms": {"field": "agent.id", "size": 50},
+                "aggs": {"ips": {"terms": {"field": "data.srcip", "size": 200}}},
+            },
+        },
+    }
+    payload = SIEM_INDEXER.search(SIEM.alert_index, body)
+    aggregations = payload.get("aggregations") or {}
+    now = datetime.now(timezone.utc)
+    verdicts: dict[str, list[Any]] = {}
+
+    def live(ip: str) -> list[Any]:
+        if ip not in verdicts:
+            verdicts[ip] = [item for item in feed.lookup(ip) if not item.is_expired(now)]
+        return verdicts[ip]
+
+    matched = []
+    alerts = 0
+    for bucket in (aggregations.get("ips") or {}).get("buckets") or []:
+        ip = str(bucket.get("key") or "")
+        hits = live(ip)
+        if not hits:
+            continue
+        alerts += int(bucket.get("doc_count") or 0)
+        strongest = max(hits, key=lambda item: (item.verdict == "malicious", item.confidence))
+        matched.append({
+            "ip": ip,
+            "alerts": int(bucket.get("doc_count") or 0),
+            "verdict": strongest.verdict,
+            "feeds": sorted({item.feed for item in hits}),
+        })
+    by_agent = {}
+    for bucket in (aggregations.get("agents") or {}).get("buckets") or []:
+        count = sum(int(ip.get("doc_count") or 0) for ip in (bucket.get("ips") or {}).get("buckets") or []
+                    if live(str(ip.get("key") or "")))
+        if count:
+            by_agent[str(bucket.get("key"))] = count
+    matched.sort(key=lambda item: (item["verdict"] != "malicious", -item["alerts"]))
+    return {"alerts": alerts, "addresses": len(matched), "top": matched[:5], "by_agent": by_agent}
+
+
+@app.get("/api/threat-intel/status")
+@role_required("analyst")
+def api_threat_intel_status():
+    """What the CTI feeds hold and when they were refreshed, for the card."""
+    live = ALERT_REPOSITORY_KIND == "wazuh"
+    root = LIVE_THREAT_INTEL_ROOT if live else THREAT_INTEL_ROOT
+    feed = LIVE_THREAT_INTEL_FEED if live else THREAT_INTEL_FEED
+    try:
+        files = {item["file"]: item for item in feed.file_status()} if hasattr(feed, "file_status") else {}
+    except (OSError, ValueError):
+        files = {}
+    try:
+        imports = (json.loads((root / ".import-status").read_text(encoding="utf-8")).get("feeds") or {})
+    except (OSError, ValueError, AttributeError):
+        imports = {}
+    import_by_file = {str(value.get("file")): value for value in imports.values() if isinstance(value, dict)}
+    now = datetime.now(timezone.utc)
+    feeds = []
+    known = set()
+    for file_name, label, kind in CTI_FEEDS:
+        known.add(file_name)
+        info, imported = files.get(file_name), import_by_file.get(file_name)
+        feeds.append({
+            "file": file_name, "label": label, "kind": kind,
+            "state": cti_feed_state(info, imported, now),
+            "indicators": (info or {}).get("indicators", 0),
+            "expired": (info or {}).get("expired", 0),
+            "generated_at": (info or {}).get("generated_at") or None,
+            "last_attempt": (imported or {}).get("attempted_at"),
+            "message": (imported or {}).get("message"),
+        })
+    for file_name, info in files.items():
+        if file_name not in known:
+            feeds.append({"file": file_name, "label": info.get("feed") or file_name, "kind": "",
+                          "state": cti_feed_state(info, None, now), "indicators": info.get("indicators", 0),
+                          "expired": info.get("expired", 0), "generated_at": info.get("generated_at") or None})
+    matches = None
+    if live and any(item["indicators"] for item in feeds):
+        try:
+            matches = cti_matches_24h(feed)
+        except (WazuhIndexerError, ValueError, requests.RequestException) as exc:
+            matches = {"error": str(exc)[:200]}
+    return jsonify({
+        "configured": any(item["indicators"] for item in feeds),
+        "stale_after_hours": CTI_STALE_HOURS,
+        "feeds": feeds,
+        "matches_24h": matches,
+    })
+
+
+# -- 레드팀 평가 (dashboard list and alert page) --------------------------------
+
+
+@app.get("/api/redteam/status/<analysis_id>")
+@role_required("analyst")
+def api_redteam_status(analysis_id: str):
+    """One analysis' red team evaluation, from sending to the runner's verdict.
+
+    stage: sending (no answer from the runner yet) / refused (the runner or
+    HAW-KI's own check rejected it, with the reason) / accepted (job id, and
+    the runner's current view of the job).
+    """
+    if not ANALYSIS_ID_PATTERN.fullmatch(analysis_id):
+        return jsonify({"error": "Analysis ID is invalid.", "code": "invalid_analysis_id"}), 400
+    outcome = None
+    for record in reversed(read_jsonl(AUDIT_LOG_PATH)):
+        if record.get("event_type") == "redteam_eval_dispatched" and (record.get("detail") or {}).get("analysis_id") == analysis_id:
+            outcome = {**(record.get("detail") or {}), "timestamp": record.get("timestamp")}
+            break
+    if outcome is None:
+        return jsonify({"analysis_id": analysis_id, "stage": "sending"})
+    if not outcome.get("dispatched"):
+        return jsonify({
+            "analysis_id": analysis_id, "stage": "refused",
+            "status_code": outcome.get("status_code"), "error": outcome.get("error"),
+            "timestamp": outcome.get("timestamp"),
+        })
+    job_id = outcome.get("job_id") or REDTEAM_JOB_INDEX.job_for(analysis_id)
+    result: dict[str, Any] = {
+        "analysis_id": analysis_id, "stage": "accepted", "job_id": job_id,
+        "status_code": outcome.get("status_code"), "timestamp": outcome.get("timestamp"),
+    }
+    if not job_id:
+        result["note"] = "accepted without a job id"
+        return jsonify(result)
+    try:
+        status, body = fetch_job_status(
+            runner_url=CONFIG["redteam_runner_url"], token=CONFIG["redteam_runner_token"],
+            timeout=CONFIG["redteam_runner_timeout"], job_id=job_id, jobs_path=CONFIG["redteam_jobs_path"],
+        )
+        result.update(runner_status=status, runner=body if status < 400 else None)
+    except (requests.RequestException, ValueError) as exc:
+        result.update(runner_status=None, runner_error=str(exc)[:200])
+    return jsonify(result)
+
+
+@app.get("/api/redteam/recent")
+@role_required("analyst")
+def api_redteam_recent():
+    """The latest analyses and what happened to their red team evaluation."""
+    records = read_jsonl(AUDIT_LOG_PATH)
+    dispatched = {}
+    analyses = []
+    for record in records:
+        detail = record.get("detail") or {}
+        if record.get("event_type") == "redteam_eval_dispatched" and detail.get("analysis_id"):
+            dispatched[str(detail["analysis_id"])] = {**detail, "timestamp": record.get("timestamp")}
+        elif record.get("event_type") in {"alert_analysis_completed", "auto_report_analyzed"} and detail.get("analysis_id"):
+            analyses.append({
+                "analysis_id": detail.get("analysis_id"),
+                "alert_id": detail.get("alert_id"),
+                "timestamp": record.get("timestamp"),
+                "redteam": detail.get("redteam"),
+                "by": (record.get("actor") or {}).get("username"),
+            })
+    items = []
+    for analysis in reversed(analyses[-200:]):
+        outcome = dispatched.get(str(analysis["analysis_id"])) or {}
+        items.append({
+            **analysis,
+            "dispatch": {key: outcome.get(key) for key in ("dispatched", "status_code", "job_id", "error", "timestamp")}
+            if outcome else None,
+        })
+        if len(items) >= 10:
+            break
+    return jsonify({
+        "enabled": bool(CONFIG["redteam_auto_eval_enabled"]),
+        "token_configured": bool(CONFIG["redteam_runner_token"]),
+        "runner_url_configured": bool(CONFIG["redteam_runner_url"]),
+        "items": items,
+    })
+
+
 @app.get("/api/alerts/<alert_id>/timeline")
 @role_required("analyst")
 def api_alert_timeline(alert_id: str):

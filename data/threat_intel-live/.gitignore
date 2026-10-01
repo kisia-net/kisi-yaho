@@ -1,3 +1,4 @@
 # Written daily by tools/import_cti.py on the deployment host. Feed snapshots
 # are refreshed data, not source, so they stay out of the repository.
 *.json
+.import-status

@@ -121,3 +121,25 @@ class ConversationApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContextFitTests(unittest.TestCase):
+    def test_records_fit_the_configured_limit_oldest_first(self):
+        big = {"status": "success", "total_matches": 900, "returned": 40,
+               "events": [{"ref": f"E{n}", "source": {"full_log": "x" * 400}} for n in range(40)]}
+        trace = [{"ref": f"R-1-{n}", "tool": "search_logs", "result": json.loads(json.dumps(big))} for n in range(1, 4)]
+        fitted = hawki_chat_agent._fit_records(trace, 9000)
+        self.assertLessEqual(len(json.dumps(fitted, ensure_ascii=False)), 9000)
+        self.assertIn("compacted", fitted[0]["result"])
+        self.assertEqual(fitted[0]["result"]["total_matches"], 900)
+        self.assertEqual(fitted[-1]["result"]["returned"], len(fitted[-1]["result"]["events"]))
+        self.assertEqual(len(trace[0]["result"]["events"]), 40)  # the trace shown to the analyst is untouched
+
+    def test_small_records_are_left_alone(self):
+        trace = [{"ref": "R-1-1", "tool": "environment", "result": {"status": "success"}}]
+        self.assertEqual(hawki_chat_agent._fit_records(trace, 9000), trace)
+
+    def test_budget_follows_agent_context_max_chars(self):
+        small = hawki_chat_agent._evidence_budget({"agent_context_max_chars": 20000}, "i" * 5000, "m", [])
+        large = hawki_chat_agent._evidence_budget({"agent_context_max_chars": 48000}, "i" * 5000, "m", [])
+        self.assertEqual(large - small, 28000)
