@@ -470,3 +470,149 @@ def build_live_evidence_bundle(
         },
         "evidence_handling": LIVE_EVIDENCE_HANDLING,
     }
+
+
+# -- Fitting the package to the model's context ----------------------------
+#
+# A live package that is over AGENT_CONTEXT_MAX_CHARS used to stop the
+# analysis with an error: serialize_agent_context refuses to cut a live
+# package blindly, because a JSON slice can drop exactly the record that
+# matters. This fits it deliberately instead, cheapest loss first, and says
+# what was lost in retrieval.context_fit so the model and the analyst see it:
+#
+# 1. shorten very long text (full_log, long values inside `data`) in context
+#    items -- the trigger is left whole;
+# 2. drop whole context items, least relevant first (relevance score, then
+#    distance in time from the trigger); their control outcomes and lineage
+#    edges go with them, and assets / intelligence / priority are recomputed
+#    for the evidence that remains;
+# 3. only if the trigger alone is still too big, shorten the trigger's log.
+#
+# Dropped ids are not renumbered: CTX-007 stays CTX-007, so a citation in an
+# earlier result still points at the same record.
+
+TRUNCATION_MARK = " …[truncated]"
+
+
+def _shorten_text(value: Any, cap: int) -> tuple[Any, int]:
+    if isinstance(value, str) and len(value) > cap:
+        return value[:cap] + TRUNCATION_MARK, 1
+    if isinstance(value, dict):
+        changed = 0
+        for key, item in list(value.items()):
+            value[key], count = _shorten_text(item, cap)
+            changed += count
+        return value, changed
+    if isinstance(value, list):
+        changed = 0
+        for index, item in enumerate(value):
+            value[index], count = _shorten_text(item, cap)
+            changed += count
+        return value, changed
+    return value, 0
+
+
+def _shorten_item(item: dict[str, Any], cap: int) -> int:
+    changed = 0
+    item["full_log"], count = _shorten_text(item.get("full_log"), cap)
+    changed += count
+    if isinstance(item.get("data"), dict):
+        _, count = _shorten_text(item["data"], max(cap // 2, 80))
+        changed += count
+    return changed
+
+
+def _keep_rank(item: dict[str, Any]) -> tuple[float, float]:
+    """Higher is kept longer: relevance first, then closeness to the trigger."""
+    retrieval = item.get("retrieval") if isinstance(item.get("retrieval"), dict) else {}
+    try:
+        score = float(retrieval.get("relevance_score") or 0)
+    except (TypeError, ValueError):
+        score = 0.0
+    provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+    if provenance.get("source_kind") == "agent_expansion":
+        score += 0.5  # the evidence agent asked for it on purpose
+    try:
+        distance = abs(float(retrieval.get("delta_seconds") or 0))
+    except (TypeError, ValueError):
+        distance = 0.0
+    return score, -distance
+
+
+def _forget(bundle: dict[str, Any], evidence_id: str) -> None:
+    bundle["control_outcomes"] = [
+        outcome for outcome in bundle.get("control_outcomes") or []
+        if not (isinstance(outcome, dict) and outcome.get("evidence_id") == evidence_id)
+    ]
+    lineage = bundle.get("lineage")
+    if isinstance(lineage, dict) and isinstance(lineage.get("edges"), list):
+        def touches(edge: Any) -> bool:
+            if not isinstance(edge, dict):
+                return False
+            for end in (edge.get("from"), edge.get("to")):
+                if isinstance(end, dict) and evidence_id in (end.get("id"), end.get("evidence_id")):
+                    return True
+            return False
+
+        lineage["edges"] = [edge for edge in lineage["edges"] if not touches(edge)]
+
+
+def fit_live_bundle(
+    bundle: dict[str, Any],
+    *,
+    measure: Any,
+    limit: int,
+    repository: Any = None,
+) -> dict[str, Any] | None:
+    """Shrink a live package in place until measure(bundle) <= limit.
+
+    Returns what was changed, or None when it already fitted.
+    """
+    original = measure(bundle)
+    if original <= limit:
+        return None
+
+    context = bundle.get("investigation_context")
+    if not isinstance(context, list):
+        context = []
+    report: dict[str, Any] = {
+        "limit_chars": limit,
+        "original_chars": original,
+        "shortened_fields": 0,
+        "dropped_evidence_ids": [],
+    }
+    retrieval = bundle.setdefault("retrieval", {})
+    # Recorded first so its own size is counted.
+    retrieval["context_fit"] = report
+
+    for cap in (1000, 500, 250):
+        for item in context:
+            if isinstance(item, dict):
+                report["shortened_fields"] += _shorten_item(item, cap)
+        if measure(bundle) <= limit:
+            break
+
+    while measure(bundle) > limit and context:
+        victim = min(context, key=lambda item: _keep_rank(item) if isinstance(item, dict) else (float("-inf"), 0.0))
+        context.remove(victim)
+        evidence_id = str(victim.get("evidence_id") or "") if isinstance(victim, dict) else ""
+        report["dropped_evidence_ids"].append(evidence_id)
+        _forget(bundle, evidence_id)
+
+    if report["dropped_evidence_ids"] and repository is not None and isinstance(bundle.get("trigger"), dict):
+        # The asset, intelligence and priority blocks must describe the
+        # evidence actually sent, not the evidence that was removed.
+        bundle.update(enrich_evidence(repository, bundle["trigger"], context))
+        while measure(bundle) > limit and context:
+            victim = min(context, key=_keep_rank)
+            context.remove(victim)
+            report["dropped_evidence_ids"].append(str(victim.get("evidence_id") or ""))
+            _forget(bundle, str(victim.get("evidence_id") or ""))
+
+    if measure(bundle) > limit and isinstance(bundle.get("trigger"), dict):
+        report["shortened_fields"] += _shorten_item(bundle["trigger"], 2000)
+
+    retrieval["selected_count"] = len(context)
+    report["final_chars"] = measure(bundle)
+    report["fits"] = report["final_chars"] <= limit
+    return report

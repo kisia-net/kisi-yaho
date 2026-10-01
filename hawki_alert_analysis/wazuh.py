@@ -225,20 +225,26 @@ class WazuhEventRepository:
             event.correlation = {**event.correlation, "index": str(hit["_index"])}
         return event
 
-    def _alert_query(self) -> dict[str, Any]:
+    def _alert_query(self, min_level: int = 0) -> dict[str, Any]:
+        query: dict[str, Any] = {
+            "bool": {
+                "should": [
+                    {"term": {"event.kind": "alert"}},
+                    {"exists": {"field": "rule.id"}},
+                    {"exists": {"field": "alert.signature"}},
+                ],
+                "minimum_should_match": 1,
+            }
+        }
+        if min_level > 0:
+            # Filtered in the indexer. Filtering the newest page afterwards
+            # found nothing whenever the last alert_limit alerts were all
+            # low level, while the dashboard counted thousands at level 8+.
+            query["bool"]["filter"] = [{"range": {"rule.level": {"gte": int(min_level)}}}]
         return {
             "size": self.alert_limit,
             "sort": [{self.timestamp_field: {"order": "desc"}}],
-            "query": {
-                "bool": {
-                    "should": [
-                        {"term": {"event.kind": "alert"}},
-                        {"exists": {"field": "rule.id"}},
-                        {"exists": {"field": "alert.signature"}},
-                    ],
-                    "minimum_should_match": 1,
-                }
-            },
+            "query": query,
         }
 
     def _candidate_query(self, trigger: CanonicalEvent) -> dict[str, Any]:
@@ -295,13 +301,13 @@ class WazuhEventRepository:
             if callable(reload_collection):
                 reload_collection()
 
-    def list_alerts(self) -> list[dict[str, Any]]:
+    def list_alerts(self, min_level: int = 0) -> list[dict[str, Any]]:
         """Return recent alerts using native Wazuh rule semantics."""
 
         try:
             payload = self.client.search(
                 self.alert_index,
-                self._alert_query(),
+                self._alert_query(min_level),
             )
         except (WazuhIndexerError, ValueError) as exc:
             self.last_error = str(exc)

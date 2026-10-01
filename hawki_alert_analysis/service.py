@@ -20,7 +20,12 @@ class AlertAnalysisService:
         status: str = "all",
         query: str = "",
     ) -> list[dict[str, Any]]:
-        alerts = self.repository.list_alerts()
+        if min_level > 0 and callable(getattr(self.repository, "list_alerts_since", None)):
+            # Live Wazuh: let the indexer apply the level, so the page holds
+            # the newest alerts at that level rather than the newest alerts.
+            alerts = self.repository.list_alerts(min_level=min_level)
+        else:
+            alerts = self.repository.list_alerts()
 
         if min_level > 0:
             filtered = []

@@ -85,6 +85,7 @@ from hawki_alert_analysis.auto_report import (
     report_summary,
 )
 from hawki_alert_analysis.explain import build_explanation
+from hawki_alert_analysis.live_bundle import fit_live_bundle
 from hawki_alert_analysis.feedback import ANALYST_VERDICTS, FeedbackStore, context_block, identity as feedback_identity
 from hawki_alert_analysis.priority import SEVERITY_AS_LEVEL
 from hawki_alert_analysis.ui_messages import (
@@ -1907,6 +1908,41 @@ def gather_more_evidence(alert_id: str, bundle: dict[str, Any]) -> dict[str, Any
     return bundle
 
 
+def fit_bundle_to_context(alert_id: str, bundle: dict[str, Any]) -> dict[str, Any] | None:
+    """Make a live package fit AGENT_CONTEXT_MAX_CHARS instead of failing.
+
+    serialize_agent_context still refuses to cut a live package blindly; this
+    shrinks it on purpose (live_bundle.fit_live_bundle) and records what was
+    shortened or removed in retrieval.context_fit.
+    """
+    if str(bundle.get("schema") or "") not in {"hawki.wazuh.live-evidence/v1", "hawki.wazuh.live-evidence/v2"}:
+        return None
+
+    def measure(candidate: dict[str, Any]) -> int:
+        # Exactly what call_llm serializes for an alert analysis.
+        return len(json.dumps({"alert_id": alert_id, "alert_case": candidate}, ensure_ascii=False, separators=(",", ":")))
+
+    report = fit_live_bundle(
+        bundle,
+        measure=measure,
+        limit=CONFIG["agent_context_max_chars"],
+        repository=ALERT_REPOSITORY,
+    )
+    if report:
+        append_audit(
+            "evidence_fitted_to_context",
+            {
+                "alert_id": alert_id,
+                "original_chars": report["original_chars"],
+                "final_chars": report["final_chars"],
+                "dropped": len(report["dropped_evidence_ids"]),
+                "shortened": report["shortened_fields"],
+                "fits": report["fits"],
+            },
+        )
+    return report
+
+
 def alert_list_item(alert_id: str) -> dict[str, Any] | None:
     """The alert-queue row for an id (fixture mode looks it up in the list)."""
     for item in ALERT_ANALYSIS.list_alerts():
@@ -2025,6 +2061,7 @@ def api_analyze_alert(alert_id: str):
     if is_live and CONFIG["agent_tool_loop_enabled"] and CONFIG["agent_max_tool_calls"] > 0:
         bundle = gather_more_evidence(alert_id, bundle)
 
+    context_fit = fit_bundle_to_context(alert_id, bundle)
     feedback_used = attach_feedback_context(alert_id, bundle)
 
     if is_live:
@@ -2203,6 +2240,7 @@ def api_analyze_alert(alert_id: str):
     result["metadata_counts"] = bundle_counts
     result["evidence_counts"] = evidence_counts
     result["feedback_context"] = feedback_used
+    result["context_fit"] = context_fit
     result["explanation"] = build_explanation(
         result,
         bundle,
@@ -3093,6 +3131,7 @@ For `hawki.wazuh.live-evidence/v1` or `hawki.wazuh.live-evidence/v2`:
 - `threat_intelligence.matches` are indicators from a local feed that match an observable, with `match.observed_in_event_ids` naming where. A match is external context, not proof of compromise; an expired indicator is historical. `statistics` says how many observables were checked, and no match does not mean benign. When `feed_configured` is false no intelligence was consulted at all.
 - `priority` is HAW-KI's deterministic triage score from the rule level, the inventory, and threat intelligence. Report its band and factors as given; never recompute, raise, or lower it.
 - `agent_retrieval`, when present, records the evidence-gathering tool calls made before this analysis. CTX items whose provenance `source_kind` is `agent_expansion` were added by those calls; cite them like any other CTX item. `agent_lookups` holds inventory and intelligence lookups made then.
+- `retrieval.context_fit`, when present, records evidence shortened or removed so the package fits your context. Text ending in "…[truncated]" was shortened; `dropped_evidence_ids` were retrieved but not sent. Treat both as evidence gaps and never cite a dropped id.
 - Missing asset, exposure, threat-intelligence, process, user, or other context is an evidence gap. Never manufacture it.
 - Cite only `TRIGGER` and the `CTX-NNN` identifiers actually supplied.
 
@@ -6896,6 +6935,7 @@ def auto_fetch_alerts(since: datetime, min_level: int, limit: int) -> list[dict[
 def auto_build_bundle(item: dict[str, Any]) -> dict[str, Any]:
     alert_id = str(item.get("id") or "")
     bundle = ALERT_ANALYSIS.evidence_bundle(alert_id, max_related=MAX_RELATED_EVENTS_PER_CASE)
+    fit_bundle_to_context(alert_id, bundle)
     attach_feedback_context(
         alert_id,
         bundle,

@@ -123,6 +123,7 @@
         const profile = inputs.correlation_profile || {};
         const inputLines = [
             profile.name ? `상관분석 프로필 <strong>${escapeHtml(profile.name)}</strong> (경보 전 ${escapeHtml(Math.round((profile.seconds_before || 0) / 60))}분 · 후 ${escapeHtml(Math.round((profile.seconds_after || 0) / 60))}분${profile.cross_agent ? " · 다른 에이전트 포함" : ""})` : "",
+            inputs.context_fit ? `문맥 한도에 맞추느라 증거 ${escapeHtml((inputs.context_fit.dropped_evidence_ids || []).length)}건 제외 · 긴 텍스트 ${escapeHtml(inputs.context_fit.shortened_fields || 0)}곳 축약${(inputs.context_fit.dropped_evidence_ids || []).length ? ` (${escapeHtml(inputs.context_fit.dropped_evidence_ids.join(", "))})` : ""}` : "",
             inputs.agent_calls ? `증거 수집 에이전트 ${escapeHtml(inputs.agent_calls)}회 호출 · 추가 증거 ${escapeHtml((inputs.agent_added_evidence || []).length)}건 · ${escapeHtml(AGENT_STOP[inputs.agent_stopped] || inputs.agent_stopped || "")}` : "",
         ].filter(Boolean).map((line) => `<li>${line}</li>`).join("");
 
