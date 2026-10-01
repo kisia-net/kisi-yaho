@@ -246,3 +246,10 @@ class AlertSearchPushdownTests(unittest.TestCase):
         client, service = self.service()
         service.list_alerts(category="attack", since="now-24h")
         self.assertIsNone(self.text_clause(client.bodies[-1]))
+
+
+class AlertHistoryRedteamTests(unittest.TestCase):
+    def test_history_carries_the_red_team_decision(self):
+        source = Path(app.__file__).read_text(encoding="utf-8")
+        start = source.index("def api_alert_history")
+        self.assertIn('"redteam": detail.get("redteam")', source[start:start + 3000])

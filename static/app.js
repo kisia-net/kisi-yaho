@@ -1000,12 +1000,38 @@ async function loadDashboardRedteam() {
         if (dispatch?.dispatched) outcome = `<span class="cti-state cti-ok">접수 ${escapeHtml(dispatch.status_code || "")}</span>`;
         else if (dispatch) outcome = `<span class="cti-state cti-bad">거부 ${escapeHtml(dispatch.status_code || dispatch.error || "")}</span>`;
         else outcome = `<span class="cti-state cti-muted">${escapeHtml(RT_DECISION_SHORT[item.redteam] || item.redteam || "—")}</span>`;
-        return `<li>
-            <a href="/alerts/${encodeURIComponent(item.alert_id || "")}">${escapeHtml(shortTime(item.timestamp))} · 경보 ${escapeHtml(String(item.alert_id || "").slice(0, 12))}</a>
-            ${outcome}
+        const expandable = item.analysis_id && (item.redteam === "send" || item.redteam === "queued");
+        return `<li class="rt-recent-item">
+            <div class="rt-recent-row">
+                <a href="/alerts/${encodeURIComponent(item.alert_id || "")}">${escapeHtml(shortTime(item.timestamp))} · 경보 ${escapeHtml(String(item.alert_id || "").slice(0, 12))}</a>
+                <span>${outcome}${expandable ? ` <button type="button" class="rt-expand" aria-expanded="false" data-rt-analysis="${escapeHtml(item.analysis_id)}" data-rt-decision="${escapeHtml(item.redteam)}">결과 보기</button>` : ""}</span>
+            </div>
+            ${expandable ? `<div class="rt-recent-detail" hidden></div>` : ""}
         </li>`;
     }).join("") || `<li class="muted">아직 LLM 분석 기록이 없습니다. 경보를 열고 "LLM으로 분석"을 누르면 여기에 나옵니다.</li>`;
 }
+
+// One handler for every row: opens the evaluation under the row and asks
+// the runner for its job state; a second click closes it and stops polling.
+document.addEventListener("click", (event) => {
+    const button = event.target.closest?.(".rt-expand");
+    if (!button) return;
+    const detail = button.closest(".rt-recent-item")?.querySelector(".rt-recent-detail");
+    if (!detail) return;
+    const open = button.getAttribute("aria-expanded") === "true";
+    button.setAttribute("aria-expanded", String(!open));
+    button.textContent = open ? "결과 보기" : "접기";
+    if (open) {
+        detail.hidden = true;
+        detail.innerHTML = "";
+        return;
+    }
+    window.HawkiRedteam?.render(detail, {
+        analysisId: button.dataset.rtAnalysis,
+        decision: button.dataset.rtDecision,
+        caption: "대시보드에서 확인",
+    });
+});
 
 
 const AGENT_GREETING = "모드를 고르고 경보·증거·지표 또는 궁금한 점을 적어 주세요. 실제 변경을 일으키는 결과는 제안 상태로만 올라갑니다.";

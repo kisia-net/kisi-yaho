@@ -683,6 +683,17 @@
             </a>`).join("")}
             ${analyses.length ? `<span class="alert-history-item">LLM 분석 ${escapeHtml(analyses.length)}회 · 마지막 ${escapeHtml(when(analyses[0].timestamp))}${analyses[0].by ? ` (${escapeHtml(analyses[0].by)})` : ""}</span>` : ""}
             ${reports.some((report) => report.ai_status === "completed") ? `<span class="muted">완료된 자동 보고서가 있으면 다시 분석하기 전에 먼저 열어 보세요. 같은 증거로 GPU를 한 번 더 쓰게 됩니다.</span>` : ""}`;
+        // The last analysis's red team evaluation, so opening the alert from
+        // the dashboard shows where it stands without analysing again.
+        const last = analyses.find((item) => item.analysis_id && item.redteam && !["disabled", "not_sent"].includes(item.redteam));
+        const panel = root.querySelector("[data-history-redteam]");
+        if (last && panel && root.querySelector("[data-analysis-section]")?.hidden !== false) {
+            window.HawkiRedteam?.render(panel, {
+                analysisId: last.analysis_id,
+                decision: last.redteam,
+                caption: `마지막 LLM 분석 (${when(last.timestamp)}) 기준`,
+            });
+        }
     }
 
     async function initDetail(root) {
@@ -806,6 +817,8 @@
                 renderReview(root, result);
                 window.HawkiXai?.render(root.querySelector("[data-analysis-xai]"), result.explanation, { queries: result.queries });
                 renderFeedbackForm(root, result, alertId, csrf);
+                const previous = root.querySelector("[data-history-redteam]");
+                if (previous) { previous.hidden = true; previous.innerHTML = ""; }
                 window.HawkiRedteam?.render(root.querySelector("[data-analysis-redteam]"), {
                     analysisId: result.analysis_id,
                     decision: result.redteam?.status,

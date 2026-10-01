@@ -5076,7 +5076,12 @@ html[data-theme="light"] .output-panel .output-item { padding: 10px 12px; }
    card tiling (.structured-output grid below 1450px) and of its height cap. */
 .structured-output[data-analysis-xai],
 .structured-output[data-analysis-redteam],
+.structured-output[data-history-redteam],
 .structured-output[data-analyst-feedback] { display: block; max-height: none; overflow: visible; }
+.structured-output[data-analysis-xai][hidden],
+.structured-output[data-analysis-redteam][hidden],
+.structured-output[data-history-redteam][hidden],
+.structured-output[data-analyst-feedback][hidden] { display: none; }
 
 /* 로그 검색 · 검색 도우미 */
 .log-builder { padding: 15px 15px 4px; border-bottom: 1px solid var(--line); }
@@ -5234,6 +5239,13 @@ a.alert-history-item:hover { border-color: var(--accent); color: var(--accent); 
 .cti-feed-list li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
 .cti-feed-list li > .muted { display: none; }
 .rt-recent-list li { display: flex; justify-content: space-between; gap: 8px; }
+.rt-recent-list li.rt-recent-item { display: block; }
+.rt-recent-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rt-expand { margin-left: 6px; padding: 1px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); color: var(--accent); font-size: 12px; cursor: pointer; }
+.rt-expand[aria-expanded="true"] { background: var(--accent-soft); }
+.rt-recent-detail { margin-top: 6px; }
+.rt-recent-detail .rt-panel { padding: 10px 12px; }
+.history-redteam { margin-top: 10px; }
 .rt-recent-list a, .cti-matches a { color: var(--accent); text-decoration: none; }
 .cti-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .cti-dot.cti-ok { background: var(--accent); }
