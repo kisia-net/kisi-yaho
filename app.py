@@ -4884,6 +4884,45 @@ def call_llm(
     return result
 
 
+
+@app.post("/api/agent/conversation")
+@role_required("analyst")
+def api_agent_conversation():
+    from hawki_chat_agent import run_chat
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object."}), 400
+
+    message = payload.get("message")
+    if not isinstance(message, str) or not message.strip() or len(message) > 12000:
+        return jsonify({"error": "Message is empty or too long."}), 400
+
+    context = payload.get("context")
+    if not isinstance(context, dict):
+        context = {}
+
+    try:
+        return jsonify(run_chat(
+            config=CONFIG,
+            message=message.strip(),
+            history=clean_history(payload.get("history")),
+            context=context,
+            service=ALERT_ANALYSIS,
+            extract_content=extract_llm_content,
+        ))
+    except requests.RequestException:
+        return jsonify({
+            "error": "The conversation request failed.",
+            "code": "chat_transport_error",
+        }), 502
+    except (KeyError, TypeError, ValueError):
+        return jsonify({
+            "error": "The model returned an unusable response.",
+            "code": "chat_response_error",
+        }), 502
+
+
 @app.post("/api/agent/chat")
 @role_required("analyst")
 def api_agent_chat():
@@ -5058,7 +5097,7 @@ def api_save_chat_session():
     mode = str(payload.get("mode", "alert_summary")).strip()
     if not CHAT_SESSION_ID_PATTERN.fullmatch(session_id):
         return jsonify({"error": "Chat session ID is invalid."}), 400
-    if mode not in ALLOWED_AGENT_MODES:
+    if mode not in (ALLOWED_AGENT_MODES | {"conversation"}):
         return jsonify({"error": "Chat session mode is invalid."}), 400
 
     title = str(payload.get("title", "New investigation")).strip()[:80]

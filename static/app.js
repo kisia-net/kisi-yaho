@@ -918,6 +918,7 @@ async function initDashboard() {
 const AGENT_GREETING = "모드를 고르고 경보·증거·지표 또는 궁금한 점을 적어 주세요. 실제 변경을 일으키는 결과는 제안 상태로만 올라갑니다.";
 
 const modeTitles = {
+    conversation: "일반 대화",
     alert_summary: "경보 설명",
     log_search: "로그 검색",
     file_hunt: "의심 파일 추적",
@@ -927,6 +928,7 @@ const modeTitles = {
 };
 
 const modePlaceholders = {
+    conversation: "메시지를 입력하세요.",
     alert_summary: "경보를 고르거나 경보 내용을 붙여넣으세요. 심각도, 증거, 공격 맥락, 다음 확인 순서를 물어볼 수 있습니다.",
     log_search: "찾으려는 이벤트나 지표를 적어 주세요. 관련 사용자, 호스트, IP, 프로세스, 예상되는 동작을 함께 적으면 좋습니다.",
     file_hunt: "의심스러운 파일이나 지표를 적어 주세요. 해시, 경로, 파일명, 서명자, 관찰된 동작을 함께 적으면 좋습니다.",
@@ -1020,7 +1022,7 @@ async function loadAgentSessions() {
     }
 }
 
-async function persistAgentSession(session) {
+async function persistAgentSessionNow(session) {
     if (!session) return;
     try {
         const data = await api("/api/chat-sessions", {
@@ -1079,6 +1081,7 @@ function selectedAgentAlert() {
 }
 
 function readModeContext(mode = state.agentMode) {
+    if (mode === "conversation") return readModeContext("alert_summary");
     if (mode === "alert_summary") {
         const alert = selectedAgentAlert();
         const selectedHost = byId("agent-alert-host")?.value.trim() || "";
@@ -1195,7 +1198,7 @@ function applyAgentContext(context = {}) {
 
 function renderAgentModeContext() {
     document.querySelectorAll("[data-mode-context]").forEach((section) => {
-        section.hidden = section.dataset.modeContext !== state.agentMode;
+        section.hidden = section.dataset.modeContext !== (state.agentMode === "conversation" ? "alert_summary" : state.agentMode);
     });
     const container = byId("agent-mode-context");
     if (container) {
@@ -1477,6 +1480,7 @@ function renderAgentTranscript(session) {
         });
     });
     renderAgentStarters();
+    if (conversationPending.has(session.id)) addTyping();
 }
 
 function addTyping() {
@@ -1774,6 +1778,13 @@ function renderActionCard(action, index, originMode) {
 }
 
 function renderStructured(result) {
+    if (result?.mode === "conversation") {
+        result.actions = [];
+        state.lastAgentResult = result;
+        const output = byId("agent-structured-output");
+        if (output) renderConversationTools(output, result.tool_trace || []);
+        return;
+    }
     const originMode = result?.mode || currentAgentSession()?.mode || state.agentMode;
     const actionItems = (Array.isArray(result?.actions) ? result.actions : []).map((action) => ({
         ...action,
@@ -1888,6 +1899,10 @@ function selectAgentSession(sessionId) {
 }
 
 async function deleteAgentSession(sessionId) {
+    if (conversationPending.has(sessionId)) {
+        toast("Wait for the response before deleting this conversation.");
+        return;
+    }
     try {
         await api(`/api/chat-sessions/${encodeURIComponent(sessionId)}`, {
             method: "DELETE",
@@ -1917,6 +1932,10 @@ function startNewAgentChat(mode = state.agentMode, context = {}) {
 }
 
 async function clearAgentHistory() {
+    if (conversationPending.size) {
+        toast("Wait for pending responses before clearing history.");
+        return;
+    }
     try {
         await api("/api/chat-sessions", { method: "DELETE" });
     } catch (error) {
@@ -1979,7 +1998,143 @@ async function importVerifiedSuricataRule(action) {
 }
 
 
+
+const conversationPending = new Set();
+const agentSessionWrites = new Map();
+
+function persistAgentSession(session) {
+    if (!session) return Promise.resolve();
+    const snapshot = JSON.parse(JSON.stringify(session));
+    const previous = agentSessionWrites.get(session.id) || Promise.resolve();
+    const task = previous.catch(() => {}).then(() => persistAgentSessionNow(snapshot));
+    agentSessionWrites.set(session.id, task);
+    const cleanup = () => {
+        if (agentSessionWrites.get(session.id) === task) {
+            agentSessionWrites.delete(session.id);
+        }
+    };
+    task.then(cleanup, cleanup);
+    return task;
+}
+
+function renderConversationTools(container, trace) {
+    container.replaceChildren();
+    const labels = {
+        summarize_logs: "Log summary",
+        search_logs: "Log search",
+        get_alert: "Alert evidence",
+        list_assets: "Assets",
+        lookup_indicator: "Threat intelligence",
+        environment: "Environment",
+    };
+    for (const entry of trace) {
+        const item = document.createElement("div");
+        item.className = "output-item";
+        const heading = document.createElement("strong");
+        heading.textContent = `${entry.ref} · ${labels[entry.tool] || entry.tool}`;
+        const body = document.createElement("p");
+        const result = entry.result || {};
+        const parts = [result.status || "unknown"];
+        if (result.total_matches != null) parts.push(`${result.total_matches} matches`);
+        if (result.returned != null) parts.push(`${result.returned} events supplied`);
+        if (result.scope) {
+            parts.push(result.scope.host, `${result.scope.start} – ${result.scope.end}`);
+        }
+        if (result.context_truncated || result.content_truncated) {
+            parts.push("Evidence shortened");
+        }
+        body.textContent = parts.filter(Boolean).join(" · ");
+        item.append(heading, body);
+        container.appendChild(item);
+    }
+}
+
+async function sendConversation(message) {
+    let session = currentAgentSession();
+    if (!session) {
+        session = createAgentSession("conversation", readAgentWorkspaceContext(), false);
+    }
+    const sessionId = session.id;
+    const context = readAgentContext();
+    const history = session.history.slice(-16);
+    conversationPending.add(sessionId);
+    session.context = readAgentWorkspaceContext();
+    session.mode = "conversation";
+    if (session.title === "새 분석") session.title = deriveAgentSessionTitle(message);
+
+    session.history = [...history, {role: "user", content: message}].slice(-16);
+    session.transcript.push({
+        id: agentSessionId(), role: "user", text: message,
+        meta: "", mode: "conversation", suricataAction: null, suricataStaged: false,
+    });
+    session.transcript = session.transcript.slice(-50);
+    session.updatedAt = new Date().toISOString();
+    state.history = session.history.slice();
+    renderAgentTranscript(session);
+    renderAgentHistory();
+    byId("agent-session-state").textContent = session.title;
+
+    try {
+        await persistAgentSession(session);
+        const result = await api("/api/agent/conversation", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({message, context, history}),
+        });
+        const target = state.agentSessions.find(item => item.id === sessionId);
+        if (!target) return;
+
+        result.mode = "conversation";
+        result.actions = [];
+        const answer = result.answer || "No response received.";
+        target.transcript.push({
+            id: agentSessionId(), role: "assistant", text: answer,
+            meta: result.model || "", mode: "conversation",
+            suricataAction: null, suricataStaged: false,
+        });
+        target.transcript = target.transcript.slice(-50);
+        if (!result.incomplete) {
+            target.history = [
+                ...target.history, {role: "assistant", content: answer},
+            ].slice(-16);
+        }
+        target.lastResult = result;
+        target.updatedAt = new Date().toISOString();
+        await persistAgentSession(target);
+    } catch (error) {
+        const target = state.agentSessions.find(item => item.id === sessionId);
+        if (target) {
+            target.transcript.push({
+                id: agentSessionId(), role: "assistant", text: error.message,
+                meta: "error", mode: "conversation",
+                suricataAction: null, suricataStaged: false,
+            });
+            target.transcript = target.transcript.slice(-50);
+            target.updatedAt = new Date().toISOString();
+            await persistAgentSession(target);
+        }
+    } finally {
+        conversationPending.delete(sessionId);
+        const target = state.agentSessions.find(item => item.id === sessionId);
+        if (target && state.currentAgentSessionId === sessionId) {
+            state.history = target.history.slice(-16);
+            state.lastAgentResult = target.lastResult;
+            renderAgentTranscript(target);
+            if (target.lastResult) renderStructured(target.lastResult);
+            byId("agent-session-state").textContent = target.title;
+        }
+        renderAgentHistory();
+    }
+}
+
 async function sendAgent(message) {
+    if (conversationPending.has(state.currentAgentSessionId)) {
+        byId("agent-input").value = message;
+        toast("A response is still in progress.");
+        return;
+    }
+    if (state.agentMode === "conversation") return sendConversation(message);
+    const requestMode = state.agentMode;
     let session = currentAgentSession();
     if (!session) {
         session = createAgentSession(state.agentMode, readAgentContext(), false);
@@ -1998,7 +2153,7 @@ async function sendAgent(message) {
     addTyping();
     const context = readAgentContext();
     try {
-        const result = await api("/api/agent/chat", {
+        const result = await api(requestMode === "conversation" ? "/api/agent/conversation" : "/api/agent/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -2009,7 +2164,7 @@ async function sendAgent(message) {
             }),
         });
         byId("agent-typing")?.remove();
-        const suricataAction = getSuricataAction(result, message);
+        const suricataAction = requestMode === "conversation" ? null : getSuricataAction(result, message);
         const structuredResult = suricataAction ? withoutSuricataActions(result) : result;
         addMessage(
             "assistant",
