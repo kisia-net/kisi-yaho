@@ -4,7 +4,7 @@ Flow when REDTEAM_AUTO_EVAL_ENABLED=true:
 
     LLM 분석 button -> /api/alerts/<id>/analyze (this backend)
       -> the same result, its evidence package and the hashes of both
-         are posted to REDTEAM_RUNNER_URL + JOBS_PATH, in the background
+         are posted to REDTEAM_RUNNER_URL + REDTEAM_JOBS_PATH, in the background
       -> the runner stores it and starts the tools in REDTEAM_AUTO_TOOLS
       -> /api/redteam/jobs/<analysis_id> reads the job status back
 
@@ -19,27 +19,39 @@ Rules this module enforces, whatever the caller does:
   analyst's answer is never delayed or failed by the runner.
 - Only tools in ALLOWED_TOOLS may be requested (promptfoo, garak).
 
-Runner contract (confirm with the red team side; change JOBS_PATH here if it
-differs):
-    POST {REDTEAM_RUNNER_URL}/api/jobs          Authorization: Bearer <token>
-         body: build_job_payload(...)            -> 2xx {"job_id": ...}
-    GET  {REDTEAM_RUNNER_URL}/api/jobs/<analysis_id>
-                                                 -> 200 {status, results...}
+Runner contract, as the siem-redteam runner implements it (2026-10-01):
+    GET  {REDTEAM_RUNNER_URL}/healthz            no token     -> 200
+    POST {REDTEAM_RUNNER_URL}/v1/jobs            Bearer token -> 202 + the job
+         body: build_job_payload(...)
+    GET  {REDTEAM_RUNNER_URL}/v1/jobs/<job_id>   Bearer token -> status, results
+The path is REDTEAM_JOBS_PATH (default /v1/jobs). The runner names jobs by its
+own 24-character id, so the job id it returns is kept per analysis_id
+(RedteamJobIndex) and /api/redteam/jobs/<analysis_id> looks it up.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import re
 import threading
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable
+from pathlib import Path
+from typing import Any, Callable, Iterator
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows development
+    fcntl = None  # type: ignore[assignment]
 
 import requests
 
-JOBS_PATH = "/api/jobs"
+DEFAULT_JOBS_PATH = "/v1/jobs"
+HEALTH_PATH = "/healthz"
+JOBS_PATH_PATTERN = re.compile(r"^/[A-Za-z0-9/_.-]{1,64}$")
+JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 RECURSION_HEADER = "X-HAWKI-Redteam-Eval"
 ALLOWED_TOOLS = ("promptfoo", "garak")
 ANALYSIS_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -123,6 +135,72 @@ def build_job_payload(
     }
 
 
+def jobs_path_or_default(value: str) -> str:
+    path = str(value or "").strip().rstrip("/")
+    return path if JOBS_PATH_PATTERN.fullmatch(path or "-") else DEFAULT_JOBS_PATH
+
+
+def extract_job_id(body: Any) -> str | None:
+    """The runner's id for a new job, from the shapes a 202 body tends to take."""
+    if not isinstance(body, dict):
+        return None
+    candidates = [body.get("job_id"), body.get("id")]
+    job = body.get("job")
+    if isinstance(job, dict):
+        candidates += [job.get("job_id"), job.get("id")]
+    elif isinstance(job, str):
+        candidates.append(job)
+    for value in candidates:
+        if isinstance(value, (str, int)) and JOB_ID_PATTERN.fullmatch(str(value)):
+            return str(value)
+    return None
+
+
+class RedteamJobIndex:
+    """analysis_id -> runner job_id, appended as jobs are accepted."""
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+
+    @contextlib.contextmanager
+    def _lock(self) -> Iterator[None]:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if fcntl is None:
+            yield
+            return
+        with open(self.path.with_suffix(".lock"), "a+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def record(self, *, analysis_id: str, job_id: str, alert_id: str = "") -> None:
+        entry = {
+            "analysis_id": str(analysis_id),
+            "job_id": str(job_id),
+            "alert_id": str(alert_id or "")[:200],
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+        }
+        with self._lock():
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    def job_for(self, analysis_id: str) -> str | None:
+        if not self.path.exists():
+            return None
+        found = None
+        with self.path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(entry, dict) and entry.get("analysis_id") == analysis_id:
+                    found = entry.get("job_id")
+        return str(found) if found else None
+
+
 def dispatch_in_background(
     *,
     runner_url: str,
@@ -130,6 +208,7 @@ def dispatch_in_background(
     timeout: float,
     payload: dict[str, Any],
     on_done: Callable[[dict[str, Any]], None],
+    jobs_path: str = DEFAULT_JOBS_PATH,
     start_thread: Callable[[threading.Thread], None] = lambda thread: thread.start(),
 ) -> None:
     """POST the job without holding up the analyst's response."""
@@ -138,7 +217,7 @@ def dispatch_in_background(
         outcome: dict[str, Any] = {"analysis_id": payload.get("analysis_id")}
         try:
             response = requests.post(
-                runner_url.rstrip("/") + JOBS_PATH,
+                runner_url.rstrip("/") + jobs_path_or_default(jobs_path),
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 json=payload,
                 timeout=timeout,
@@ -146,9 +225,9 @@ def dispatch_in_background(
             outcome["status_code"] = response.status_code
             outcome["dispatched"] = 200 <= response.status_code < 300
             try:
-                body = response.json()
-                if isinstance(body, dict) and body.get("job_id"):
-                    outcome["job_id"] = str(body["job_id"])[:128]
+                job_id = extract_job_id(response.json())
+                if job_id:
+                    outcome["job_id"] = job_id
             except ValueError:
                 pass
         except requests.RequestException as exc:
@@ -159,9 +238,18 @@ def dispatch_in_background(
     start_thread(threading.Thread(target=run, name="hawki-redteam-dispatch", daemon=True))
 
 
-def fetch_job_status(*, runner_url: str, token: str, timeout: float, analysis_id: str) -> tuple[int, dict[str, Any]]:
+def fetch_job_status(
+    *,
+    runner_url: str,
+    token: str,
+    timeout: float,
+    job_id: str,
+    jobs_path: str = DEFAULT_JOBS_PATH,
+) -> tuple[int, dict[str, Any]]:
+    if not JOB_ID_PATTERN.fullmatch(str(job_id or "")):
+        raise ValueError("Job ID is invalid.")
     response = requests.get(
-        f"{runner_url.rstrip('/')}{JOBS_PATH}/{analysis_id}",
+        f"{runner_url.rstrip('/')}{jobs_path_or_default(jobs_path)}/{job_id}",
         headers={"Authorization": f"Bearer {token}"},
         timeout=timeout,
     )
