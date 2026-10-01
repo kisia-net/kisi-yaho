@@ -155,3 +155,32 @@ class AppTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LevelFilterTests(unittest.TestCase):
+    """The alert list filters by level in the indexer, not on the newest page."""
+
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def search(self, index, body):
+            self.bodies.append(body)
+            return {"hits": {"hits": [{
+                "_id": "hi", "_index": "wazuh-alerts-4.x-2026.10.01",
+                "_source": {"timestamp": "2026-10-01T05:00:00+00:00", "rule": {"id": "31151", "level": 10, "description": "x"},
+                            "agent": {"name": "web-01"}},
+            }]}}
+
+    def test_min_level_reaches_the_query(self):
+        from hawki_alert_analysis.service import AlertAnalysisService
+        from hawki_alert_analysis.wazuh import WazuhEventRepository
+
+        client = self.Client()
+        service = AlertAnalysisService(WazuhEventRepository(client))
+        alerts = service.list_alerts(min_level=8)
+        self.assertIn({"range": {"rule.level": {"gte": 8}}}, client.bodies[-1]["query"]["bool"]["filter"])
+        self.assertEqual([a["id"] for a in alerts], ["hi"])
+
+        service.list_alerts()
+        self.assertNotIn("filter", client.bodies[-1]["query"]["bool"])
