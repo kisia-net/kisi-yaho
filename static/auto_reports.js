@@ -239,8 +239,10 @@
 
             let aiBody;
             if (ai.status === "completed") {
-                aiBody = `<p class="muted">모델 ${escapeHtml(ai.model || "—")} · 분석 ID <code>${escapeHtml(ai.analysis_id || "—")}</code> · ${escapeHtml(formatDateTime(ai.completed_at))}</p>
-                    <div class="markdown-body" data-ai-answer>${markdown(ai.answer || "반환된 분석 결과가 없습니다.")}</div>`;
+                const feedbackNote = Number(ai.feedback_used) > 0 ? ` · 과거 판정 ${escapeHtml(ai.feedback_used)}건 참고` : "";
+                aiBody = `<p class="muted">모델 ${escapeHtml(ai.model || "—")} · 분석 ID <code>${escapeHtml(ai.analysis_id || "—")}</code> · ${escapeHtml(formatDateTime(ai.completed_at))}${feedbackNote}</p>
+                    <div class="markdown-body" data-ai-answer>${markdown(ai.answer || "반환된 분석 결과가 없습니다.")}</div>
+                    <div class="auto-report-xai" data-xai hidden></div>`;
             } else {
                 const waiting = WAITING_LABELS[ai.waiting_reason] ? ` (${WAITING_LABELS[ai.waiting_reason]})` : "";
                 aiBody = `<div class="empty-state auto-report-ai-waiting">${escapeHtml(AI_LABELS[ai.status] || "AI 분석 대기")}${escapeHtml(waiting)}
@@ -301,9 +303,11 @@
                         <label class="auto-report-note">메모<textarea name="note" rows="2" maxlength="2000" placeholder="판단 근거, 추가로 확인할 것">${escapeHtml(review.note || "")}</textarea></label>
                         <button class="button primary small" type="submit">검토 저장</button>
                     </form>
+                    <p class="muted auto-report-feedback-hint">확인됨·오탐 판정은 같은 룰·호스트 또는 출발지 경보의 다음 분석에 참고 맥락으로 쓰입니다 (근거로는 쓰이지 않음).</p>
                     ${history ? `<ol class="auto-report-history">${history}</ol>` : ""}`, "no-print-controls")}
                 <p class="auto-report-trace muted">추적 정보: 증거 스키마 <code>${escapeHtml(evidence.bundle_schema || "—")}</code> · prompt <code>${escapeHtml(String(ai.hashes?.prompt_sha256 || "—").slice(0, 16))}</code> · bundle <code>${escapeHtml(String(ai.hashes?.bundle_sha256 || "—").slice(0, 16))}</code> · 레드팀 <code>${escapeHtml(report.redteam || "not_sent")}</code></p>`;
 
+            window.HawkiXai?.render(detail.querySelector("[data-xai]"), ai.explanation);
             const answer = detail.querySelector("[data-ai-answer]");
             if (answer && typeof window.enhanceRenderedContent === "function") window.enhanceRenderedContent(answer);
             list.querySelectorAll("[data-report-id]").forEach((node) => node.classList.toggle("selected", node.dataset.reportId === report.id));

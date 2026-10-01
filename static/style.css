@@ -5009,3 +5009,70 @@ html[data-theme="light"] .output-panel .output-item { padding: 10px 12px; }
     body[data-page="auto_reports"] .auto-report-evidence > *:not(summary) { display: block; }
     body[data-page="auto_reports"] .auto-report-section { break-inside: avoid-page; }
 }
+
+/* -- 판단 근거 (XAI) · 분석가 판정 (xai.js, alert_analysis.js) ---------- */
+.xai-panel { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.auto-report-xai { margin-top: 14px; }
+.xai-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.xai-head h3 { margin: 2px 0 0; font-size: 16px; }
+.xai-stats { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 12.5px; }
+.xai-stats strong { color: var(--text); font-size: 15px; }
+.xai-stat-bad, .xai-stat-bad strong { color: var(--danger) !important; }
+.xai-conclusion { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: start; padding: 10px 12px; border-radius: 9px; background: var(--panel-2); font-size: 13px; }
+.xai-conclusion p { margin: 4px 0 0; font-size: 12px; }
+.xai-label { display: block; margin-bottom: 3px; color: var(--muted); font-size: 11.5px; }
+.xai-agreement { align-self: center; }
+.xai-panel h4 { margin: 16px 0 8px; font-size: 13.5px; }
+.xai-chip { display: inline-flex; align-items: center; height: 21px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 650; white-space: nowrap; }
+.xai-ok { background: rgba(22, 163, 74, .12); color: var(--success); }
+.xai-warn { background: rgba(234, 88, 12, .13); color: var(--warning); }
+.xai-bad { background: rgba(220, 38, 38, .12); color: var(--danger); }
+.xai-muted { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+.xai-info { background: rgba(37, 99, 235, .1); color: var(--blue); }
+.xai-plain { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+.xai-claims { margin: 0; padding-left: 20px; }
+.xai-claim { margin-bottom: 10px; padding: 9px 11px; border: 1px solid var(--line); border-left: 3px solid var(--success); border-radius: 8px; }
+.xai-claim-contradictory { border-left-color: var(--blue); }
+.xai-claim-head { display: flex; gap: 6px; }
+.xai-statement { margin: 6px 0; font-size: 13px; line-height: 1.55; color: var(--text); }
+.xai-refs { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.xai-ref { display: inline-block; padding: 2px 7px; border: 1px solid var(--line-2); border-radius: 6px; font: 12px "Cascadia Code", Consolas, monospace; cursor: pointer; list-style: none; }
+.xai-ref::-webkit-details-marker { display: none; }
+.xai-ref-missing { border-color: var(--danger); color: var(--danger); cursor: default; }
+.xai-ref-detail[open] { flex-basis: 100%; }
+.xai-ref-detail[open] > .xai-ref { background: var(--accent-soft); border-color: var(--accent); }
+.xai-evidence-body { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); font-size: 12.5px; }
+.xai-evidence-body p { margin: 0 0 4px; }
+.xai-log { margin: 6px 0; padding: 8px; max-height: 160px; overflow: auto; border-radius: 6px; background: var(--code-bg); color: var(--code-text); font: 12px/1.5 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+.xai-reasons { color: var(--muted); }
+.xai-uncited { margin-top: 6px; font-size: 12.5px; }
+.xai-uncited summary { cursor: pointer; color: var(--blue); }
+.xai-uncited ul { list-style: none; padding: 6px 0 0; margin: 0; display: grid; gap: 6px; }
+.xai-factors { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.xai-factors li { display: grid; grid-template-columns: 130px minmax(80px, 1fr) 44px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 12.5px; }
+.xai-factor-bar { height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+.xai-factor-bar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.xai-factor-points { font-weight: 700; text-align: right; }
+.xai-factor-value { color: var(--muted); overflow-wrap: anywhere; }
+.xai-inputs { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; }
+.xai-feedback { padding-left: 16px; margin: 4px 0; }
+.xai-method { margin: 14px 0 0; color: var(--subtle); font-size: 11.5px; }
+.analyst-feedback p { font-size: 13px; }
+.analyst-feedback-form { display: grid; grid-template-columns: 180px 1fr auto; gap: 10px; align-items: end; margin-top: 8px; }
+.analyst-feedback-form textarea { width: 100%; resize: vertical; }
+.auto-report-feedback-hint { margin-top: 8px; font-size: 12px; }
+
+@media (max-width: 900px) {
+    .xai-conclusion { grid-template-columns: 1fr; }
+    .xai-factors li { grid-template-columns: 110px 1fr 40px; }
+    .xai-factor-value { grid-column: 1 / -1; }
+    .analyst-feedback-form { grid-template-columns: 1fr; }
+}
+@media print {
+    body[data-page="auto_reports"] .xai-ref-detail { display: block; }
+    body[data-page="auto_reports"] .auto-report-feedback-hint { display: none; }
+}
+/* The XAI and verdict panels are long-form, like the assessment: opt out of the
+   card tiling (.structured-output grid below 1450px) and of its height cap. */
+.structured-output[data-analysis-xai],
+.structured-output[data-analyst-feedback] { display: block; max-height: none; overflow: visible; }

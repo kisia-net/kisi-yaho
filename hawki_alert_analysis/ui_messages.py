@@ -91,6 +91,7 @@ ERROR_MESSAGES_KO: dict[str, str] = {
     "Report not found.": "보고서를 찾을 수 없습니다.",
     "Report ID is invalid.": "보고서 ID가 올바르지 않습니다.",
     "Review status is invalid.": "검토 상태 값이 올바르지 않습니다.",
+    "Verdict is invalid.": "판정 값이 올바르지 않습니다.",
     "Automatic analysis is disabled.": "자동 분석이 꺼져 있습니다. AUTO_ANALYSIS_ENABLED=true로 바꾼 뒤 컨테이너를 다시 만들어 주세요.",
 }
 

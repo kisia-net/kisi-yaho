@@ -129,6 +129,68 @@
         </div>`;
     }
 
+    // 분석가 판정: recorded for later analyses of similar alerts
+    // (hawki_alert_analysis/feedback.py).
+    const VERDICT_LABELS_KO = { confirmed: "확인됨 (실제 위협)", false_positive: "오탐", investigating: "추가 조사" };
+
+    async function renderFeedbackForm(root, result, alertId, csrf) {
+        const panel = root.querySelector("[data-analyst-feedback]");
+        if (!panel) return;
+        let history = { similar: [], for_alert: [], context_enabled: false };
+        try {
+            history = await requestJson(`/api/alerts/${encodeURIComponent(alertId)}/feedback`);
+        } catch (error) {
+            console.warn("Analyst feedback unavailable:", error);
+        }
+        const similar = history.similar || [];
+        const confirmed = similar.filter((item) => item.verdict === "confirmed").length;
+        const falsePositive = similar.filter((item) => item.verdict === "false_positive").length;
+        const used = Number(result.feedback_context) || 0;
+        const status = history.context_enabled
+            ? (used ? `이번 분석에 비슷한 과거 판정 ${used}건을 참고 맥락으로 넣었습니다.` : "이번 분석에 넣을 비슷한 과거 판정이 없었습니다.")
+            : "과거 판정을 분석에 넣는 기능은 꺼져 있습니다 (ANALYST_FEEDBACK_CONTEXT_ENABLED). 판정은 저장됩니다.";
+        const last = (history.for_alert || []).slice(-1)[0];
+
+        panel.hidden = false;
+        panel.innerHTML = `<div class="output-item analyst-feedback">
+            <p class="panel-kicker">분석가 판정</p>
+            <p>이 경보를 어떻게 판단하셨나요? 같은 룰·호스트 또는 출발지의 다음 분석에 참고 맥락으로 쓰입니다.</p>
+            <p class="muted">${escapeHtml(status)}${similar.length ? ` 비슷한 과거 판정: 확인됨 ${confirmed}건 · 오탐 ${falsePositive}건.` : ""}</p>
+            ${last ? `<p class="muted">마지막 판정: ${escapeHtml(VERDICT_LABELS_KO[last.verdict] || last.verdict)} · ${escapeHtml(formatDateTime(last.recorded_at))} · ${escapeHtml(last.reviewer || "")}</p>` : ""}
+            <form class="analyst-feedback-form" data-feedback-form>
+                <label>판정
+                    <select name="verdict">
+                        ${Object.entries(VERDICT_LABELS_KO).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
+                    </select>
+                </label>
+                <label class="analyst-feedback-note">메모 (판단 근거)<textarea name="note" rows="2" maxlength="1000" placeholder="예: 내부 점검 스캐너, 차단 완료"></textarea></label>
+                <button class="button primary small" type="submit">판정 저장</button>
+            </form>
+            <p class="muted" data-feedback-result></p>
+        </div>`;
+
+        panel.querySelector("[data-feedback-form]").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const values = Object.fromEntries(new FormData(form));
+            const button = form.querySelector("button");
+            button.disabled = true;
+            try {
+                await requestJson(`/api/alerts/${encodeURIComponent(alertId)}/feedback`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+                    body: JSON.stringify({ ...values, analysis_id: result.analysis_id || "" }),
+                });
+                panel.querySelector("[data-feedback-result]").textContent =
+                    `'${VERDICT_LABELS_KO[values.verdict] || values.verdict}' 판정을 저장했습니다.`;
+            } catch (error) {
+                panel.querySelector("[data-feedback-result]").textContent = error.message;
+            } finally {
+                button.disabled = false;
+            }
+        });
+    }
+
     function renderCase(root, data) {
         const caseData = data.case;
         const trigger = caseData.trigger || {};
@@ -709,6 +771,8 @@
                 output.innerHTML = `<div class="markdown-body">${markdown(result.answer || "반환된 분석 결과가 없습니다.")}</div>`;
                 if (typeof window.enhanceRenderedContent === "function") window.enhanceRenderedContent(output);
                 renderReview(root, result);
+                window.HawkiXai?.render(root.querySelector("[data-analysis-xai]"), result.explanation);
+                renderFeedbackForm(root, result, alertId, csrf);
                 const counts = result.metadata_counts || {};
                 const bundled = [
                     `경보 ${counts.security_alerts ?? 0}`,
