@@ -2429,9 +2429,86 @@ async function runLogSearch() {
     }
 }
 
+// 검색 도우미: turns plain fields into a Lucene query_string for /api/log-search.
+// Values are quoted and escaped here, so an IP or a path with special
+// characters cannot change the shape of the query.
+const LOG_IPV4 = /^(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const LOG_IPV6 = /^[0-9A-Fa-f:]{2,39}$/;
+
+function quoteLogValue(value) {
+    return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+function buildLogQuery(fields) {
+    const clauses = [];
+    const errors = [];
+    const anyOf = (names, value) => names.length === 1
+        ? `${names[0]}:${quoteLogValue(value)}`
+        : `(${names.map((name) => `${name}:${quoteLogValue(value)}`).join(" OR ")})`;
+    const ip = (label, value, names) => {
+        const text = String(value || "").trim();
+        if (!text) return;
+        if (!LOG_IPV4.test(text) && !(text.includes(":") && LOG_IPV6.test(text))) {
+            errors.push(`${label} 형식이 올바르지 않습니다: ${text}`);
+            return;
+        }
+        clauses.push(anyOf(names, text));
+    };
+
+    // Wazuh decoders name the same address differently (web logs, Suricata, Windows).
+    ip("출발지 IP", fields.src_ip, ["data.srcip", "data.src_ip", "data.win.eventdata.ipAddress"]);
+    ip("목적지 IP", fields.dst_ip, ["data.dstip", "data.dest_ip"]);
+
+    const host = String(fields.host || "").trim();
+    if (host) clauses.push(`agent.name:${quoteLogValue(host)}`);
+
+    const rules = String(fields.rule_id || "").split(/[\s,]+/).filter(Boolean);
+    const badRules = rules.filter((rule) => !/^\d{1,10}$/.test(rule));
+    if (badRules.length) errors.push(`룰 ID는 숫자여야 합니다: ${badRules.join(", ")}`);
+    const goodRules = rules.filter((rule) => /^\d{1,10}$/.test(rule));
+    if (goodRules.length === 1) clauses.push(`rule.id:${quoteLogValue(goodRules[0])}`);
+    if (goodRules.length > 1) clauses.push(`(${goodRules.map((rule) => `rule.id:${quoteLogValue(rule)}`).join(" OR ")})`);
+
+    const level = Number(fields.min_level);
+    if (Number.isInteger(level) && level > 0 && level <= 15) clauses.push(`rule.level:>=${level}`);
+
+    const keyword = String(fields.keyword || "").trim();
+    if (keyword) clauses.push(`full_log:${quoteLogValue(keyword)}`);
+
+    return { query: clauses.length ? clauses.join(" AND ") : "*", errors };
+}
+
+function initLogQueryBuilder() {
+    const builder = byId("log-builder");
+    const queryInput = byId("log-query");
+    if (!builder || !queryInput) return;
+
+    const inputs = [...builder.querySelectorAll("[data-builder]")];
+    const errorBox = builder.querySelector("[data-builder-error]");
+
+    const update = () => {
+        const fields = Object.fromEntries(inputs.map((input) => [input.dataset.builder, input.value]));
+        const { query, errors } = buildLogQuery(fields);
+        queryInput.value = query;
+        if (errorBox) {
+            errorBox.hidden = !errors.length;
+            errorBox.textContent = errors.join(" · ");
+        }
+    };
+
+    inputs.forEach((input) => input.addEventListener("input", update));
+    inputs.forEach((input) => input.addEventListener("change", update));
+    builder.querySelector("[data-builder-clear]")?.addEventListener("click", () => {
+        inputs.forEach((input) => { input.value = ""; });
+        update();
+    });
+}
+
 function initLogs() {
     const form = byId("log-search-form");
     if (!form) return;
+
+    initLogQueryBuilder();
 
     const policy = byId("log-policy-note");
     const params = new URLSearchParams(window.location.search);

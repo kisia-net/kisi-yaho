@@ -2366,7 +2366,9 @@ def api_log_search():
         ],
         "query": {
             "bool": {
-                "must": [{
+                # A bare "*" with leading wildcards disallowed matched nothing
+                # on the Wazuh indices, so "everything" returned 0 events.
+                "must": [{"match_all": {}} if query == "*" else {
                     "query_string": {
                         "query": query,
                         "allow_leading_wildcard": False,
