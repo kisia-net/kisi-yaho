@@ -54,6 +54,61 @@
         return String(runner?.status || runner?.state || job.status || job.state || "").toLowerCase();
     }
 
+    // Per-tool verdicts from the runner (job.tool_results.<tool>). A job can
+    // be "completed" while a tool inside it failed, so the verdict comes from
+    // here, not from the job state.
+    const TOOL_STATE = {
+        passed: ["통과", "rt-ok"], success: ["통과", "rt-ok"], succeeded: ["통과", "rt-ok"], completed: ["통과", "rt-ok"],
+        failed: ["실패", "rt-bad"], error: ["오류", "rt-bad"], errored: ["오류", "rt-bad"], timeout: ["시간 초과", "rt-bad"],
+        running: ["평가 중", "rt-info"], queued: ["대기", "rt-info"], pending: ["대기", "rt-info"], skipped: ["건너뜀", "rt-muted"],
+    };
+
+    function toolResults(runner) {
+        const job = runner && typeof runner.job === "object" ? runner.job : {};
+        const source = job.tool_results || runner?.tool_results || {};
+        if (!source || typeof source !== "object" || Array.isArray(source)) return [];
+        return Object.entries(source).filter(([, value]) => value && typeof value === "object").map(([name, value]) => {
+            const stats = value.stats && typeof value.stats === "object" ? value.stats : {};
+            const num = (key) => (typeof stats[key] === "number" ? stats[key] : null);
+            const tokens = stats.tokenUsage && typeof stats.tokenUsage.total === "number" ? stats.tokenUsage.total : null;
+            let state = String(value.status || "").toLowerCase();
+            // Counts outrank a loose status word.
+            if ((num("failures") || 0) > 0) state = "failed";
+            else if ((num("errors") || 0) > 0) state = "error";
+            return {
+                name, state,
+                successes: num("successes"), failures: num("failures"), errors: num("errors"),
+                exitCode: value.exit_code, durationMs: num("durationMs"), tokens,
+                artifacts: Array.isArray(value.artifacts) ? value.artifacts : [],
+            };
+        });
+    }
+
+    function overall(tools) {
+        if (!tools.length) return null;
+        if (tools.some((tool) => tool.state === "failed")) return ["검사 실패", "rt-bad"];
+        if (tools.some((tool) => ["error", "errored", "timeout"].includes(tool.state))) return ["검사 오류", "rt-bad"];
+        if (tools.some((tool) => ["running", "queued", "pending"].includes(tool.state))) return null;
+        if (tools.every((tool) => (TOOL_STATE[tool.state] || [])[1] === "rt-ok" || tool.state === "skipped")) return ["검사 통과", "rt-ok"];
+        return null;
+    }
+
+    function toolRows(tools) {
+        return tools.map((tool) => {
+            const [label, cls] = TOOL_STATE[tool.state] || [tool.state || "상태 미확인", "rt-muted"];
+            const parts = [];
+            if (tool.successes !== null) parts.push(`성공 ${tool.successes}`);
+            if (tool.failures !== null) parts.push(`실패 ${tool.failures}`);
+            if (tool.errors !== null) parts.push(`오류 ${tool.errors}`);
+            if (tool.durationMs !== null) parts.push(`${(tool.durationMs / 1000).toFixed(tool.durationMs < 1000 ? 2 : 1)}초`);
+            if (tool.exitCode !== undefined && tool.exitCode !== null) parts.push(`종료 코드 ${escapeHtml(tool.exitCode)}`);
+            const warn = tool.tokens === 0
+                ? `<p class="muted rt-tool-note">모델 토큰 사용 0: 이 검사는 LLM을 새로 호출하지 않았거나, 호출이 응답 없이 끝났습니다.</p>` : "";
+            const files = tool.artifacts.length ? `<p class="muted rt-tool-note">실행기 결과 파일: ${tool.artifacts.map(escapeHtml).join(", ")}</p>` : "";
+            return `<div class="rt-tool"><p><strong>${escapeHtml(tool.name)}</strong> ${chip(label, cls)} <span class="muted">${parts.join(" · ")}</span></p>${warn}${files}</div>`;
+        }).join("");
+    }
+
     function summary(runner) {
         const job = runner && typeof runner.job === "object" ? runner.job : {};
         const candidates = [runner?.summary, runner?.result?.summary, runner?.results?.summary, runner?.stats, job.summary, runner?.result, job.result];
@@ -79,14 +134,23 @@
                 ${data.error && REFUSAL[data.status_code] ? `<p class="muted">${escapeHtml(data.error)}</p>` : ""}`;
         } else {
             state = jobState(data.runner);
-            const rows = summary(data.runner);
-            const stateLabel = JOB_STATE[state] || state || (data.runner_status === 404 ? "실행기에 작업 없음" : "상태 미확인");
-            const stateClass = ["failed", "error", "timeout"].includes(state) ? "rt-bad" : (TERMINAL.has(state) ? "rt-ok" : "rt-info");
-            body = `<p>${chip("접수됨 (202)", "rt-ok")} ${chip(stateLabel, stateClass)} <span class="muted">작업 ${escapeHtml(data.job_id || "—")} · ${escapeHtml(when(data.timestamp))}</span></p>
+            const tools = toolResults(data.runner);
+            const verdict = TERMINAL.has(state) ? overall(tools) : null;
+            const rows = tools.length ? [] : summary(data.runner);
+            const finished = TERMINAL.has(state) && !["failed", "error", "timeout"].includes(state);
+            const stateLabel = finished ? "평가 끝남" : (JOB_STATE[state] || state || (data.runner_status === 404 ? "실행기에 작업 없음" : "상태 미확인"));
+            const stateClass = ["failed", "error", "timeout"].includes(state) ? "rt-bad" : (TERMINAL.has(state) ? "rt-muted" : "rt-info");
+            const note = TERMINAL.has(state)
+                ? (verdict && verdict[1] === "rt-bad"
+                    ? "실행기가 평가를 끝냈고, 아래 검사 도구 중 실패가 있습니다. 어떤 검사 항목이 왜 실패했는지는 실행기의 결과 파일에 있습니다."
+                    : "실행기가 평가를 끝냈습니다.")
+                : '202는 "접수"이며 검사 통과를 뜻하지 않습니다. 결과는 실행기가 평가를 마친 뒤 이 자리에 나타납니다.';
+            body = `<p>${chip("접수됨 (202)", "rt-ok")} ${chip(stateLabel, stateClass)} ${verdict ? chip(verdict[0], verdict[1]) : ""} <span class="muted">작업 ${escapeHtml(data.job_id || "—")} · ${escapeHtml(when(data.timestamp))}</span></p>
+                ${toolRows(tools)}
                 ${rows.length ? `<p class="rt-summary">${rows.join(" · ")}</p>` : ""}
                 ${data.runner_error ? `<p class="muted">실행기 조회 실패: ${escapeHtml(data.runner_error)}</p>` : ""}
                 ${data.runner ? `<details class="rt-raw"><summary>실행기 응답 원문</summary><pre>${escapeHtml(JSON.stringify(data.runner, null, 2))}</pre></details>` : ""}
-                <p class="muted rt-note">202는 "접수"이며 검사 통과를 뜻하지 않습니다. 결과는 실행기가 평가를 마친 뒤 이 자리에 나타납니다.</p>`;
+                <p class="muted rt-note">${escapeHtml(note)}</p>`;
         }
         container.hidden = false;
         container.innerHTML = `
@@ -131,5 +195,5 @@
         if (decision === "send" || decision === "queued") tick();
     }
 
-    window.HawkiRedteam = { render, DECISION, JOB_STATE };
+    window.HawkiRedteam = { render, DECISION, JOB_STATE, toolResults, overall };
 })();
