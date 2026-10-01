@@ -1081,7 +1081,7 @@ function selectedAgentAlert() {
 }
 
 function readModeContext(mode = state.agentMode) {
-    if (mode === "conversation") return readModeContext("alert_summary");
+    if (mode === "conversation") return {};
     if (mode === "alert_summary") {
         const alert = selectedAgentAlert();
         const selectedHost = byId("agent-alert-host")?.value.trim() || "";
@@ -1198,11 +1198,11 @@ function applyAgentContext(context = {}) {
 
 function renderAgentModeContext() {
     document.querySelectorAll("[data-mode-context]").forEach((section) => {
-        section.hidden = section.dataset.modeContext !== (state.agentMode === "conversation" ? "alert_summary" : state.agentMode);
+        section.hidden = section.dataset.modeContext !== state.agentMode;
     });
     const container = byId("agent-mode-context");
     if (container) {
-        container.hidden = state.agentMode === "suricata_rule";
+        container.hidden = ["suricata_rule", "conversation"].includes(state.agentMode);
     }
 }
 
