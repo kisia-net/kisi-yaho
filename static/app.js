@@ -976,7 +976,7 @@ async function loadDashboardCti() {
 }
 
 const RT_DECISION_SHORT = {
-    send: "전송", queued: "전송", disabled: "꺼짐", skipped_no_token: "토큰 없음",
+    send: "전송", queued: "전송", disabled: "꺼짐", not_sent: "보내지 않음", skipped_no_token: "토큰 없음",
     skipped_not_live: "실데이터 아님", skipped_demo_result: "데모", skipped_no_runner_url: "주소 없음",
 };
 
@@ -999,7 +999,8 @@ async function loadDashboardRedteam() {
         let outcome;
         if (dispatch?.dispatched) outcome = `<span class="cti-state cti-ok">접수 ${escapeHtml(dispatch.status_code || "")}</span>`;
         else if (dispatch) outcome = `<span class="cti-state cti-bad">거부 ${escapeHtml(dispatch.status_code || dispatch.error || "")}</span>`;
-        else outcome = `<span class="cti-state cti-muted">${escapeHtml(RT_DECISION_SHORT[item.redteam] || item.redteam || "—")}</span>`;
+        else if (String(item.redteam || "").startsWith("error")) outcome = `<span class="cti-state cti-bad" title="${escapeHtml(item.redteam)}">전송 오류</span>`;
+        else outcome = `<span class="cti-state cti-muted"${item.redteam === "not_sent" ? ' title="자동 보고서 레드팀 전송이 꺼져 있던 때의 분석"' : ""}>${escapeHtml(RT_DECISION_SHORT[item.redteam] || item.redteam || "—")}</span>`;
         const expandable = item.analysis_id && (item.redteam === "send" || item.redteam === "queued");
         return `<li class="rt-recent-item">
             <div class="rt-recent-row">

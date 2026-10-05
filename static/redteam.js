@@ -75,11 +75,23 @@
             // Counts outrank a loose status word.
             if ((num("failures") || 0) > 0) state = "failed";
             else if ((num("errors") || 0) > 0) state = "error";
+            const failed = (Array.isArray(value.failures) ? value.failures : [])
+                .filter((item) => item && typeof item === "object")
+                .slice(0, 10)
+                .map((item) => ({
+                    assertion: String(item.assertion || item.name || item.metric || "검사 항목").slice(0, 120),
+                    reason: String(item.reason || item.message || "").slice(0, 400),
+                }));
             return {
                 name, state,
                 successes: num("successes"), failures: num("failures"), errors: num("errors"),
                 exitCode: value.exit_code, durationMs: num("durationMs"), tokens,
                 artifacts: Array.isArray(value.artifacts) ? value.artifacts : [],
+                mode: String(value.mode || ""),
+                failureSummary: typeof value.failure_summary === "string" ? value.failure_summary.slice(0, 400) : "",
+                failed,
+                // Older jobs predate failure_summary/failures; the runner does not backfill them.
+                reasonsReported: "failure_summary" in value || Array.isArray(value.failures),
             };
         });
     }
@@ -102,10 +114,17 @@
             if (tool.errors !== null) parts.push(`오류 ${tool.errors}`);
             if (tool.durationMs !== null) parts.push(`${(tool.durationMs / 1000).toFixed(tool.durationMs < 1000 ? 2 : 1)}초`);
             if (tool.exitCode !== undefined && tool.exitCode !== null) parts.push(`종료 코드 ${escapeHtml(tool.exitCode)}`);
-            const warn = tool.tokens === 0
-                ? `<p class="muted rt-tool-note">모델 토큰 사용 0: 이 검사는 LLM을 새로 호출하지 않았거나, 호출이 응답 없이 끝났습니다.</p>` : "";
+            const warn = tool.mode === "saved_result"
+                ? `<p class="muted rt-tool-note">저장된 분석 결과 채점 · 모델 재호출 없음</p>`
+                : (tool.tokens === 0
+                    ? `<p class="muted rt-tool-note">모델 토큰 사용 0 · 모델을 다시 부르지 않는 저장 결과 채점이면 정상입니다.</p>` : "");
+            const reasons = tool.failed.length
+                ? `<ul class="rt-failures">${tool.failed.map((item) => `<li><strong>${escapeHtml(item.assertion)}</strong>${item.reason ? ` · ${escapeHtml(item.reason)}` : ""}</li>`).join("")}</ul>`
+                : (tool.failureSummary ? `<p class="rt-failure-summary">${escapeHtml(tool.failureSummary)}</p>` : "");
+            const noReasons = tool.state === "failed" && !tool.reasonsReported
+                ? `<p class="muted rt-tool-note">이 작업은 실패 이유를 함께 보내기 전에 평가되어, 이유가 기록되어 있지 않습니다.</p>` : "";
             const files = tool.artifacts.length ? `<p class="muted rt-tool-note">실행기 결과 파일: ${tool.artifacts.map(escapeHtml).join(", ")}</p>` : "";
-            return `<div class="rt-tool"><p><strong>${escapeHtml(tool.name)}</strong> ${chip(label, cls)} <span class="muted">${parts.join(" · ")}</span></p>${warn}${files}</div>`;
+            return `<div class="rt-tool"><p><strong>${escapeHtml(tool.name)}</strong> ${chip(label, cls)} <span class="muted">${parts.join(" · ")}</span></p>${reasons}${noReasons}${warn}${files}</div>`;
         }).join("");
     }
 
@@ -142,7 +161,9 @@
             const stateClass = ["failed", "error", "timeout"].includes(state) ? "rt-bad" : (TERMINAL.has(state) ? "rt-muted" : "rt-info");
             const note = TERMINAL.has(state)
                 ? (verdict && verdict[1] === "rt-bad"
-                    ? "실행기가 평가를 끝냈고, 아래 검사 도구 중 실패가 있습니다. 어떤 검사 항목이 왜 실패했는지는 실행기의 결과 파일에 있습니다."
+                    ? (tools.some((tool) => tool.failed.length || tool.failureSummary)
+                        ? "실행기가 평가를 끝냈고, 위에 표시된 검사 항목이 실패했습니다."
+                        : "실행기가 평가를 끝냈고, 검사 도구 중 실패가 있습니다. 자세한 내용은 실행기의 결과 파일에 있습니다.")
                     : "실행기가 평가를 끝냈습니다.")
                 : '202는 "접수"이며 검사 통과를 뜻하지 않습니다. 결과는 실행기가 평가를 마친 뒤 이 자리에 나타납니다.';
             body = `<p>${chip("접수됨 (202)", "rt-ok")} ${chip(stateLabel, stateClass)} ${verdict ? chip(verdict[0], verdict[1]) : ""} <span class="muted">작업 ${escapeHtml(data.job_id || "—")} · ${escapeHtml(when(data.timestamp))}</span></p>
