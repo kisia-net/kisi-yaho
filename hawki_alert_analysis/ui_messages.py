@@ -105,6 +105,14 @@ ERROR_MESSAGES_KO: dict[str, str] = {
     "Review status is invalid.": "검토 상태 값이 올바르지 않습니다.",
     "Verdict is invalid.": "판정 값이 올바르지 않습니다.",
     "Automatic analysis is disabled.": "자동 분석이 꺼져 있습니다. AUTO_ANALYSIS_ENABLED=true로 바꾼 뒤 컨테이너를 다시 만들어 주세요.",
+    "Conversation request ID is invalid.": "대화 요청 ID가 올바르지 않습니다. 화면을 새로고침한 뒤 다시 보내 주세요.",
+    "Conversation session ID is invalid.": "대화 세션 ID가 올바르지 않습니다. 새 대화를 시작해 주세요.",
+    "Invalid flow-result selector.": "Velociraptor 수집 결과 지정 값이 올바르지 않습니다.",
+    "Missing flow-result selector.": "조회할 Velociraptor 수집 결과를 지정해 주세요.",
+    "Query must be at most 500 characters.": "질의는 500자 이하로 입력해 주세요.",
+    "Repeated argument.": "같은 인자가 두 번 들어왔습니다.",
+    "Unsupported argument.": "지원하지 않는 인자입니다.",
+    "Unsupported or repeated argument.": "지원하지 않거나 중복된 인자입니다.",
 }
 
 # Assessment review notes: stable codes for the interface, Korean for people.

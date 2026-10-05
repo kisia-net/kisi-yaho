@@ -82,9 +82,25 @@ class ConversationApiTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             session["_csrf_token"] = "test-token"
 
+    _requests = 0
+
     def post(self, message="오늘 web-01 요약"):
-        return self.client.post("/api/agent/conversation", json={"message": message, "history": [], "context": {}},
-                                headers={"X-CSRF-Token": "test-token"})
+        # The conversation API (권민석, 2026-10) takes the chat session and a
+        # per-turn request id, so a retried turn is not answered twice.
+        ConversationApiTests._requests += 1
+        self.client.post("/api/chat-sessions", json={
+            "id": "s-conversation-test", "mode": "conversation", "title": "t",
+            "history": [], "transcript": [], "context": {},
+        }, headers={"X-CSRF-Token": "test-token"})
+        return self.client.post("/api/agent/conversation", json={
+            "message": message, "history": [], "context": {},
+            "session_id": "s-conversation-test", "request_id": f"r-{ConversationApiTests._requests}",
+        }, headers={"X-CSRF-Token": "test-token"})
+
+    def test_missing_ids_are_refused(self):
+        response = self.client.post("/api/agent/conversation", json={"message": "x", "history": [], "context": {}},
+                                    headers={"X-CSRF-Token": "test-token"})
+        self.assertEqual(response.status_code, 400)
 
     def test_one_tool_then_an_answer_and_the_turn_is_audited(self):
         repository = WazuhEventRepository(Client(), timestamp_field="timestamp")

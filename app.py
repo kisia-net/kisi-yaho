@@ -5195,9 +5195,27 @@ def api_agent_conversation():
             service=ALERT_ANALYSIS,
             extract_content=extract_llm_content,
         )
-        return jsonify(investigation_finish(
+        finished = investigation_finish(
             db, user_id, session_id, request_id, message, claim, result
-        ))
+        )
+        # Its tools search the logs, so each turn is audited like a search:
+        # which tools ran, on what scope, with what outcome, not the content.
+        append_audit("agent_conversation", {
+            "message_chars": len(message),
+            "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+            "incomplete": bool(result.get("incomplete")),
+            "tools": [
+                {
+                    "tool": entry.get("tool"),
+                    "status": (entry.get("result") or {}).get("status"),
+                    "total_matches": (entry.get("result") or {}).get("total_matches"),
+                    "scope": (entry.get("result") or {}).get("scope"),
+                }
+                for entry in (result.get("tool_trace") or [])[:8]
+                if isinstance(entry, dict)
+            ],
+        })
+        return jsonify(finished)
     except InvestigationError as exc:
         return jsonify({
             "error": str(exc), "code": "chat_state_error",
