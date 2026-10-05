@@ -1292,6 +1292,10 @@ def service_auth(name: str) -> tuple[str, str] | None:
 
 
 def check_http_service(name: str, url: str, path: str = "") -> tuple[str, dict[str, Any]]:
+    if name == "velociraptor":
+        from hawki_velociraptor import check_service
+        return check_service()
+
     if not url:
         return name, {
             "ok": False,
@@ -1375,6 +1379,26 @@ def api_build():
         }
     )
 
+
+
+@app.get("/api/velociraptor/clients")
+@role_required("analyst")
+def api_velociraptor_clients():
+    from hawki_velociraptor import ReadError, read_clients
+    unsupported = set(request.args) - {"query"}
+    values = request.args.getlist("query")
+    if unsupported or len(values) > 1:
+        return jsonify({"error": "Unsupported or repeated argument."}), 400
+    try:
+        return jsonify(read_clients(request.args.get("query", "")))
+    except ValueError:
+        return jsonify({"error": "Query must be at most 500 characters."}), 400
+    except ReadError as exc:
+        return jsonify({
+            "status": "failed",
+            "source": "velociraptor_api",
+            "error_kind": exc.kind,
+        }), 503
 
 @app.get("/api/status")
 def api_status():
@@ -2659,9 +2683,42 @@ def api_redteam_job(identifier: str):
     return jsonify({"analysis_id": analysis_id, "job_id": job_id, "runner": body})
 
 
+
+@app.get("/api/velociraptor/flows")
+@role_required("analyst")
+def api_velociraptor_flows():
+    from hawki_velociraptor import ReadError, read_flows
+
+    allowed = {"client_id", "host"}
+    if set(request.args) - allowed:
+        return jsonify({"error": "Unsupported argument."}), 400
+    if any(len(request.args.getlist(key)) > 1 for key in allowed):
+        return jsonify({"error": "Repeated argument."}), 400
+
+    try:
+        return jsonify(read_flows(
+            client_id=request.args.get("client_id", ""),
+            host=request.args.get("host", ""),
+        ))
+    except ReadError as exc:
+        return jsonify({
+            "status": "failed",
+            "source": "velociraptor_api",
+            "error_kind": exc.kind,
+        }), 503
+
 @app.get("/api/hunts")
+@role_required("analyst")
 def api_hunts():
-    return jsonify({"total": len(DEMO_HUNTS), "hunts": DEMO_HUNTS})
+    from hawki_velociraptor import ReadError, read_hunts
+    try:
+        return jsonify(read_hunts())
+    except ReadError as exc:
+        return jsonify({
+            "status": "failed",
+            "source": "velociraptor_api",
+            "error_kind": exc.kind,
+        }), 503
 
 
 def wazuh_indexer_auth() -> tuple[str, str] | None:
@@ -5095,48 +5152,56 @@ def call_llm(
 
 @app.post("/api/agent/conversation")
 @role_required("analyst")
+
 def api_agent_conversation():
-    from hawki_chat_agent import run_chat
+    from hawki_chat_agent import (
+        run_chat, InvestigationError, investigation_begin,
+        investigation_finish, investigation_release, investigation_memory,
+    )
 
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": "Expected a JSON object."}), 400
 
     message = payload.get("message")
+    session_id = payload.get("session_id")
+    request_id = payload.get("request_id")
     if not isinstance(message, str) or not message.strip() or len(message) > 12000:
         return jsonify({"error": "Message is empty or too long."}), 400
+    if (
+        not isinstance(session_id, str)
+        or not CHAT_SESSION_ID_PATTERN.fullmatch(session_id)
+    ):
+        return jsonify({"error": "Conversation session ID is invalid."}), 400
+    if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+        return jsonify({"error": "Conversation request ID is invalid."}), 400
 
-    context = payload.get("context")
-    if not isinstance(context, dict):
-        context = {}
-
+    message = message.strip()
+    db = get_db()
+    user_id = g.user["id"]
+    claim = None
     try:
+        claim = investigation_begin(
+            db, user_id, session_id, request_id, message
+        )
+        if "cached" in claim:
+            return jsonify(claim["cached"])
+
         result = run_chat(
             config=CONFIG,
-            message=message.strip(),
-            history=clean_history(payload.get("history")),
-            context=context,
+            message=message,
+            history=clean_history(claim["state"].get("history", [])),
+            context={"_investigation": investigation_memory(claim["state"])},
             service=ALERT_ANALYSIS,
             extract_content=extract_llm_content,
         )
-        # Its tools search the logs, so each turn is audited like a search:
-        # which tools ran, on what scope, with what outcome, not the content.
-        append_audit("agent_conversation", {
-            "message_chars": len(message),
-            "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
-            "incomplete": bool(result.get("incomplete")),
-            "tools": [
-                {
-                    "tool": entry.get("tool"),
-                    "status": (entry.get("result") or {}).get("status"),
-                    "total_matches": (entry.get("result") or {}).get("total_matches"),
-                    "scope": (entry.get("result") or {}).get("scope"),
-                }
-                for entry in (result.get("tool_trace") or [])[:8]
-                if isinstance(entry, dict)
-            ],
-        })
-        return jsonify(result)
+        return jsonify(investigation_finish(
+            db, user_id, session_id, request_id, message, claim, result
+        ))
+    except InvestigationError as exc:
+        return jsonify({
+            "error": str(exc), "code": "chat_state_error",
+        }), exc.status
     except requests.RequestException:
         return jsonify({
             "error": "The conversation request failed.",
@@ -5147,6 +5212,9 @@ def api_agent_conversation():
             "error": "The model returned an unusable response.",
             "code": "chat_response_error",
         }), 502
+    finally:
+        if claim and claim.get("token"):
+            investigation_release(db, user_id, session_id, claim["token"])
 
 
 @app.post("/api/agent/chat")
@@ -5285,7 +5353,8 @@ def decode_json_field(value: str | None, fallback: Any) -> Any:
 
 
 def chat_session_payload(row: sqlite3.Row) -> dict[str, Any]:
-    return {
+    from hawki_chat_agent import investigation_overlay
+    payload = {
         "id": row["id"],
         "title": row["title"],
         "mode": row["mode"],
@@ -5296,6 +5365,7 @@ def chat_session_payload(row: sqlite3.Row) -> dict[str, Any]:
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+    return investigation_overlay(get_db(), g.user['id'], payload)
 
 
 @app.get("/api/chat-sessions")
@@ -7868,6 +7938,53 @@ def not_found(_error):
 
 initialize_auth_database()
 
+
+
+# HAWKI_FLOW_RESULTS_ROUTE_V1
+@app.get("/api/velociraptor/flow-results")
+@role_required("analyst")
+def api_velociraptor_flow_results():
+    from hawki_velociraptor_results import ReadError, read_flow_results
+
+    allowed = {"client_id", "flow_id", "artifact", "limit"}
+    if set(request.args) - allowed:
+        return jsonify({"error": "Unsupported argument."}), 400
+
+    values = {}
+    for key in ("client_id", "flow_id", "artifact", "limit"):
+        items = request.args.getlist(key)
+        if len(items) > 1:
+            return jsonify({"error": "Repeated argument."}), 400
+        if items:
+            values[key] = items[0]
+
+    missing = [
+        key for key in ("client_id", "flow_id", "artifact")
+        if not values.get(key)
+    ]
+    if missing:
+        return jsonify({"error": "Missing flow-result selector."}), 400
+
+    try:
+        limit = int(values.get("limit", "50"))
+        return jsonify(
+            read_flow_results(
+                client_id=values["client_id"],
+                flow_id=values["flow_id"],
+                artifact=values["artifact"],
+                limit=limit,
+            )
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid flow-result selector."}), 400
+    except ReadError as exc:
+        return jsonify(
+            {
+                "status": "failed",
+                "source": "velociraptor_api",
+                "error_kind": str(exc),
+            }
+        ), 503
 
 if __name__ == "__main__":
     app.run(

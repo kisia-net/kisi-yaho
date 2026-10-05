@@ -16,6 +16,8 @@ COPY data ./data
 COPY templates ./templates
 COPY static ./static
 RUN chown -R hawki:hawki /app
+COPY hawki_velociraptor.py .
+COPY ["hawki_velociraptor_results.py", "/app/hawki_velociraptor_results.py"]
 USER hawki
 EXPOSE 5000
 # /healthz is the only unauthenticated endpoint. The probe previously called

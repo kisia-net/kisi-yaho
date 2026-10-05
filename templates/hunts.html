@@ -1,21 +1,28 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">의심 파일 추적 현황을 확인하고, 에이전트를 통해 새 Velociraptor 수집 작업을 준비합니다.</p>{% endblock %}
+{% block subtitle %}<p class="page-description">Velociraptor 추적 작업과 클라이언트별 기존 수집을 확인합니다.</p>{% endblock %}
 {% block content %}
-<section class="split-grid">
+<section class="workflow-stack hunts-workflow">
     <article class="panel">
         <div class="panel-header"><div><p class="panel-kicker">Velociraptor</p><h2>파일 추적 현황</h2></div><a class="button secondary" href="{{ velociraptor_url }}" target="_blank" rel="noopener noreferrer">Velociraptor 열기 ↗</a></div>
-        <div class="policy-note demo-note">시범 데이터입니다. Velociraptor 연동 전 화면 예시이며, 실제 Wazuh 에이전트(리눅스 web-01, 센서 VM)와 관계없는 Windows 작업입니다.</div>
+        <div class="policy-note">Velociraptor에 등록된 추적 작업입니다.</div>
         <div id="hunt-list" class="hunt-list loading-block">추적 작업을 불러오는 중…</div>
+        <h3>선택 클라이언트의 기존 수집</h3>
+        <div id="hunt-flow-list" class="hunt-list loading-block">
+            클라이언트를 선택하면 기존 수집 결과를 조회합니다…
+        </div>
     </article>
     <article class="panel">
-        <div class="panel-header"><div><p class="panel-kicker">새 추적</p><h2>에이전트로 범위 잡기</h2></div></div>
-        <form class="stack-form" id="hunt-agent-form">
-            <label>대상 호스트 또는 그룹<input id="hunt-target" placeholder="재무팀 구간"></label>
+        <details class="secondary-workflow">
+    <summary>새 Velociraptor 추적 제안 (선택 사항)</summary>
+    <div class="secondary-workflow-body">
+<form class="stack-form" id="hunt-agent-form">
+            <label>대상 클라이언트<select id="hunt-target" required disabled><option value="">클라이언트를 불러오는 중…</option></select></label>
             <label>지표 또는 행위<textarea id="hunt-indicator" rows="5" placeholder="AppData 경로의 서명 없는 실행파일, 알려진 해시, 수상한 파일명, 지속성 경로…"></textarea></label>
             <label>사건 번호<input id="hunt-incident" placeholder="INC-2026-1042"></label>
             <button class="button primary" type="submit">에이전트에서 추적 계획 열기</button>
         </form>
-        <div class="policy-note">이 화면은 Velociraptor 추적 <strong>제안</strong>만 준비합니다. 임의의 VQL이나 셸 명령을 실행하지 않습니다.</div>
+    </div>
+</details>
     </article>
 </section>
 {% endblock %}
