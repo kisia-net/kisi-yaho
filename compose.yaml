@@ -27,6 +27,8 @@ services:
     environment:
       # Inside Docker, use the Compose service name rather than localhost.
       # Override in .env to point at a model running elsewhere.
+      VELOCIRAPTOR_URL: /velociraptor/app/index.html
+      VELOCIRAPTOR_API_CONFIG: /run/secrets/hawki-readonly.api.yaml
       LLM_API_URL: "${LLM_API_URL:-http://vllm:8000/v1/chat/completions}"
       LLM_MODEL: "${VLLM_SERVED_MODEL:-hawki-local}"
       LLM_API_KEY: "${VLLM_API_KEY}"
@@ -39,6 +41,7 @@ services:
       # Kept in a Docker volume rather than the working tree: the account
       # database holds password hashes, and SQLite over a Windows bind mount
       # has locking problems.
+      - /etc/hawki/velociraptor/hawki-readonly.api.yaml:/run/secrets/hawki-readonly.api.yaml:ro
       - hawki-data:/app/data
 
       # Collected evidence, read from the working tree so a scenario ingested

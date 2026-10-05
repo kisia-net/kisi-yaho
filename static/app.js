@@ -2181,6 +2181,7 @@ async function sendConversation(message) {
         session = createAgentSession("conversation", readAgentWorkspaceContext(), false);
     }
     const sessionId = session.id;
+    const requestId = agentSessionId();
     const context = readAgentContext();
     const history = session.history.slice(-16);
     conversationPending.add(sessionId);
@@ -2190,7 +2191,7 @@ async function sendConversation(message) {
 
     session.history = [...history, {role: "user", content: message}].slice(-16);
     session.transcript.push({
-        id: agentSessionId(), role: "user", text: message,
+        id: requestId, role: "user", text: message,
         meta: "", mode: "conversation", suricataAction: null, suricataStaged: false,
     });
     session.transcript = session.transcript.slice(-50);
@@ -2205,7 +2206,7 @@ async function sendConversation(message) {
         const result = await api("/api/agent/conversation", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({message, context, history}),
+            body: JSON.stringify({message, session_id: sessionId, request_id: requestId}),
         });
         const target = state.agentSessions.find(item => item.id === sessionId);
         if (!target) return;
@@ -3270,17 +3271,32 @@ function initLogs() {
 }
 
 async function initHunts() {
-    const data = await api("/api/hunts");
-    const list = byId("hunt-list");
-    list.innerHTML = data.hunts.map((h) => `<div class="hunt-card"><div class="hunt-top"><strong>${escapeHtml(h.id)} · ${escapeHtml(h.name)}</strong><span class="status-text">${escapeHtml(huntStateLabel(h.state))}</span></div><p>${escapeHtml(h.target)} · ${escapeHtml(h.artifact)}</p><div class="progress"><span data-progress="${Number(h.progress)}"></span></div><div class="hunt-bottom"><span class="muted">${h.progress}% 완료</span><span class="tag">탐지 ${h.hits}건</span></div></div>`).join("");
-    // The CSP allows styles from 'self' only, which blocks a style attribute
-    // written into markup. Setting the property through CSSOM is not covered
-    // by style-src, so the bar renders without loosening the policy.
-    list.querySelectorAll(".progress > span[data-progress]").forEach((bar) => {
-        const percent = Math.max(0, Math.min(Number(bar.dataset.progress) || 0, 100));
-        bar.style.width = `${percent}%`;
+    byId("hunt-agent-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const query = new URLSearchParams({
+            mode: "file_hunt",
+            host: byId("hunt-target").value,
+            incident: byId("hunt-incident").value,
+            prompt: byId("hunt-indicator").value,
+        });
+        location.href = `/agent?${query}`;
     });
-    byId("hunt-agent-form").addEventListener("submit", (e) => { e.preventDefault(); const query = new URLSearchParams({mode:"file_hunt", host:byId("hunt-target").value, incident:byId("hunt-incident").value, prompt:byId("hunt-indicator").value}); location.href = `/agent?${query}`; });
+    loadVelociraptorClients("hunt-target");
+    loadVelociraptorFlows("hunt-target", "hunt-flow-list");
+    const list = byId("hunt-list");
+    try {
+        const data = await api("/api/hunts");
+        list.innerHTML = data.hunts.map((hunt) => {
+            const artifacts = Array.isArray(hunt.artifacts) ? hunt.artifacts.join(", ") : "";
+            return `<div class="hunt-card"><div class="hunt-top"><strong>${escapeHtml(hunt.hunt_id)} · ${escapeHtml(hunt.hunt_description || "")}</strong><span class="status-text">${escapeHtml(String(hunt.state ?? "미확인"))}</span></div><p>${escapeHtml(artifacts || "수집 항목 미표시")}</p></div>`;
+        }).join("") || '<div class="empty-state">이번 조회에서 등록된 추적 작업이 반환되지 않았습니다.</div>';
+        const note = document.createElement("p");
+        note.className = "muted";
+        note.textContent = `추적 작업 ${data.returned_hunts}개 반환개`;
+        list.appendChild(note);
+    } catch (error) {
+        list.textContent = "추적 작업 조회 실패: " + error.message;
+    }
 }
 
 function actionCard(a, decisionButtons = false) {
@@ -3344,7 +3360,7 @@ const APPROVAL_VALUE_LABELS = {
     critical: "치명",
 };
 const DISPATCH_MESSAGES = {
-    "Execution is disabled by server policy.": "서버 정책(ENABLE_RESPONSE_ACTIONS=false)으로 실행이 꺼져 있어 승인만 기록했습니다.",
+    "Execution is disabled by server policy.": "승인되었지만 아직 실행되지 않았습니다.",
     "No trusted action gateway is configured.": "조치 게이트웨이(Velociraptor 연동)가 설정되지 않아 승인만 기록했습니다.",
 };
 
@@ -3912,6 +3928,8 @@ function wireApprovalDecisionButtons() {
 }
 
 function initResponse() {
+    loadVelociraptorClients("response-host");
+    loadVelociraptorFlows("response-host", "response-flow-list");
     loadActionList("response-action-list", "velociraptor_");
     byId("response-agent-form").addEventListener("submit", (e) => { e.preventDefault(); const params = new URLSearchParams({mode:"velociraptor_response", host:byId("response-host").value, incident:byId("response-incident").value, prompt:`Requested outcome: ${byId("response-outcome").value}\nEvidence: ${byId("response-evidence").value}`}); location.href = `/agent?${params}`; });
 }
@@ -4488,3 +4506,541 @@ async function init() {
     if (page === "audit") await initAuditPage();
 }
 init();
+
+
+async function loadVelociraptorClients(selectId) {
+    const select = byId(selectId);
+    select.disabled = true;
+    try {
+        const data = await api("/api/velociraptor/clients");
+        select.innerHTML = '<option value="">대상 클라이언트 선택</option>';
+        for (const client of data.items) {
+            const option = document.createElement("option");
+            option.value = client.client_id;
+            option.textContent = `${client.hostname || client.client_id} · ${client.client_id}`;
+            select.appendChild(option);
+        }
+        select.disabled = data.items.length === 0;
+        let note = document.getElementById(`${selectId}-inventory-note`);
+        if (!note) {
+            note = document.createElement("p");
+            note.id = `${selectId}-inventory-note`;
+            note.className = "muted";
+            select.closest("label").after(note);
+        }
+        note.textContent = `조회된 클라이언트 ${data.retrieved_clients}개`;
+    } catch (error) {
+        select.innerHTML = '<option value="">클라이언트 조회 실패</option>';
+        toast(error.message);
+    }
+}
+
+
+async function loadVelociraptorFlows(selectId, containerId) {
+    const select = byId(selectId);
+    const container = byId(containerId);
+    if (!select || !container) return;
+
+    async function refresh() {
+        const clientId = String(select.value || "").trim();
+        if (!clientId) {
+            container.innerHTML = `<div class="empty-state">클라이언트를 선택하면 기존 수집 결과를 조회합니다.</div>`;
+            return;
+        }
+
+        container.textContent = "기존 수집 결과를 불러오는 중…";
+        try {
+            const data = await api(
+                `/api/velociraptor/flows?client_id=${encodeURIComponent(clientId)}`
+            );
+            const flows = Array.isArray(data.flows) ? data.flows : [];
+
+            container.innerHTML = flows.map((flow) => {
+                const request = (
+                    flow.request && typeof flow.request === "object"
+                ) ? flow.request : {};
+                const artifacts = Array.isArray(flow.artifacts)
+                    ? flow.artifacts
+                    : (
+                        Array.isArray(request.artifacts)
+                            ? request.artifacts
+                            : []
+                    );
+                const flowId = flow.flow_id || flow.session_id || "flow ID 미표시";
+                const state = flow.state || flow.status || "상태 미표시";
+                const started = (
+                    flow.create_time ||
+                    flow.start_time ||
+                    flow.timestamp ||
+                    ""
+                );
+
+                return `<div class="hunt-card">
+                    <div class="hunt-top">
+                        <strong>${escapeHtml(String(flowId))}</strong>
+                        <span class="status-text">${escapeHtml(String(state))}</span>
+                    </div>
+                    <p>${escapeHtml(
+                        artifacts.length
+                            ? artifacts.join(", ")
+                            : "수집 항목 미표시"
+                    )}</p>
+                    <span class="muted">${escapeHtml(String(started))}</span>
+                </div>`;
+            }).join("") || `<div class="empty-state">
+                이 클라이언트에 기존 수집 결과가 없습니다.
+            </div>`;
+
+            const note = document.createElement("p");
+            note.className = "muted";
+            note.textContent =
+                `기존 수집 ${data.returned_flows}개 반환개`;
+            container.appendChild(note);
+        } catch (error) {
+            container.textContent = "기존 수집 결과 조회 실패: " + error.message;
+        }
+    }
+
+    select.addEventListener("change", refresh);
+    await refresh();
+}
+
+
+/* HAWKI API workspace promotion */
+function promoteVelociraptorWorkspace(flowId, formId, label) {
+    const flow = byId(flowId);
+    if (!flow) return;
+
+    const form = byId(formId);
+    const apiPanel = flow.closest(".panel");
+    const proposalPanel = form?.closest(".panel");
+    const workflow = apiPanel?.closest(".workflow-stack");
+
+    // Keep the API workspace before the optional proposal section.
+    if (workflow && apiPanel && proposalPanel && apiPanel !== proposalPanel) {
+        workflow.insertBefore(apiPanel, workflow.firstElementChild);
+
+        const link = proposalPanel.querySelector(
+            'a[href*="/velociraptor/"]'
+        );
+        const header = apiPanel.querySelector(".panel-header");
+        if (
+            link &&
+            header &&
+            !header.querySelector('a[href*="/velociraptor/"]')
+        ) {
+            header.append(link);
+        }
+    }
+
+    const parent = flow.parentElement;
+    if (!parent || parent.querySelector("select[data-api-client-picker]")) {
+        return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "api-client-picker";
+
+    const title = document.createElement("label");
+    title.className = "api-client-picker-label";
+    title.textContent = label;
+
+    const select = document.createElement("select");
+    select.id = `api-${flowId}-client`;
+    select.dataset.apiClientPicker = "true";
+    select.setAttribute("aria-label", label);
+
+    const count = document.createElement("span");
+    count.className = "api-client-count";
+
+    wrapper.append(title, select, count);
+    parent.insertBefore(wrapper, flow);
+
+    api("/api/velociraptor/clients")
+        .then((data) => {
+            const clients = Array.isArray(data.clients) ? data.clients : [];
+            count.textContent = `조회된 클라이언트 ${clients.length}개`;
+
+            for (const client of clients) {
+                const option = document.createElement("option");
+                option.value = String(client.client_id || "");
+                option.textContent =
+                    `${client.hostname || "알 수 없는 호스트"} · ` +
+                    `${client.client_id || ""}`;
+                select.append(option);
+            }
+
+            select.addEventListener("change", () => {
+                if (typeof loadVelociraptorFlows === "function") {
+                    loadVelociraptorFlows(select.id, flowId);
+                }
+            });
+
+            if (select.value && typeof loadVelociraptorFlows === "function") {
+                loadVelociraptorFlows(select.id, flowId);
+            } else if (!clients.length) {
+                flow.textContent = "등록된 클라이언트가 없습니다.";
+            }
+        })
+        .catch(() => {
+            count.textContent = "클라이언트 정보를 불러오지 못했습니다.";
+        });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    promoteVelociraptorWorkspace(
+        "hunt-flow-list",
+        "hunt-agent-form",
+        "대상 클라이언트",
+    );
+    promoteVelociraptorWorkspace(
+        "response-flow-list",
+        "response-agent-form",
+        "대상 클라이언트",
+    );
+});
+
+
+/* HAWKI reuse populated Velociraptor client picker */
+function reuseVelociraptorClientPicker(flowId, formId, label) {
+    const flow = byId(flowId);
+    const form = byId(formId);
+    const apiPanel = flow?.closest(".panel");
+    if (!flow || !form || !apiPanel) return;
+
+    const source = Array.from(form.querySelectorAll("select")).find((item) => {
+        const id = String(item.id || "").toLowerCase();
+        return (
+            id.includes("client") ||
+            Array.from(item.options).some((option) =>
+                String(option.value || "").startsWith("C.")
+            )
+        );
+    });
+
+    if (!source) return;
+
+    const hasClientOptions = Array.from(source.options).some((option) =>
+        String(option.value || "").startsWith("C.")
+    );
+    if (!hasClientOptions) return;
+
+    const generated = apiPanel.querySelector(
+        "select[data-api-client-picker]"
+    );
+    generated?.closest(".api-client-picker")?.remove();
+
+    const oldPicker = flow.parentElement?.querySelector(
+        "select[data-api-client-picker]"
+    );
+    if (oldPicker && oldPicker !== source) {
+        oldPicker.closest(".api-client-picker")?.remove();
+    }
+
+    const parent = flow.parentElement;
+    if (!parent || parent.querySelector("select[data-api-client-picker]")) {
+        return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "api-client-picker";
+
+    const title = document.createElement("label");
+    title.className = "api-client-picker-label";
+    title.textContent = label;
+
+    const count = document.createElement("span");
+    count.className = "api-client-count";
+    count.textContent = `조회된 클라이언트 ${source.options.length}개`;
+
+    source.dataset.apiClientPicker = "true";
+    wrapper.append(title, source, count);
+    parent.insertBefore(wrapper, flow);
+
+    if (!source.__hawkiFlowBound) {
+        source.addEventListener("change", () => {
+            if (typeof loadVelociraptorFlows === "function") {
+                loadVelociraptorFlows(source.id, flowId);
+            }
+        });
+        source.__hawkiFlowBound = true;
+    }
+
+    if (source.value && typeof loadVelociraptorFlows === "function") {
+        loadVelociraptorFlows(source.id, flowId);
+    }
+}
+
+function scheduleVelociraptorClientPickerRepair(
+    flowId,
+    formId,
+    label,
+) {
+    [0, 300, 1000, 2000].forEach((delay) => {
+        window.setTimeout(
+            () => reuseVelociraptorClientPicker(flowId, formId, label),
+            delay,
+        );
+    });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    scheduleVelociraptorClientPickerRepair(
+        "hunt-flow-list",
+        "hunt-agent-form",
+        "대상 클라이언트",
+    );
+    scheduleVelociraptorClientPickerRepair(
+        "response-flow-list",
+        "response-agent-form",
+        "대상 클라이언트",
+    );
+});
+
+
+/* HAWKI readable Velociraptor timestamps */
+function formatVelociraptorFlowTimes(container) {
+    if (!container) return;
+
+    const walker = document.createTreeWalker(
+        container,
+        NodeFilter.SHOW_TEXT,
+    );
+    const nodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+        nodes.push(node);
+    }
+
+    for (const textNode of nodes) {
+        const raw = textNode.nodeValue.trim();
+        if (!/^\d{16}$/.test(raw)) continue;
+
+        const date = new Date(Number(raw) / 1000);
+        if (Number.isNaN(date.getTime())) continue;
+
+        textNode.nodeValue = new Intl.DateTimeFormat(undefined, {
+            dateStyle: "medium",
+            timeStyle: "short",
+        }).format(date);
+    }
+}
+
+function observeVelociraptorFlowTimes(containerId) {
+    const container = byId(containerId);
+    if (!container || container.dataset.timeObserverAttached) return;
+
+    container.dataset.timeObserverAttached = "true";
+    formatVelociraptorFlowTimes(container);
+
+    const observer = new MutationObserver(() => {
+        formatVelociraptorFlowTimes(container);
+    });
+    observer.observe(container, {
+        childList: true,
+        subtree: true,
+    });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    observeVelociraptorFlowTimes("hunt-flow-list");
+    observeVelociraptorFlowTimes("response-flow-list");
+});
+
+
+/* HAWKI bounded flow-result cards V1 */
+function hawkiFlowDate(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return value ? String(value) : "—";
+    }
+
+    const milliseconds =
+        numeric > 100000000000000
+            ? numeric / 1000
+            : numeric > 100000000000
+                ? numeric
+                : numeric * 1000;
+
+    const date = new Date(milliseconds);
+    if (Number.isNaN(date.getTime())) return String(value);
+
+    return new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+    }).format(date);
+}
+
+function hawkiFlowArtifacts(flow) {
+    const values = [];
+
+    for (const candidate of [
+        flow?.artifacts,
+        flow?.artifact_names,
+        flow?.request?.artifacts,
+    ]) {
+        if (Array.isArray(candidate)) values.push(...candidate);
+        else if (candidate) values.push(candidate);
+    }
+
+    for (const candidate of [
+        flow?.artifact,
+        flow?.artifact_name,
+    ]) {
+        if (candidate) values.push(candidate);
+    }
+
+    return [...new Set(
+        values
+            .map((value) => String(value).trim())
+            .filter(Boolean),
+    )];
+}
+
+function hawkiJsonCell(value) {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "object") {
+        try {
+            return JSON.stringify(value);
+        } catch (_) {
+            return String(value);
+        }
+    }
+    return String(value);
+}
+
+function hawkiRenderFlowRows(container, payload) {
+    const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+    if (!rows.length) {
+        container.innerHTML =
+            '<div class="empty-state">표시할 결과가 없습니다.</div>';
+        return;
+    }
+
+    const columns = [
+        ...new Set(rows.flatMap((row) => Object.keys(row))),
+    ].slice(0, 8);
+
+    const header = columns
+        .map((column) => `<th>${escapeHtml(column)}</th>`)
+        .join("");
+
+    const body = rows
+        .map((row) => {
+            const cells = columns
+                .map((column) =>
+                    `<td>${escapeHtml(hawkiJsonCell(row[column]))}</td>`
+                )
+                .join("");
+            return `<tr>${cells}</tr>`;
+        })
+        .join("");
+
+    container.innerHTML =
+        `<div class="flow-results-meta">` +
+        `${escapeHtml(payload.artifact || "")} · ` +
+        `${Number(payload.returned_rows || rows.length)}건` +
+        `</div>` +
+        `<div class="flow-results-table-wrap">` +
+        `<table class="flow-results-table"><thead><tr>${header}</tr>` +
+        `</thead><tbody>${body}</tbody></table></div>`;
+}
+
+async function hawkiLoadFlowRows(button) {
+    const card = button.closest(".flow-card");
+    const target = card?.querySelector(".flow-results-preview");
+    if (!card || !target) return;
+
+    target.hidden = false;
+    target.innerHTML = '<div class="loading-block">결과를 불러오는 중…</div>';
+    button.disabled = true;
+
+    const params = new URLSearchParams({
+        client_id: button.dataset.clientId || "",
+        flow_id: button.dataset.flowId || "",
+        artifact: button.dataset.artifact || "",
+        limit: "50",
+    });
+
+    try {
+        const payload = await api(
+            `/api/velociraptor/flow-results?${params.toString()}`
+        );
+        hawkiRenderFlowRows(target, payload);
+    } catch (_) {
+        target.innerHTML =
+            '<div class="empty-state">결과를 불러오지 못했습니다.</div>';
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function loadVelociraptorFlows(selectId, containerId) {
+    const select = byId(selectId);
+    const container = byId(containerId);
+    if (!select || !container) return Promise.resolve();
+
+    const clientId = select.value;
+    if (!clientId) {
+        container.innerHTML =
+            '<div class="empty-state">클라이언트를 선택하세요.</div>';
+        return Promise.resolve();
+    }
+
+    container.innerHTML =
+        '<div class="loading-block">기존 수집을 불러오는 중…</div>';
+
+    return api(
+        `/api/velociraptor/flows?client_id=${encodeURIComponent(clientId)}`
+    ).then((payload) => {
+        const flows = Array.isArray(payload?.flows) ? payload.flows : [];
+        if (!flows.length) {
+            container.innerHTML =
+                '<div class="empty-state">기존 수집이 없습니다.</div>';
+            return;
+        }
+
+        container.innerHTML = flows.map((flow) => {
+            const flowId = String(flow.flow_id || flow.id || "");
+            const artifacts = hawkiFlowArtifacts(flow);
+            const artifact = artifacts[0] || "";
+            const state = String(flow.state || flow.status || "UNKNOWN");
+            const start = flow.start_time || flow.started_at || "";
+            const end = flow.end_time || flow.completed_at || "";
+
+            const resultButton = artifact
+                ? `<button class="button secondary small flow-results-button" ` +
+                  `data-client-id="${escapeHtml(clientId)}" ` +
+                  `data-flow-id="${escapeHtml(flowId)}" ` +
+                  `data-artifact="${escapeHtml(artifact)}">` +
+                  `결과 보기</button>`
+                : "";
+
+            return (
+                `<article class="flow-card">` +
+                `<div class="flow-card-header">` +
+                `<strong>${escapeHtml(flowId || "알 수 없는 수집")}</strong>` +
+                `<span class="status-text">${escapeHtml(state)}</span>` +
+                `</div>` +
+                `<p>${escapeHtml(artifacts.join(", ") || "아티팩트 정보 없음")}</p>` +
+                `<p class="muted">${escapeHtml(hawkiFlowDate(start))}` +
+                `${end ? ` – ${escapeHtml(hawkiFlowDate(end))}` : ""}</p>` +
+                `<div class="flow-card-actions">${resultButton}</div>` +
+                `<div class="flow-results-preview" hidden></div>` +
+                `</article>`
+            );
+        }).join("");
+
+        container
+            .querySelectorAll(".flow-results-button")
+            .forEach((button) => {
+                button.addEventListener(
+                    "click",
+                    () => hawkiLoadFlowRows(button),
+                );
+            });
+    }).catch(() => {
+        container.innerHTML =
+            '<div class="empty-state">기존 수집을 불러오지 못했습니다.</div>';
+    });
+}

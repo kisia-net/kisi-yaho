@@ -5267,3 +5267,171 @@ a.alert-history-item:hover { border-color: var(--accent); color: var(--accent); 
 .cti-state.cti-muted { color: var(--muted); }
 .cti-matches { margin: 8px 0 0; font-size: 12.5px; }
 .cti-matches:empty { display: none; }
+
+
+/* HAWKI stacked workflow layout */
+.workflow-stack {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(1rem, 2vw, 1.5rem);
+    align-items: start;
+}
+
+.workflow-stack > .panel {
+    min-width: 0;
+    width: 100%;
+}
+
+.workflow-stack .panel-header {
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.workflow-stack .stack-form {
+    max-width: 68rem;
+}
+
+.workflow-stack .hunt-list,
+.workflow-stack .flow-panel,
+.workflow-stack .action-list {
+    min-width: 0;
+}
+
+
+/* HAWKI API-first workflow controls */
+.secondary-workflow {
+    margin-top: 1rem;
+    border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+    border-radius: 0.75rem;
+    background: color-mix(in srgb, currentColor 3%, transparent);
+}
+
+.secondary-workflow > summary {
+    cursor: pointer;
+    padding: 0.9rem 1rem;
+    font-weight: 650;
+    list-style: none;
+}
+
+.secondary-workflow > summary::-webkit-details-marker {
+    display: none;
+}
+
+.secondary-workflow > summary::before {
+    content: "＋";
+    display: inline-block;
+    width: 1.25rem;
+    opacity: 0.75;
+}
+
+.secondary-workflow[open] > summary::before {
+    content: "−";
+}
+
+.secondary-workflow-body {
+    padding: 0 1rem 1rem;
+}
+
+.workflow-stack .secondary-workflow .stack-form {
+    max-width: 68rem;
+}
+
+
+/* HAWKI compact API workspace */
+.api-client-picker {
+    display: grid;
+    grid-template-columns: minmax(12rem, 20rem) minmax(16rem, 1fr) auto;
+    align-items: end;
+    gap: 0.65rem 0.9rem;
+    margin: 0.75rem 0 1rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+    border-radius: 0.65rem;
+    background: color-mix(in srgb, currentColor 3%, transparent);
+}
+
+.api-client-picker-label {
+    grid-column: 1 / -1;
+    font-weight: 650;
+}
+
+.api-client-picker select {
+    min-width: 0;
+}
+
+.api-client-count {
+    color: var(--muted, #6b7280);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.workflow-stack #hunt-flow-list,
+.workflow-stack #response-flow-list {
+    min-height: 0;
+    padding: 0.75rem 0;
+}
+
+@media (max-width: 720px) {
+    .api-client-picker {
+        grid-template-columns: 1fr;
+    }
+
+    .api-client-count {
+        white-space: normal;
+    }
+}
+
+
+/* HAWKI remove empty proposal toolbar */
+.proposal-toolbar:empty {
+    display: none !important;
+}
+
+.workflow-stack .flow-panel,
+.workflow-stack #hunt-flow-list,
+.workflow-stack #response-flow-list {
+    min-height: 0 !important;
+}
+
+
+/* HAWKI bounded flow-result table */
+.flow-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.7rem;
+}
+
+.flow-results-preview {
+    margin-top: 0.8rem;
+    overflow: hidden;
+}
+
+.flow-results-meta {
+    margin-bottom: 0.5rem;
+    color: var(--muted, #6b7280);
+    font-size: 0.85rem;
+}
+
+.flow-results-table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.flow-results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.flow-results-table th,
+.flow-results-table td {
+    padding: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+    text-align: left;
+    vertical-align: top;
+}
+
+.flow-results-table th {
+    font-weight: 650;
+}
