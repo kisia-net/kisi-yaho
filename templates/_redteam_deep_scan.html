@@ -1,0 +1,28 @@
+<link rel="stylesheet" href="{{ url_for('static', filename='redteam_deep_scan.css', v=asset_version) }}">
+<section class="panel" data-redteam-scan-card
+         data-alert-id="{{ alert_id|default('', true) }}"
+         data-scan-id="{{ scan_id|default('', true) }}"
+         data-csrf="{{ csrf_token() }}">
+    <div class="panel-header">
+        <div><p class="panel-kicker">② 별도 보안 평가 · 수동 실행</p><h2>모델 심층 점검 · Promptfoo + garak</h2></div>
+        <button class="button secondary small" type="button" data-scan-refresh>결과 새로고침</button>
+    </div>
+    <p class="muted">① 경보별 자동평가: 저장된 분석을 Promptfoo로 채점하며 모델을 재호출하지 않습니다. ② 심층 점검: 실제 Wazuh 경보와 HAW-KI 분석 API로 두 도구를 순차 실행합니다. 추가 모델 호출이 발생하며, 시간초과·연결 오류 시 후속 모델 호출은 중단합니다. 하루 1회 예약은 아직 활성화하지 않았습니다.</p>
+    <label>실제 경보 ID
+        <input type="text" maxlength="200" autocomplete="off" data-scan-alert
+               value="{{ alert_id|default('', true) }}" placeholder="Wazuh 문서 ID">
+    </label>
+    <div class="button-row">
+        <button class="button primary" type="button" data-scan-start>심층검사 실행</button>
+    </div>
+    <p class="muted" data-scan-notice role="status" aria-live="polite">검사 결과 확인 중…</p>
+    <div class="structured-output" data-scan-result hidden>
+        <p data-scan-meta></p><p data-scan-summary></p>
+        <div data-scan-tools></div>
+        <details data-scan-details hidden>
+            <summary>검사별 상세 결과 · Promptfoo 사례 / garak probe·detector</summary>
+            <ul data-scan-probes></ul>
+        </details>
+    </div>
+</section>
+<script defer src="{{ url_for('static', filename='redteam_deep_scan.js', v=asset_version) }}"></script>
