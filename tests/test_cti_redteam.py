@@ -253,3 +253,77 @@ class AlertHistoryRedteamTests(unittest.TestCase):
         source = Path(app.__file__).read_text(encoding="utf-8")
         start = source.index("def api_alert_history")
         self.assertIn('"redteam": detail.get("redteam")', source[start:start + 3000])
+
+
+class DeepScanAppTests(unittest.TestCase):
+    """이승섭's deep-scan proxy as registered in HAW-KI (2026-10-09)."""
+
+    TOKEN = "d" * 64
+
+    def setUp(self):
+        self.client = app.app.test_client()
+        with self.client.session_transaction() as session:
+            session["_csrf_token"] = "test-token"
+        self.client.post("/login", data={
+            "username": os.environ["HAWKI_ADMIN_USERNAME"], "password": os.environ["HAWKI_ADMIN_PASSWORD"],
+            "csrf_token": "test-token", "next": "/",
+        })
+        with self.client.session_transaction() as session:
+            session["_csrf_token"] = "test-token"
+        self.patches = [
+            mock.patch.dict(app.CONFIG, {"redteam_runner_url": "http://10.0.10.59:8091",
+                                         "redteam_runner_token": self.TOKEN, "demo_mode": False}),
+            mock.patch.object(app, "ALERT_REPOSITORY_KIND", "wazuh"),
+        ]
+        for patcher in self.patches:
+            patcher.start()
+
+    def tearDown(self):
+        for patcher in self.patches:
+            patcher.stop()
+
+    @staticmethod
+    def runner_reply(status, body):
+        reply = mock.Mock(status_code=status)
+        reply.json = lambda: body
+        return reply
+
+    def scan(self, status="queued"):
+        return {"schema": "hawki.deep-scan/v1", "scan_id": "b" * 24, "alert_id": "HmzHHqEBwM1PTNWmy0Qm",
+                "status": status, "tools": {}, "summary": ""}
+
+    def test_routes_need_a_login(self):
+        anonymous = app.app.test_client()
+        self.assertIn(anonymous.get("/api/redteam/scans/latest").status_code, (302, 401, 403))
+
+    def test_post_needs_csrf(self):
+        with mock.patch("hawki_redteam_ui.requests.request") as call:
+            response = self.client.post("/api/redteam/scans", json={"alert_id": "HmzHHqEBwM1PTNWmy0Qm"})
+        self.assertEqual(response.status_code, 400)
+        call.assert_not_called()
+
+    def test_launch_is_audited_and_the_token_stays_on_the_server(self):
+        with mock.patch("hawki_redteam_ui.requests.request", return_value=self.runner_reply(202, self.scan())) as call:
+            response = self.client.post("/api/redteam/scans", json={"alert_id": "HmzHHqEBwM1PTNWmy0Qm"},
+                                        headers={"X-CSRF-Token": "test-token"})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(call.call_args.kwargs["headers"]["Authorization"], "Bearer " + self.TOKEN)
+        self.assertNotIn(self.TOKEN, response.get_data(as_text=True))
+        last = app.read_jsonl(app.AUDIT_LOG_PATH)[-1]
+        self.assertEqual(last["event_type"], "redteam_deep_scan_requested")
+        self.assertEqual(last["detail"]["scan_id"], "b" * 24)
+        self.assertEqual(last["detail"]["status_code"], 202)
+
+    def test_demo_mode_blocks_the_model_calling_button(self):
+        with mock.patch.dict(app.CONFIG, {"demo_mode": True}), \
+             mock.patch("hawki_redteam_ui.requests.request") as call:
+            response = self.client.post("/api/redteam/scans", json={"alert_id": "HmzHHqEBwM1PTNWmy0Qm"},
+                                        headers={"X-CSRF-Token": "test-token"})
+        self.assertEqual(response.status_code, 409)
+        call.assert_not_called()
+
+    def test_dashboard_shows_the_card(self):
+        with mock.patch("hawki_redteam_ui.requests.request", return_value=self.runner_reply(404, {"error": "No deep scan is available."})):
+            page = self.client.get("/").get_data(as_text=True)
+        self.assertIn("data-redteam-scan-card", page)
+        self.assertIn("redteam_deep_scan.js", page)

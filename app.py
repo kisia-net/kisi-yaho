@@ -8026,6 +8026,19 @@ def agent_workspace_page():
                            **template_context("agent"))
 # END HAWKI AGENT WORKSPACE V1
 
+# BEGIN HAWKI REDTEAM DEEP SCAN (이승섭, 2026-10-09)
+# Separate, manually started Promptfoo + garak scan on the red team runner.
+# Reuses REDTEAM_RUNNER_URL / REDTEAM_RUNNER_TOKEN; the token stays here.
+from hawki_redteam_ui import register_redteam_scan_routes, runner_configuration
+register_redteam_scan_routes(
+    app,
+    configuration=lambda: runner_configuration(CONFIG),
+    role_required=role_required,
+    live_enabled=lambda: ALERT_REPOSITORY_KIND == "wazuh" and not CONFIG["demo_mode"],
+    audit=append_audit,
+)
+# END HAWKI REDTEAM DEEP SCAN
+
 
 if __name__ == "__main__":
     app.run(

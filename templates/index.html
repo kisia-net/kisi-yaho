@@ -71,6 +71,10 @@
     </article>
 </section>
 
+{% if current_user and current_user.role in ['analyst', 'approver', 'admin'] %}
+    {% include "_redteam_deep_scan.html" %}
+{% endif %}
+
 <section class="panel">
     <div class="panel-header"><div><p class="panel-kicker">바로가기</p><h2>분석 작업 화면</h2></div></div>
     <div class="feature-grid">
