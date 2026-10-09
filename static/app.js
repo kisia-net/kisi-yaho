@@ -4872,6 +4872,12 @@ function hawkiFlowDate(value) {
 }
 
 function hawkiFlowArtifacts(flow) {
+    // Use the result sources recorded for this collection.
+    if (Array.isArray(flow?.artifacts_with_results)) {
+        return [...new Set(flow.artifacts_with_results.filter(
+            value => typeof value === "string" && value.trim()
+        ).map(value => value.trim()))];
+    }
     const values = [];
 
     for (const candidate of [
@@ -5001,20 +5007,20 @@ function loadVelociraptorFlows(selectId, containerId) {
         }
 
         container.innerHTML = flows.map((flow) => {
-            const flowId = String(flow.flow_id || flow.id || "");
+            const flowId = String(flow.flow_id || flow.session_id || flow.id || "");
             const artifacts = hawkiFlowArtifacts(flow);
             const artifact = artifacts[0] || "";
             const state = String(flow.state || flow.status || "UNKNOWN");
-            const start = flow.start_time || flow.started_at || "";
+            const start = flow.start_time || flow.create_time || flow.started_at || "";
             const end = flow.end_time || flow.completed_at || "";
 
-            const resultButton = artifact
-                ? `<button class="button secondary small flow-results-button" ` +
-                  `data-client-id="${escapeHtml(clientId)}" ` +
-                  `data-flow-id="${escapeHtml(flowId)}" ` +
-                  `data-artifact="${escapeHtml(artifact)}">` +
-                  `결과 보기</button>`
-                : "";
+            const resultButton = flowId ? artifacts.map((source) =>
+                `<button class="button secondary small flow-results-button" ` +
+                `data-client-id="${escapeHtml(clientId)}" ` +
+                `data-flow-id="${escapeHtml(flowId)}" ` +
+                `data-artifact="${escapeHtml(source)}">` +
+                `${escapeHtml(source)} · 결과 보기</button>`
+            ).join(" ") : "";
 
             return (
                 `<article class="flow-card">` +

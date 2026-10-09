@@ -446,8 +446,10 @@ def read_flows(client_id="", host=""):
         raise ReadError("invalid_client_id")
 
     vql = (
-        "SELECT * FROM flows("
-        f"client_id={json.dumps(client_id)}, summary=TRUE"
+        "SELECT session_id AS flow_id, session_id, state, "
+        "create_time, start_time, request.artifacts AS artifacts, "
+        "artifacts_with_results FROM flows("
+        f"client_id={json.dumps(client_id)}, summary=FALSE"
         f") LIMIT {_FLOW_LIMIT}"
     )
     config, rows = _read_flow_rows(vql)

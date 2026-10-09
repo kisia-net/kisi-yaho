@@ -8004,6 +8004,29 @@ def api_velociraptor_flow_results():
             }
         ), 503
 
+
+# BEGIN HAWKI VELOCIRAPTOR WORKSPACE
+from hawki_vr.web import install as _install_vr_workspace
+_install_vr_workspace(app, role_required, append_audit)
+# END HAWKI VELOCIRAPTOR WORKSPACE
+
+# BEGIN HAWKI AGENT WORKSPACE V1
+from hawki_agent_workspace import install as _install_agent_workspace
+_install_agent_workspace(
+    app, config=CONFIG, db_get=get_db, session_payload=chat_session_payload,
+    role_required=role_required, service=ALERT_ANALYSIS,
+    clean_history=clean_history, extract_content=extract_llm_content,
+    audit=append_audit,
+)
+
+@app.get("/agent/workspace")
+@role_required("analyst")
+def agent_workspace_page():
+    return render_template("agent_workspace.html", workspace_v1=True,
+                           **template_context("agent"))
+# END HAWKI AGENT WORKSPACE V1
+
+
 if __name__ == "__main__":
     app.run(
         host=os.getenv("FLASK_HOST", "0.0.0.0"),

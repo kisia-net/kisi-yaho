@@ -1,238 +1,251 @@
-name: hawki
-
-# Profiles keep the local stage light. Plain `docker compose up` starts the web
-# app alone (~300 MB, no GPU). vLLM and Suricata are opt-in:
-#
-#   docker compose up -d                              web app only
-#   docker compose --profile llm up -d                + vLLM (needs a GPU)
-#   docker compose run --rm suricata-update           fetch ET Open rules (once)
-#   docker compose run --rm suricata                  replay a PCAP
-#
-# The web app previously declared depends_on: vllm, which made `docker compose
-# up` fail on a machine without a GPU. It handles an unreachable model on its
-# own, so the dependency is gone.
-
-services:
-  hawki-web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-
-    container_name: hawki-web
-    restart: unless-stopped
-
-    env_file:
-      - .env
-
-    environment:
-      # Inside Docker, use the Compose service name rather than localhost.
-      # Override in .env to point at a model running elsewhere.
-      VELOCIRAPTOR_URL: /velociraptor/app/index.html
-      VELOCIRAPTOR_API_CONFIG: /run/secrets/hawki-readonly.api.yaml
-      LLM_API_URL: "${LLM_API_URL:-http://vllm:8000/v1/chat/completions}"
-      LLM_MODEL: "${VLLM_SERVED_MODEL:-hawki-local}"
-      LLM_API_KEY: "${VLLM_API_KEY}"
-
-    ports:
-      - "5000:5000"
-
-    volumes:
-      # Runtime state — the account database, the action queue, the audit trail.
-      # Kept in a Docker volume rather than the working tree: the account
-      # database holds password hashes, and SQLite over a Windows bind mount
-      # has locking problems.
-      - /etc/hawki/velociraptor/hawki-readonly.api.yaml:/run/secrets/hawki-readonly.api.yaml:ro
-      - hawki-data:/app/data
-
-      # Collected evidence, read from the working tree so a scenario ingested
-      # on the host is visible at localhost:5000 without rebuilding the image.
-      # Read-only: the app reads this data and must never write back to it.
-      # These nest inside /app/data above; Docker mounts the parent first.
-      - ./data/scenarios:/app/data/scenarios:ro
-      - ./data/assets:/app/data/assets:ro
-      - ./data/assets-live:/app/data/assets-live:ro
-      - ./data/threat_intel:/app/data/threat_intel:ro
-      - ./data/threat_intel-live:/app/data/threat_intel-live:ro
-
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-      - "wazuh.indexer:10.0.10.123"
-      - "wazuh.dashboard:10.0.10.123"
-
-    networks:
-      - hawki
-
-  # ---------------------------------------------------------------------
-  # Automatic analysis worker (자동 보고서). Same image as hawki-web, one
-  # process, so a level-8 alert is never analysed twice by two gunicorn
-  # workers. Idles until AUTO_ANALYSIS_ENABLED=true in .env; see
-  # hawki_alert_analysis/auto_report.py for what it does and never does.
-  #
-  #   docker compose up -d --build hawki-web hawki-worker
-  #   docker compose logs -f hawki-worker
-  # ---------------------------------------------------------------------
-  hawki-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-
-    container_name: hawki-worker
-    restart: unless-stopped
-    command: ["flask", "--app", "app", "auto-report"]
-
-    env_file:
-      - .env
-
-    environment:
-      LLM_API_URL: "${LLM_API_URL:-http://vllm:8000/v1/chat/completions}"
-      LLM_MODEL: "${VLLM_SERVED_MODEL:-hawki-local}"
-      LLM_API_KEY: "${VLLM_API_KEY}"
-
-    # Reports and the audit log are written to the same volume the web app
-    # reads, so both containers see one set of reports.
-    volumes:
-      - hawki-data:/app/data
-      - ./data/scenarios:/app/data/scenarios:ro
-      - ./data/assets:/app/data/assets:ro
-      - ./data/assets-live:/app/data/assets-live:ro
-      - ./data/threat_intel:/app/data/threat_intel:ro
-      - ./data/threat_intel-live:/app/data/threat_intel-live:ro
-
-    # No web port here. Healthy means the worker wrote a heartbeat within
-    # max(15 minutes, 3 polls); a model call alone can take several minutes.
-    healthcheck:
-      test: ["CMD", "python", "-c", "import json,os,sys,datetime as d;s=json.load(open('/app/data/auto_reports/state.json'));t=d.datetime.fromisoformat(s.get('heartbeat_at') or s['last_cycle_at']);sys.exit(0 if (d.datetime.now(d.timezone.utc)-t).total_seconds()<max(900,3*int(os.getenv('AUTO_ANALYSIS_POLL_SECONDS','60'))) else 1)"]
-      interval: 60s
-      timeout: 5s
-      start_period: 90s
-      retries: 3
-
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-      - "wazuh.indexer:10.0.10.123"
-      - "wazuh.dashboard:10.0.10.123"
-
-    networks:
-      - hawki
-
-  # ---------------------------------------------------------------------
-  # Network sensor. Reads a capture and writes its own eve.json — the same
-  # format a live sensor produces, so nothing downstream knows the difference.
-  #
-  #   1. mkdir -p capture/pcap capture/out
-  #   2. cp <your>.pcap capture/pcap/capture.pcap
-  #   3. docker compose run --rm suricata-update
-  #   4. docker compose run --rm suricata
-  #   5. python -m hawki_alert_analysis.ingest capture/out \
-  #          --out data/scenarios/real_001 --host web-01
-  #
-  # Set PCAP_FILE to replay a different capture from capture/pcap/.
-  # ---------------------------------------------------------------------
-  suricata:
-    image: jasonish/suricata:latest
-    container_name: hawki-suricata
-    profiles: ["capture"]
-    restart: "no"
-
-    volumes:
-      - ./capture/pcap:/capture:ro
-      - ./capture/out:/var/log/suricata
-      - hawki-suricata-rules:/var/lib/suricata
-
-    command:
-      - -r
-      - "/capture/${PCAP_FILE:-capture.pcap}"
-      - -l
-      - /var/log/suricata
-      - -v
-
-    networks:
-      - hawki
-
-  # Fetches the Emerging Threats Open ruleset into the shared rules volume.
-  # Without it Suricata still logs http, dns, tls and flow events, but raises
-  # no alerts — and the case has no trigger.
-  suricata-update:
-    image: jasonish/suricata:latest
-    container_name: hawki-suricata-update
-    profiles: ["rules"]
-    restart: "no"
-    entrypoint: ["suricata-update"]
-
-    volumes:
-      - hawki-suricata-rules:/var/lib/suricata
-
-    networks:
-      - hawki
-
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: hawki-vllm
-    profiles: ["llm"]
-    restart: unless-stopped
-
-    gpus: all
-    ipc: host
-
-    environment:
-      CUDA_VISIBLE_DEVICES: "${CUDA_VISIBLE_DEVICES:-0}"
-
-    volumes:
-      - hawki-hf-cache:/root/.cache/huggingface
-      - hawki-vllm-cache:/root/.cache/vllm
-
-    # Allows hawki-web to reach port 8000 over the Docker network.
-    expose:
-      - "8000"
-
-    # Optional: allows direct testing from the workstation.
-    ports:
-      - "127.0.0.1:8000:8000"
-
-    command:
-      - --model
-      - "${VLLM_MODEL:-openai/gpt-oss-20b}"
-
-      - --served-model-name
-      - "${VLLM_SERVED_MODEL:-hawki-local}"
-
-      - --host
-      - "0.0.0.0"
-
-      - --port
-      - "8000"
-
-      - --api-key
-      - "${VLLM_API_KEY}"
-
-      - --gpu-memory-utilization
-      - "${VLLM_GPU_MEMORY_UTILIZATION:-0.88}"
-
-      - --max-model-len
-      - "${VLLM_MAX_MODEL_LEN:-32768}"
-
-      - --max-num-seqs
-      - "${VLLM_MAX_NUM_SEQS:-4}"
-
-      - --enable-auto-tool-choice
-
-      - --tool-call-parser
-      - openai
-
-      - --reasoning-parser
-      - openai_gptoss
-
-      - --enable-prefix-caching
-
-    networks:
-      - hawki
-
-networks:
-  hawki:
-    name: hawki-network
-
-volumes:
-  hawki-data:
-  hawki-hf-cache:
-  hawki-vllm-cache:
-  hawki-suricata-rules:
+{
+  "name": "hawki",
+  "services": {
+    "hawki-web": {
+      "build": {
+        "context": ".",
+        "dockerfile": "Dockerfile"
+      },
+      "container_name": "hawki-web",
+      "restart": "unless-stopped",
+      "env_file": [
+        ".env"
+      ],
+      "environment": {
+        "VELOCIRAPTOR_URL": "/velociraptor/app/index.html",
+        "VELOCIRAPTOR_API_CONFIG": "/run/secrets/hawki-readonly.api.yaml",
+        "LLM_API_URL": "${LLM_API_URL:-http://vllm:8000/v1/chat/completions}",
+        "LLM_MODEL": "${VLLM_SERVED_MODEL:-hawki-local}",
+        "LLM_API_KEY": "${VLLM_API_KEY}",
+        "HAWKI_VR_DB": "/app/data/velociraptor/workspace.sqlite3"
+      },
+      "ports": [
+        "5000:5000"
+      ],
+      "volumes": [
+        "/etc/hawki/velociraptor/hawki-readonly.api.yaml:/run/secrets/hawki-readonly.api.yaml:ro",
+        "hawki-data:/app/data",
+        "./data/scenarios:/app/data/scenarios:ro",
+        "./data/assets:/app/data/assets:ro",
+        "./data/assets-live:/app/data/assets-live:ro",
+        "./data/threat_intel:/app/data/threat_intel:ro",
+        "./data/threat_intel-live:/app/data/threat_intel-live:ro"
+      ],
+      "extra_hosts": [
+        "host.docker.internal:host-gateway",
+        "wazuh.indexer:10.0.10.123",
+        "wazuh.dashboard:10.0.10.123"
+      ],
+      "networks": [
+        "hawki"
+      ],
+      "image": "hawki-vr-workspace:2026.10.06.1"
+    },
+    "hawki-worker": {
+      "build": {
+        "context": ".",
+        "dockerfile": "Dockerfile"
+      },
+      "container_name": "hawki-worker",
+      "restart": "unless-stopped",
+      "command": [
+        "flask",
+        "--app",
+        "app",
+        "auto-report"
+      ],
+      "env_file": [
+        ".env"
+      ],
+      "environment": {
+        "LLM_API_URL": "${LLM_API_URL:-http://vllm:8000/v1/chat/completions}",
+        "LLM_MODEL": "${VLLM_SERVED_MODEL:-hawki-local}",
+        "LLM_API_KEY": "${VLLM_API_KEY}"
+      },
+      "volumes": [
+        "hawki-data:/app/data",
+        "./data/scenarios:/app/data/scenarios:ro",
+        "./data/assets:/app/data/assets:ro",
+        "./data/assets-live:/app/data/assets-live:ro",
+        "./data/threat_intel:/app/data/threat_intel:ro",
+        "./data/threat_intel-live:/app/data/threat_intel-live:ro"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import json,os,sys,datetime as d;s=json.load(open('/app/data/auto_reports/state.json'));t=d.datetime.fromisoformat(s.get('heartbeat_at') or s['last_cycle_at']);sys.exit(0 if (d.datetime.now(d.timezone.utc)-t).total_seconds()<max(900,3*int(os.getenv('AUTO_ANALYSIS_POLL_SECONDS','60'))) else 1)"
+        ],
+        "interval": "60s",
+        "timeout": "5s",
+        "start_period": "90s",
+        "retries": 3
+      },
+      "extra_hosts": [
+        "host.docker.internal:host-gateway",
+        "wazuh.indexer:10.0.10.123",
+        "wazuh.dashboard:10.0.10.123"
+      ],
+      "networks": [
+        "hawki"
+      ]
+    },
+    "suricata": {
+      "image": "jasonish/suricata:latest",
+      "container_name": "hawki-suricata",
+      "profiles": [
+        "capture"
+      ],
+      "restart": "no",
+      "volumes": [
+        "./capture/pcap:/capture:ro",
+        "./capture/out:/var/log/suricata",
+        "hawki-suricata-rules:/var/lib/suricata"
+      ],
+      "command": [
+        "-r",
+        "/capture/${PCAP_FILE:-capture.pcap}",
+        "-l",
+        "/var/log/suricata",
+        "-v"
+      ],
+      "networks": [
+        "hawki"
+      ]
+    },
+    "suricata-update": {
+      "image": "jasonish/suricata:latest",
+      "container_name": "hawki-suricata-update",
+      "profiles": [
+        "rules"
+      ],
+      "restart": "no",
+      "entrypoint": [
+        "suricata-update"
+      ],
+      "volumes": [
+        "hawki-suricata-rules:/var/lib/suricata"
+      ],
+      "networks": [
+        "hawki"
+      ]
+    },
+    "vllm": {
+      "image": "vllm/vllm-openai:latest",
+      "container_name": "hawki-vllm",
+      "profiles": [
+        "llm"
+      ],
+      "restart": "unless-stopped",
+      "gpus": "all",
+      "ipc": "host",
+      "environment": {
+        "CUDA_VISIBLE_DEVICES": "${CUDA_VISIBLE_DEVICES:-0}"
+      },
+      "volumes": [
+        "hawki-hf-cache:/root/.cache/huggingface",
+        "hawki-vllm-cache:/root/.cache/vllm"
+      ],
+      "expose": [
+        "8000"
+      ],
+      "ports": [
+        "127.0.0.1:8000:8000"
+      ],
+      "command": [
+        "--model",
+        "${VLLM_MODEL:-openai/gpt-oss-20b}",
+        "--served-model-name",
+        "${VLLM_SERVED_MODEL:-hawki-local}",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--api-key",
+        "${VLLM_API_KEY}",
+        "--gpu-memory-utilization",
+        "${VLLM_GPU_MEMORY_UTILIZATION:-0.88}",
+        "--max-model-len",
+        "${VLLM_MAX_MODEL_LEN:-32768}",
+        "--max-num-seqs",
+        "${VLLM_MAX_NUM_SEQS:-4}",
+        "--enable-auto-tool-choice",
+        "--tool-call-parser",
+        "openai",
+        "--reasoning-parser",
+        "openai_gptoss",
+        "--enable-prefix-caching"
+      ],
+      "networks": [
+        "hawki"
+      ]
+    },
+    "vr-dispatcher": {
+      "image": "hawki-vr-workspace:2026.10.06.1",
+      "restart": "unless-stopped",
+      "command": [
+        "python",
+        "-m",
+        "hawki_vr.worker"
+      ],
+      "environment": {
+        "HAWKI_VR_DB": "/app/data/velociraptor/workspace.sqlite3",
+        "VELOCIRAPTOR_EXEC_API_CONFIG": "/run/vr-execution/api.yaml",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONUNBUFFERED": "1"
+      },
+      "volumes": [
+        "hawki-data:/app/data",
+        {
+          "type": "bind",
+          "source": "/opt/hawki/secrets/velociraptor-execution",
+          "target": "/run/vr-execution",
+          "read_only": true
+        }
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "from hawki_vr.store import Store; import sys; sys.exit(0 if Store().health()['ready'] else 1)"
+        ],
+        "interval": "30s",
+        "timeout": "5s",
+        "retries": 3
+      },
+      "read_only": true,
+      "tmpfs": [
+        "/tmp"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "384m",
+      "cpus": 0.5,
+      "networks": [
+        "hawki"
+      ],
+      "extra_hosts": [
+        "host.docker.internal:host-gateway",
+        "wazuh.indexer:10.0.10.123",
+        "wazuh.dashboard:10.0.10.123"
+      ]
+    }
+  },
+  "networks": {
+    "hawki": {
+      "name": "hawki-network"
+    }
+  },
+  "volumes": {
+    "hawki-data": null,
+    "hawki-hf-cache": null,
+    "hawki-vllm-cache": null,
+    "hawki-suricata-rules": null
+  }
+}

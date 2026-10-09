@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block subtitle %}{% endblock %}
+{% block content %}
+<section id="agent-workspace" aria-label="조사 대화">
+    <aside class="aw-history">
+        <header class="aw-heading"><h2>대화 기록</h2><button id="aw-new" type="button" aria-label="새 대화" title="새 대화">＋</button></header>
+        <label class="aw-search"><span class="sr-only">대화 검색</span><input id="aw-search" type="search" placeholder="대화 검색"></label>
+        <div id="aw-sessions" class="aw-sessions"></div>
+        <footer><span>내 계정에 저장됨</span></footer>
+    </aside>
+    <article class="aw-chat">
+        <header class="aw-heading aw-chat-heading">
+            <div><h2 id="aw-title">새 대화</h2><span id="aw-state" role="status">준비</span></div>
+            <button id="aw-evidence-toggle" type="button" aria-expanded="true" aria-controls="aw-evidence-panel">증거 <span id="aw-evidence-count">0</span></button>
+        </header>
+        <div id="aw-messages" class="aw-messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+        <div id="aw-notice" class="aw-notice" role="status" hidden></div>
+        <form id="aw-form" class="aw-composer">
+            <div id="aw-scope" class="aw-scope"></div>
+            <label class="sr-only" for="aw-input">메시지</label>
+            <textarea id="aw-input" rows="3" maxlength="12000" placeholder="메시지" required></textarea>
+            <div class="aw-controls">
+                <div class="aw-context-buttons">
+                    <button type="button" data-aw-dialog="aw-alert-dialog">＋ 경보</button>
+                    <button type="button" data-aw-dialog="aw-time-dialog">기간</button>
+                    <button type="button" data-aw-dialog="aw-host-dialog">대상</button>
+                </div>
+                <label class="aw-model"><span class="sr-only">모델</span><select id="aw-model" aria-label="모델" disabled><option>{{ llm_model }}</option></select></label>
+                <button id="aw-send" class="aw-primary" type="submit" aria-label="보내기">↑</button>
+            </div>
+        </form>
+    </article>
+    <aside id="aw-evidence-panel" class="aw-evidence">
+        <header class="aw-heading"><h2>증거 및 대응</h2></header>
+        <div id="aw-evidence-list" class="aw-evidence-list"></div>
+        <footer class="aw-response-links"><a href="/hunts">파일 추적 ↗</a><a href="/response">호스트 대응 ↗</a><a href="/rules">Suricata 룰 ↗</a><a href="/actions">승인 대기열 ↗</a></footer>
+    </aside>
+    <dialog id="aw-alert-dialog" class="aw-dialog">
+        <header><h2>경보 선택</h2><button type="button" data-aw-close aria-label="닫기">×</button></header>
+        <form id="aw-alert-search-form"><input id="aw-alert-query" type="search" aria-label="경보 검색" placeholder="경보 검색"><button type="submit">검색</button></form>
+        <div id="aw-alert-results" class="aw-alert-results" role="status"></div>
+    </dialog>
+    <dialog id="aw-time-dialog" class="aw-dialog">
+        <header><h2>기간 선택</h2><button type="button" data-aw-close aria-label="닫기">×</button></header>
+        <form id="aw-time-form"><p id="aw-timezone"></p><label>시작<input id="aw-start" type="datetime-local" required></label><label>종료<input id="aw-end" type="datetime-local" required></label><p id="aw-time-error" role="alert"></p><button class="aw-primary" type="submit">적용</button></form>
+    </dialog>
+    <dialog id="aw-host-dialog" class="aw-dialog">
+        <header><h2>대상 선택</h2><button type="button" data-aw-close aria-label="닫기">×</button></header>
+        <form id="aw-host-form"><label>호스트<input id="aw-host" maxlength="128" list="aw-host-options" autocomplete="off"></label><datalist id="aw-host-options"></datalist><button class="aw-primary" type="submit">적용</button></form>
+    </dialog>
+</section>
+{% endblock %}
