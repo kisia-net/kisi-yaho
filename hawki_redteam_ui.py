@@ -187,7 +187,7 @@ def public_scan(value: Any) -> dict[str, Any]:
     return result
 
 
-def register_redteam_scan_routes(app, *, configuration, role_required, live_enabled):
+def register_redteam_scan_routes(app, *, configuration, role_required, live_enabled, audit=None):
     def proxy(method: str, suffix: str, payload=None, expected_id=None):
         try:
             url, token = configuration()
@@ -240,7 +240,19 @@ def register_redteam_scan_routes(app, *, configuration, role_required, live_enab
             return jsonify({"error": "Select a real Wazuh alert ID."}), 400
         if payload.get("tools", ["promptfoo", "garak"]) != ["promptfoo", "garak"]:
             return jsonify({"error": "This button runs the fixed Promptfoo and garak scan."}), 400
-        return proxy("POST", "/v1/scans", {"alert_id": alert_id, "tools": ["promptfoo", "garak"]})
+        reply, status = proxy("POST", "/v1/scans", {"alert_id": alert_id, "tools": ["promptfoo", "garak"]})
+        if audit is not None:
+            # A deep scan calls the model through HAW-KI's analysis API, so who
+            # launched it, on which alert, and what the runner answered is
+            # recorded like any other model-affecting request.
+            body = reply.get_json(silent=True) or {}
+            audit("redteam_deep_scan_requested", {
+                "alert_id": alert_id,
+                "status_code": status,
+                "scan_id": body.get("scan_id") if status == 202 else None,
+                "tools": ["promptfoo", "garak"],
+            })
+        return reply, status
 
     @app.get("/api/redteam/scans/latest")
     @role_required("analyst")

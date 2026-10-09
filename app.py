@@ -8035,6 +8035,7 @@ register_redteam_scan_routes(
     configuration=lambda: runner_configuration(CONFIG),
     role_required=role_required,
     live_enabled=lambda: ALERT_REPOSITORY_KIND == "wazuh" and not CONFIG["demo_mode"],
+    audit=append_audit,
 )
 # END HAWKI REDTEAM DEEP SCAN
 
