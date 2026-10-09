@@ -11,6 +11,9 @@ RUN python -c "from pyvelociraptor import api_pb2, api_pb2_grpc"
 RUN groupadd --system hawki && useradd --system --gid hawki --home-dir /app hawki
 COPY app.py .
 COPY hawki_chat_agent.py .
+COPY hawki_agent_workspace.py .
+COPY hawki_workspace_hermes.py .
+COPY hawki_hermes_common.py .
 COPY hawki_alert_analysis ./hawki_alert_analysis
 COPY data ./data
 COPY templates ./templates
@@ -18,6 +21,7 @@ COPY static ./static
 RUN chown -R hawki:hawki /app
 COPY hawki_velociraptor.py .
 COPY ["hawki_velociraptor_results.py", "/app/hawki_velociraptor_results.py"]
+COPY hawki_vr /app/hawki_vr
 USER hawki
 EXPOSE 5000
 # /healthz is the only unauthenticated endpoint. The probe previously called

@@ -424,7 +424,7 @@ def run_chat(*, config, message, history, context, service, extract_content):
     if config.get("llm_api_key"):
         headers["Authorization"] = "Bearer " + config["llm_api_key"]
 
-    scope = {}
+    scope = dict(context.get("_selected_scope") or {}) if isinstance(context, dict) else {}
     memory = context.get('_investigation', {}) if isinstance(context, dict) else {}
     if not isinstance(memory, dict):
         memory = {}
@@ -919,6 +919,10 @@ def investigation_begin(db, user_id, session_id, request_id, message):
                 )
 
             state = json.loads(row["state_json"])
+            if state.get("hermes_job"):
+                raise InvestigationError(
+                    "A workspace investigation is pending. Open the workspace to retrieve its result."
+                )
             revision = row["revision"]
         else:
             legacy = json.loads(session["transcript_json"] or "[]")
@@ -982,6 +986,7 @@ def investigation_finish(
     transcript.extend([
         {
             "id": request_id, "role": "user", "text": message,
+            "context": result.get("request_context", {}),
             "meta": "", "mode": "conversation",
             "suricataAction": None, "suricataStaged": False,
         },

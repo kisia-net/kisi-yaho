@@ -230,3 +230,13 @@ pip-selfcheck.json
 docs/submissions/
 
 Claude outputs/
+
+# Frontend server leftovers (2026-10). secrets/ holds the Velociraptor
+# execution and transfer credentials mounted into vr-dispatcher; the
+# terminal transcripts can contain pasted commands and output; READY and
+# the pre-phase copies are the installer's and deployer's working files.
+secrets/
+vr-integration/terminal-*.txt
+READY
+*.pre-phase*
+hawki-pre-*.db

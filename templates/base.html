@@ -8,6 +8,13 @@
     <script src="{{ url_for('static', filename='theme-init.js', v=asset_version) }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='fonts/pretendard-1.3.9/pretendard.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=asset_version) }}">
+{% if workspace_v1|default(false) %}
+<link rel="stylesheet" href="{{ url_for('static', filename='agent-workspace.css', v=asset_version) }}">
+{% endif %}
+<!-- HAWKI VR ASSETS -->
+{% if active_page in ['hunts', 'response'] %}
+<link rel="stylesheet" href="{{ url_for('static', filename='vr-workspace.css', v=asset_version) }}">
+{% endif %}
 </head>
 <body data-page="{{ active_page }}">
 <div class="app-shell">
@@ -26,8 +33,8 @@
             <p class="nav-group-label">분석 · 대응</p>
             <a class="nav-item {{ 'active' if active_page == 'agent' else '' }}" href="/agent" target="_self"><span>⌘</span>AI 분석 작업공간</a>
             <a class="nav-item {{ 'active' if active_page == 'auto_reports' else '' }}" href="/auto-reports" target="_self"><span>▤</span>자동 보고서</a>
-            <a class="nav-item {{ 'active' if active_page == 'hunts' else '' }}" href="/hunts" target="_self"><span>◎</span>파일 추적 <small class="nav-badge">시범</small></a>
-            <a class="nav-item {{ 'active' if active_page == 'response' else '' }}" href="/response" target="_self"><span>◇</span>호스트 대응 <small class="nav-badge">시범</small></a>
+            <a class="nav-item {{ 'active' if active_page == 'hunts' else '' }}" href="/hunts" target="_self"><span>◎</span>파일 추적</a>
+            <a class="nav-item {{ 'active' if active_page == 'response' else '' }}" href="/response" target="_self"><span>◇</span>호스트 대응</a>
             <a class="nav-item {{ 'active' if active_page == 'rules' else '' }}" href="/rules" target="_self"><span>≡</span>Suricata 룰</a>
             <p class="nav-group-label">승인 · 기록</p>
             <a class="nav-item {{ 'active' if active_page == 'actions' else '' }}" href="/actions" target="_self"><span>✓</span>승인 대기열</a>
@@ -106,6 +113,12 @@
 {% for script in vendor_scripts %}
 <script src="{{ url_for('static', filename='vendor/' + script, v=asset_version) }}"></script>
 {% endfor %}
+{% if workspace_v1|default(false) %}
+<script src="{{ url_for('static', filename='agent-workspace.js', v=asset_version) }}"></script>
+{% elif active_page in ['hunts', 'response'] %}
+<script type="module" src="{{ url_for('static', filename='vr-workspace.js', v=asset_version) }}"></script>
+{% else %}
 <script src="{{ url_for('static', filename='app.js', v=asset_version) }}"></script>
+{% endif %}
 </body>
 </html>
