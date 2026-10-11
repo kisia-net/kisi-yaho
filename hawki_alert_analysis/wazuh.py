@@ -37,6 +37,7 @@ from .models import AlertCase, CanonicalEvent, parse_timestamp
 from .repository import AlertNotFound
 from .threat_intel import NullThreatIntelFeed, ThreatIntelFeed, match_indicators
 from .sensitive import category_for_query, category_patterns
+from .source_flow import aggregation as source_flow_aggregation
 
 INDEX_PATTERN = re.compile(r"^[A-Za-z0-9._*,\-]{1,256}$")
 
@@ -776,6 +777,49 @@ class WazuhEventRepository:
                 {"time": str(bucket.get("key_as_string") or bucket.get("key") or ""), "count": int(bucket.get("doc_count") or 0)}
                 for bucket in buckets if isinstance(bucket, dict)
             ][-max(int(minutes), 1):],
+        }
+
+    def source_flow_counts(self, *, start: datetime, end: datetime, scored_limit: int = 2000) -> dict[str, Any]:
+        """출처 흐름 counts over one exact window (hawki_alert_analysis/source_flow.py).
+
+        One aggregation counts source x type x (level < 8 / >= 8); the level
+        8+ alerts themselves (up to `scored_limit`, highest level first) are
+        returned so the caller can give them HAW-KI's own P1-P4.
+        """
+        window = {"range": {self.timestamp_field: {"gte": start.isoformat(), "lte": end.isoformat()}}}
+        payload = self.client.search(self.alert_index, {
+            "size": 0, "track_total_hits": True, "query": {"bool": {"filter": [window]}},
+            "aggs": source_flow_aggregation(),
+        })
+        source_type: dict[tuple[str, str], int] = {}
+        type_below: dict[str, int] = {}
+        source_level8: dict[str, int] = {}
+        sources = ((payload.get("aggregations") or {}).get("sources") or {}).get("buckets") or {}
+        for source, source_bucket in sources.items():
+            types = ((source_bucket or {}).get("types") or {}).get("buckets") or {}
+            for kind, type_bucket in types.items():
+                count = int((type_bucket or {}).get("doc_count") or 0)
+                if not count:
+                    continue
+                source_type[(source, kind)] = count
+                for level in ((type_bucket.get("levels") or {}).get("buckets") or []):
+                    value = int(level.get("doc_count") or 0)
+                    if level.get("key") == "below_8":
+                        type_below[kind] = type_below.get(kind, 0) + value
+                    elif level.get("key") == "8_plus":
+                        source_level8[source] = source_level8.get(source, 0) + value
+        scored = self.client.search(self.alert_index, {
+            "size": max(1, min(int(scored_limit), 5000)),
+            "track_total_hits": True,
+            "sort": [{"rule.level": {"order": "desc", "unmapped_type": "long"}}, {self.timestamp_field: {"order": "desc"}}],
+            "query": {"bool": {"filter": [window, {"range": {"rule.level": {"gte": 8}}}]}},
+        })
+        return {
+            "source_type": source_type,
+            "type_below": type_below,
+            "source_level8": source_level8,
+            "level8_items": self._alert_items(_hits(scored)),
+            "level8_total": _total_hits(scored)[0],
         }
 
     def get_alert_record(self, alert_id: str) -> dict[str, Any]:
