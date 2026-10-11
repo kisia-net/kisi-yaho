@@ -61,7 +61,7 @@ from hawki_alert_analysis.wazuh_api import (
     WazuhServerAPIError,
 )
 from hawki_alert_analysis.siem import SiemService
-from hawki_alert_analysis.evidence_agent import run_evidence_agent
+from hawki_alert_analysis.evidence_agent import run_evidence_agent, scrub_reverted_trace
 from hawki_alert_analysis.redteam_bridge import (
     ANALYSIS_ID_PATTERN,
     DEFAULT_JOBS_PATH,
@@ -228,6 +228,15 @@ CONFIG = {
     "llm_base_url": _llm_base_url,
     "llm_api_key": os.getenv("LLM_API_KEY", ""),
     "llm_model": os.getenv("LLM_MODEL", "soar-local"),
+    # Alert analysis, automatic reports and their repairs can use a model of
+    # their own (10주차: 분석 모델과 대화 모델 분리). Unset, everything uses
+    # LLM_MODEL at LLM_API_URL exactly as before.
+    "llm_analysis_model": os.getenv("LLM_ANALYSIS_MODEL", "").strip(),
+    "llm_analysis_api_url": os.getenv("LLM_ANALYSIS_API_URL", "").strip().rstrip("/"),
+    "llm_analysis_api_key": os.getenv("LLM_ANALYSIS_API_KEY", ""),
+    # Qwen-style chat templates think before answering unless told not to;
+    # reasoning_effort (a gpt-oss setting) does not reach them.
+    "llm_analysis_disable_thinking": env_bool("LLM_ANALYSIS_DISABLE_THINKING", False),
     "llm_reasoning_effort": os.getenv("LLM_REASONING_EFFORT", "low").strip().lower(),
     "llm_include_reasoning": env_bool("LLM_INCLUDE_REASONING", False),
     "llm_max_tokens": max(int(os.getenv("LLM_MAX_TOKENS", "2200")), 256),
@@ -1854,6 +1863,7 @@ def api_alert_history(alert_id: str):
             "timestamp": record.get("timestamp"),
             "analysis_id": detail.get("analysis_id"),
             "model": detail.get("model"),
+            "served_model": detail.get("served_model"),
             "redteam": detail.get("redteam"),
             "by": (record.get("actor") or {}).get("username"),
         })
@@ -2200,31 +2210,91 @@ def api_alert_timeline(alert_id: str):
     )
 
 
+def llm_target(role: str = "analysis") -> dict[str, Any]:
+    """Where a request goes and which model answers it.
+
+    role "analysis": alert analysis, automatic reports, evidence gathering
+    and their repair passes. Anything else (analyst chat) uses LLM_MODEL.
+    """
+    url, model, key = CONFIG["llm_api_url"], CONFIG["llm_model"], CONFIG["llm_api_key"]
+    if role == "analysis":
+        if CONFIG["llm_analysis_api_url"]:
+            url = CONFIG["llm_analysis_api_url"]
+            key = CONFIG["llm_analysis_api_key"] or key
+        model = CONFIG["llm_analysis_model"] or model
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    return {"role": role, "url": url, "model": model, "headers": headers}
+
+
+def llm_template_options(role: str = "analysis") -> dict[str, Any]:
+    if role == "analysis" and CONFIG["llm_analysis_disable_thinking"]:
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+    return {}
+
+
+SERVED_MODEL_TTL_SECONDS = 60
+_served_model_cache: dict[tuple[str, str], tuple[float, str | None]] = {}
+
+
+def served_model(target: dict[str, Any]) -> str | None:
+    """What actually answers `target["model"]`: the weights path vLLM reports.
+
+    The request names a served alias such as "hawki-local", and the GPU server
+    can put a different model behind the same alias. /v1/models lists each
+    alias with its `root` (the weights it loads), so recording that is what
+    shows which model produced a judgement. Cached briefly; None if unknown.
+    """
+    url = str(target.get("url") or "")
+    base = url[: -len("/chat/completions")] if url.endswith("/chat/completions") else url
+    key = (base, str(target.get("model") or ""))
+    now = time.monotonic()
+    cached = _served_model_cache.get(key)
+    if cached and now - cached[0] < SERVED_MODEL_TTL_SECONDS:
+        return cached[1]
+    root: str | None = None
+    try:
+        response = requests.get(base + "/models", headers=target.get("headers") or {},
+                                timeout=(2, 3), allow_redirects=False)
+        response.raise_for_status()
+        for item in (response.json() or {}).get("data") or []:
+            if isinstance(item, dict) and item.get("id") == key[1]:
+                root = str(item.get("root") or item.get("id"))[:300]
+                break
+    except (requests.RequestException, ValueError, TypeError, AttributeError):
+        root = None
+    _served_model_cache[key] = (now, root)
+    return root
+
+
 def evidence_agent_llm_call(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """One tool-choice request to the model; returns the assistant message."""
-    headers = {"Content-Type": "application/json"}
-    if CONFIG["llm_api_key"]:
-        headers["Authorization"] = f"Bearer {CONFIG['llm_api_key']}"
+    target = llm_target("analysis")
     response = requests.post(
-        CONFIG["llm_api_url"],
-        headers=headers,
+        target["url"],
+        headers=target["headers"],
         json={
-            "model": CONFIG["llm_model"],
+            "model": target["model"],
             "messages": messages,
             "tools": tools,
             "tool_choice": "auto",
             "temperature": 0,
             "reasoning_effort": "low",
             "max_tokens": 1024,
+            **llm_template_options("analysis"),
         },
         timeout=CONFIG["llm_timeout"],
     )
     response.raise_for_status()
     choices = response.json().get("choices") or []
     return (choices[0].get("message") or {}) if choices else {}
+
+
+EVIDENCE_AGENT_HEADROOM = 0.9
 
 
 def gather_more_evidence(alert_id: str, bundle: dict[str, Any]) -> dict[str, Any]:
@@ -2243,6 +2313,14 @@ def gather_more_evidence(alert_id: str, bundle: dict[str, Any]) -> dict[str, Any
         }
         append_audit("evidence_agent_skipped", {"alert_id": alert_id, "reason": "context_already_full"})
         return original
+    # Stop adding events a little before the limit: assets, intelligence and
+    # priority are recomputed for the new events afterwards and grow too.
+    room = int(CONFIG["agent_context_max_chars"] * EVIDENCE_AGENT_HEADROOM)
+
+    def fits(candidate: dict[str, Any]) -> bool:
+        return len(json.dumps({"alert_id": alert_id, "alert_case": candidate},
+                              ensure_ascii=False, separators=(",", ":"))) <= room
+
     try:
         run_evidence_agent(
             ALERT_REPOSITORY,
@@ -2251,6 +2329,7 @@ def gather_more_evidence(alert_id: str, bundle: dict[str, Any]) -> dict[str, Any
             evidence_agent_llm_call,
             max_calls=CONFIG["agent_max_tool_calls"],
             audit=append_audit,
+            fits=fits,
         )
     except (requests.RequestException, WazuhIndexerError, KeyError, TypeError, ValueError) as exc:
         original["agent_retrieval"] = {
@@ -2266,7 +2345,9 @@ def gather_more_evidence(alert_id: str, bundle: dict[str, Any]) -> dict[str, Any
         serialize_agent_context({"alert_id": alert_id, "alert_case": bundle})
     except ValueError:
         # More evidence than the model can take: analyse what we had, and say so.
-        trace = bundle.get("agent_retrieval") or {}
+        # The added events are gone, so the trace must not name them either:
+        # the model reads it and would cite those ids as evidence.
+        trace = scrub_reverted_trace(bundle.get("agent_retrieval") or {})
         original["agent_retrieval"] = {**trace, "stopped": "context_limit_reverted"}
         append_audit("evidence_agent_reverted", {"alert_id": alert_id, "reason": "context_limit"})
         return original
@@ -2577,6 +2658,7 @@ def api_analyze_alert(alert_id: str):
             "alert_id": alert_id,
             "bundle_schema": schema,
             "model": result.get("model"),
+            "served_model": (result.get("generation") or {}).get("served_model"),
             "demo": bool(result.get("demo")),
             "prompt_sha256": prompt_sha256,
             "bundle_sha256": bundle_sha256,
@@ -3467,6 +3549,7 @@ def suricata_repair_request(
     rejected_result: dict[str, Any],
     issues: list[str],
     headers: dict[str, str],
+    target: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Perform one focused correction pass when a draft changes evidence semantics."""
     repair_system = (
@@ -3483,8 +3566,9 @@ def suricata_repair_request(
         f"Rejected draft: {json.dumps(rejected_result, ensure_ascii=False)[:8000]}\n\n"
         "Grounding problems:\n- " + "\n- ".join(issues[:8])
     )
+    target = target or llm_target("analysis")
     request_body = {
-        "model": CONFIG["llm_model"],
+        "model": target["model"],
         "messages": [
             {"role": "system", "content": repair_system},
             {"role": "user", "content": repair_user},
@@ -3493,9 +3577,10 @@ def suricata_repair_request(
         "include_reasoning": False,
         "temperature": 0.0,
         "max_tokens": 3000,
+        **llm_template_options(target["role"]),
     }
     response = requests.post(
-        CONFIG["llm_api_url"],
+        target["url"],
         headers=headers,
         json=request_body,
         timeout=CONFIG["llm_timeout"],
@@ -3513,6 +3598,7 @@ def assessment_repair_request(
     missing_sections: list[str],
     ungrounded_ids: list[str],
     headers: dict[str, str],
+    target: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """One focused pass to complete an assessment that skipped required sections.
 
@@ -3543,8 +3629,9 @@ def assessment_repair_request(
         f"Incomplete assessment: {json.dumps(rejected_result, ensure_ascii=False)[:8000]}\n\n"
         "Problems:\n- " + "\n- ".join(problems)
     )
+    target = target or llm_target("analysis")
     request_body = {
-        "model": CONFIG["llm_model"],
+        "model": target["model"],
         "messages": [
             {"role": "system", "content": repair_system},
             {"role": "user", "content": repair_user},
@@ -3553,9 +3640,10 @@ def assessment_repair_request(
         "include_reasoning": False,
         "temperature": 0.0,
         "max_tokens": 3600,
+        **llm_template_options(target["role"]),
     }
     response = requests.post(
-        CONFIG["llm_api_url"],
+        target["url"],
         headers=headers,
         json=request_body,
         timeout=CONFIG["llm_timeout"],
@@ -3721,7 +3809,7 @@ For `hawki.wazuh.live-evidence/v1` or `hawki.wazuh.live-evidence/v2`:
 - `assets` holds inventory records for hosts and addresses seen in the evidence, with `match.observed_in_event_ids` naming where each appeared. Criticality, exposure, and data classification state what is at stake, not that the host was attacked. `unresolved_identifiers` were observed but have no record. When `inventory_configured` is false there is no inventory at all; say asset importance is unknown.
 - `threat_intelligence.matches` are indicators from a local feed that match an observable, with `match.observed_in_event_ids` naming where. A match is external context, not proof of compromise; an expired indicator is historical. `statistics` says how many observables were checked, and no match does not mean benign. When `feed_configured` is false no intelligence was consulted at all.
 - `priority` is HAW-KI's deterministic triage score from the rule level, the inventory, and threat intelligence. Report its band and factors as given; never recompute, raise, or lower it.
-- `agent_retrieval`, when present, records the evidence-gathering tool calls made before this analysis. CTX items whose provenance `source_kind` is `agent_expansion` were added by those calls; cite them like any other CTX item. `agent_lookups` holds inventory and intelligence lookups made then.
+- `agent_retrieval`, when present, records the evidence-gathering tool calls made before this analysis. CTX items whose provenance `source_kind` is `agent_expansion` were added by those calls; cite them like any other CTX item. `agent_lookups` holds inventory and intelligence lookups made then. If `agent_retrieval.stopped` is `context_limit_reverted`, the events those calls found were not sent. Cite only evidence ids that appear as `trigger` or `investigation_context` items.
 - `retrieval.context_fit`, when present, records evidence shortened or removed so the package fits your context. Text ending in "…[truncated]" was shortened; `dropped_evidence_ids` were retrieved but not sent. Treat both as evidence gaps and never cite a dropped id.
 - Missing asset, exposure, threat-intelligence, process, user, or other context is an evidence gap. Never manufacture it.
 - Cite only `TRIGGER` and the `CTX-NNN` identifiers actually supplied.
@@ -4988,10 +5076,10 @@ def call_llm(
     message: str,
     history: list[dict[str, str]],
     context: dict[str, Any],
+    role: str = "analysis",
 ) -> dict[str, Any]:
-    headers = {"Content-Type": "application/json"}
-    if CONFIG["llm_api_key"]:
-        headers["Authorization"] = f"Bearer {CONFIG['llm_api_key']}"
+    target = llm_target(role)
+    headers = target["headers"]
 
     context_text = serialize_agent_context(context)
     mode_prompt = MODE_PROMPTS[mode]
@@ -5020,8 +5108,9 @@ def call_llm(
         reasoning_effort = "low"
 
     request_body = {
-        "model": CONFIG["llm_model"],
+        "model": target["model"],
         "messages": messages,
+        **llm_template_options(role),
         "reasoning_effort": reasoning_effort,
         "include_reasoning": CONFIG["llm_include_reasoning"],
         "temperature": float(
@@ -5034,7 +5123,7 @@ def call_llm(
     }
 
     response = requests.post(
-        CONFIG["llm_api_url"],
+        target["url"],
         headers=headers,
         json=request_body,
         timeout=CONFIG["llm_timeout"],
@@ -5066,7 +5155,7 @@ def call_llm(
         )
 
         response = requests.post(
-            CONFIG["llm_api_url"],
+            target["url"],
             headers=headers,
             json=retry_body,
             timeout=CONFIG["llm_timeout"],
@@ -5110,6 +5199,7 @@ def call_llm(
                     missing_sections=review["missing_sections"],
                     ungrounded_ids=review["ungrounded_event_ids"],
                     headers=headers,
+                    target=target,
                 )
             except (requests.RequestException, ValueError) as exc:
                 # A failed correction must not lose the first assessment.
@@ -5135,9 +5225,12 @@ def call_llm(
 
     result.update(
         {
-            "model": body.get("model", CONFIG["llm_model"]),
+            "model": body.get("model", target["model"]),
             "demo": False,
             "generation": {
+                "llm_role": role,
+                "served_model": served_model(target),
+                "thinking_disabled": bool(llm_template_options(role)),
                 "reasoning_effort": reasoning_effort,
                 "max_tokens": request_body["max_tokens"],
                 "repair_attempted": repair_attempted,
@@ -5292,7 +5385,7 @@ def api_agent_chat():
         "context_sha256": hashlib.sha256(context_text.encode("utf-8")).hexdigest(),
     })
     try:
-        result = call_llm(mode, message, history, context)
+        result = call_llm(mode, message, history, context, role="chat")
         result["mode"] = mode
         return jsonify(result)
     except requests.RequestException as exc:
@@ -5347,7 +5440,7 @@ def api_chat_compatibility():
     if not message:
         return jsonify({"error": "A message is required."}), 400
     try:
-        result = call_llm("alert_summary", message, history, {})
+        result = call_llm("alert_summary", message, history, {}, role="chat")
     except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
         if not CONFIG["demo_mode"]:
             return jsonify({"error": "The LLM endpoint could not complete the request.", "detail": str(exc)}), 502

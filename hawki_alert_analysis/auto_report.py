@@ -877,6 +877,7 @@ class AutoReporter:
             "alert_id": alert.get("id"),
             "analysis_id": result.get("analysis_id"),
             "model": result.get("model"),
+            "served_model": (result.get("generation") or {}).get("served_model"),
             "redteam": redteam,
         })
         return "completed"
