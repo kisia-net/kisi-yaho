@@ -911,50 +911,107 @@
             output.prepend(box);
         }
 
-        analyzeButton.addEventListener("click", async (event) => {
-            const button = event.currentTarget;
-            const output = root.querySelector("[data-analysis-output]");
-            const section = root.querySelector("[data-analysis-section]");
+        const output = root.querySelector("[data-analysis-output]");
+        const section = root.querySelector("[data-analysis-section]");
 
+        function renderAnalysisResult(result, savedAt = "") {
             if (section) section.hidden = false;
-
-            button.disabled = true;
-            button.textContent = "분석 중…";
             output.classList.remove("empty-state");
-            output.innerHTML = `<div class="typing"><i></i><i></i><i></i></div>`;
+            output.innerHTML = `<div class="markdown-body">${markdown(result.answer || "반환된 분석 결과가 없습니다.")}</div>`;
+            if (typeof window.enhanceRenderedContent === "function") window.enhanceRenderedContent(output);
+            renderReview(root, result);
+            window.HawkiXai?.render(root.querySelector("[data-analysis-xai]"), result.explanation, { queries: result.queries });
+            renderFeedbackForm(root, result, alertId, csrf);
+            const previous = root.querySelector("[data-history-redteam]");
+            if (previous) { previous.hidden = true; previous.innerHTML = ""; }
+            window.HawkiRedteam?.render(root.querySelector("[data-analysis-redteam]"), {
+                analysisId: result.analysis_id,
+                decision: result.redteam?.status,
+            });
+            const counts = result.metadata_counts || {};
+            const bundled = [
+                `경보 ${counts.security_alerts ?? 0}`,
+                `원시 이벤트 ${counts.security_events ?? 0}`,
+                `자산 ${counts.assets ?? 0}`,
+                `위협 지표 ${counts.threat_indicators ?? 0}`,
+            ].join(" · ");
+            root.querySelector("[data-analysis-meta]").textContent =
+                `${modelLabel(result)} · 제공된 증거: ${bundled}${savedAt ? ` · ${formatDateTime(savedAt)} 분석` : ""}`;
+            renderAgentRetrieval(output, result.agent_retrieval);
+        }
+
+        // The analysis runs as a background job on the server (it takes
+        // minutes); the page asks for its state every few seconds, so a slow
+        // model or a dropped connection no longer loses the answer.
+        const POLL_MS = 3000;
+        let pollTimer = null;
+
+        function setBusy(busy, startedAt = null) {
+            analyzeButton.disabled = busy;
+            if (!busy) {
+                analyzeButton.textContent = "LLM으로 분석";
+                return;
+            }
+            const seconds = startedAt ? Math.max(0, Math.round((Date.now() - Date.parse(startedAt)) / 1000)) : 0;
+            analyzeButton.textContent = `분석 중 · ${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
+        }
+
+        async function followJob(job) {
+            clearTimeout(pollTimer);
+            if (section) section.hidden = false;
+            if (!output.querySelector(".typing")) {
+                output.classList.remove("empty-state");
+                output.innerHTML = `<div class="typing"><i></i><i></i><i></i></div>`;
+            }
+            setBusy(true, job.started_at);
+            let current = job;
             try {
-                const result = await requestJson(`/api/alerts/${encodeURIComponent(alertId)}/analyze`, {
+                current = await requestJson(`/api/analysis-jobs/${encodeURIComponent(job.id)}`);
+            } catch (error) {
+                pollTimer = setTimeout(() => followJob(job), POLL_MS * 2);
+                return;
+            }
+            if (current.status === "running") {
+                pollTimer = setTimeout(() => followJob(current), POLL_MS);
+                setBusy(true, current.started_at);
+                return;
+            }
+            setBusy(false);
+            if (current.status === "done" && current.result) {
+                renderAnalysisResult(current.result);
+                renderAlertHistory(root, alertId);
+            } else {
+                const error = current.error || {};
+                output.innerHTML = `<div class="empty-state">${escapeHtml(error.detail ? `${error.error} (${error.detail})` : (error.error || "분석에 실패했습니다."))}</div>`;
+            }
+        }
+
+        analyzeButton.addEventListener("click", async () => {
+            setBusy(true);
+            try {
+                const job = await requestJson(`/api/alerts/${encodeURIComponent(alertId)}/analysis-jobs`, {
                     method: "POST",
                     headers: {"Content-Type": "application/json", "X-CSRF-Token": csrf},
                     body: JSON.stringify({}),
                 });
-                output.innerHTML = `<div class="markdown-body">${markdown(result.answer || "반환된 분석 결과가 없습니다.")}</div>`;
-                if (typeof window.enhanceRenderedContent === "function") window.enhanceRenderedContent(output);
-                renderReview(root, result);
-                window.HawkiXai?.render(root.querySelector("[data-analysis-xai]"), result.explanation, { queries: result.queries });
-                renderFeedbackForm(root, result, alertId, csrf);
-                const previous = root.querySelector("[data-history-redteam]");
-                if (previous) { previous.hidden = true; previous.innerHTML = ""; }
-                window.HawkiRedteam?.render(root.querySelector("[data-analysis-redteam]"), {
-                    analysisId: result.analysis_id,
-                    decision: result.redteam?.status,
-                });
-                const counts = result.metadata_counts || {};
-                const bundled = [
-                    `경보 ${counts.security_alerts ?? 0}`,
-                    `원시 이벤트 ${counts.security_events ?? 0}`,
-                    `자산 ${counts.assets ?? 0}`,
-                    `위협 지표 ${counts.threat_indicators ?? 0}`,
-                ].join(" · ");
-                root.querySelector("[data-analysis-meta]").textContent = `${modelLabel(result)} · 제공된 증거: ${bundled}`;
-                renderAgentRetrieval(output, result.agent_retrieval);
+                followJob(job);
             } catch (error) {
+                setBusy(false);
+                if (section) section.hidden = false;
                 output.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
-            } finally {
-                button.disabled = false;
-                button.textContent = "LLM으로 분석";
             }
         });
+
+        // The last finished analysis of this alert, and a running one if the
+        // page was reloaded while it ran.
+        try {
+            const last = await requestJson(`/api/alerts/${encodeURIComponent(alertId)}/last-analysis`);
+            if (last.running) followJob(last.running);
+            else if (last.result) renderAnalysisResult(last.result, last.saved_at);
+        } catch (error) {
+            // No earlier analysis is the usual case.
+        }
+        if (!analyzeButton.textContent.startsWith("분석 중")) setBusy(false);
     }
 
     // The alert table used to be rendered with an agent link and then rewritten

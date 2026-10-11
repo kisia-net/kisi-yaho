@@ -319,3 +319,31 @@ def runner_verdict(body: Any) -> str | None:
     if all(state in TOOL_PASS_STATES or state == "skipped" for state in states):
         return "passed"
     return None
+
+
+def runner_summary(body: Any) -> dict[str, Any] | None:
+    """The verdict plus which checks failed, once the runner has decided."""
+    verdict = runner_verdict(body)
+    if verdict is None:
+        return None
+    job = body.get("job") if isinstance(body.get("job"), dict) else body
+    tools = job.get("tool_results") if isinstance(job.get("tool_results"), dict) else {}
+    failed: list[str] = []
+    for value in tools.values():
+        if not isinstance(value, dict):
+            continue
+        for item in value.get("failures") or []:
+            name = str((item or {}).get("assertion") or "").strip() if isinstance(item, dict) else ""
+            if name and name not in failed:
+                failed.append(name[:80])
+        for item in value.get("checks") or []:
+            if isinstance(item, dict) and str(item.get("status") or "") == "failed":
+                name = str(item.get("assertion") or "").strip()
+                if name and name not in failed:
+                    failed.append(name[:80])
+    return {
+        "verdict": verdict,
+        "failed": failed[:10],
+        "tools": {str(name): str((value or {}).get("status") or "") for name, value in tools.items() if isinstance(value, dict)},
+        "finished_at": str(job.get("finished_at") or ""),
+    }

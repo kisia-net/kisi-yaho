@@ -144,7 +144,7 @@ class FlowRouteTests(unittest.TestCase):
         with mock.patch.object(app, "fetch_job_status", side_effect=fetch):
             app.refresh_redteam_verdicts([("f" * 32, "2" * 24)])
         self.assertEqual(calls, ["2" * 24])
-        self.assertEqual(app.REDTEAM_VERDICTS["f" * 32], "failed")
+        self.assertEqual(app.cached_verdict("f" * 32), "failed")
 
 
 if __name__ == "__main__":

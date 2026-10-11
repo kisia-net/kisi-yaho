@@ -973,7 +973,7 @@ function renderDashboardFlow(data) {
                 `<span class="flow-verdict flow-verdict-${key}" data-share="${key === "error" ? (stage.verdicts.error || 0) + (stage.verdicts.refused || 0) : stage.verdicts[key] || 0}"></span>`).join("")}</span>`
             : "";
         return `<li class="flow-stage flow-stage-${escapeHtml(stage.id)}">
-            ${drop ? `<p class="flow-drop" title="${escapeHtml(reasons)}">${drop.count !== null && drop.count !== undefined ? `<strong>${escapeHtml(formatNumber(drop.count))}건</strong> ` : ""}${escapeHtml(drop.text)}${reasons ? ` <span class="muted">(${escapeHtml(reasons)})</span>` : ""}</p>` : `<p class="flow-drop flow-drop-empty"></p>`}
+            ${drop && drop.count !== 0 ? `<p class="flow-drop" title="${escapeHtml(reasons)}">${drop.count !== null && drop.count !== undefined ? `<strong>${escapeHtml(formatNumber(drop.count))}건</strong> ` : ""}${escapeHtml(drop.text)}${reasons ? ` <span class="muted">(${escapeHtml(reasons)})</span>` : ""}</p>` : `<p class="flow-drop flow-drop-empty"></p>`}
             <a class="flow-card" href="${escapeHtml(stage.link || "/")}">
                 <span class="flow-label">${escapeHtml(stage.label)}</span>
                 <strong class="flow-count">${known ? escapeHtml(formatNumber(stage.count)) : "—"}</strong>
@@ -1309,7 +1309,9 @@ async function loadDashboardRedteam() {
     root.querySelector("[data-rt-recent]").innerHTML = items.slice(0, 5).map((item) => {
         const dispatch = item.dispatch;
         let outcome;
-        if (dispatch?.dispatched) outcome = `<span class="cti-state cti-ok">접수 ${escapeHtml(dispatch.status_code || "")}</span>`;
+        const VERDICT = { passed: ["통과", "cti-ok"], failed: ["실패", "cti-bad"], error: ["오류", "cti-bad"] };
+        if (dispatch?.dispatched && VERDICT[item.verdict]) outcome = `<span class="cti-state ${VERDICT[item.verdict][1]}">${VERDICT[item.verdict][0]}</span>`;
+        else if (dispatch?.dispatched) outcome = `<span class="cti-state cti-muted">검증 중</span>`;
         else if (dispatch) outcome = `<span class="cti-state cti-bad">거부 ${escapeHtml(dispatch.status_code || dispatch.error || "")}</span>`;
         else if (String(item.redteam || "").startsWith("error")) outcome = `<span class="cti-state cti-bad" title="${escapeHtml(item.redteam)}">전송 오류</span>`;
         else outcome = `<span class="cti-state cti-muted"${item.redteam === "not_sent" ? ' title="자동 보고서 레드팀 전송이 꺼져 있던 때의 분석"' : ""}>${escapeHtml(RT_DECISION_SHORT[item.redteam] || item.redteam || "—")}</span>`;
@@ -1342,7 +1344,7 @@ document.addEventListener("click", (event) => {
     window.HawkiRedteam?.render(detail, {
         analysisId: button.dataset.rtAnalysis,
         decision: button.dataset.rtDecision,
-        caption: "대시보드에서 확인",
+        caption: button.dataset.rtCaption || "대시보드에서 확인",
     });
 });
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import contextlib
 import copy
 import json
 import os
@@ -74,6 +75,7 @@ from hawki_alert_analysis.redteam_bridge import (
     dispatch_in_background,
     fetch_job_status,
     forwarding_decision,
+    runner_summary,
     runner_verdict,
     new_analysis_id,
     parse_tools,
@@ -458,6 +460,7 @@ PAGE_TITLES = {
     "dashboard": "보안 관제 대시보드",
     "agent": "AI 분석 작업공간",
     "auto_reports": "자동 보고서",
+    "redteam": "레드팀 검증",
     "alerts": "보안 경보",
     "hosts": "호스트",
     "logs": "로그 검색",
@@ -2218,7 +2221,7 @@ def api_redteam_status(analysis_id: str):
         )
         result.update(runner_status=status, runner=body if status < 400 else None)
         if status < 400:
-            remember_redteam_verdict(analysis_id, runner_verdict(body))
+            remember_redteam_verdict(analysis_id, runner_summary(body))
     except (requests.RequestException, ValueError) as exc:
         result.update(runner_status=None, runner_error=str(exc)[:200])
     return jsonify(result)
@@ -2228,18 +2231,31 @@ def api_redteam_status(analysis_id: str):
 # verdict never changes, so it is kept here once seen; the flow refreshes
 # unknown ones in the background instead of making the dashboard wait on
 # the runner.
-REDTEAM_VERDICTS: dict[str, str] = {}
+REDTEAM_VERDICTS: dict[str, Any] = {}
 REDTEAM_VERDICTS_MAX = 5000
 FLOW_REDTEAM_LOOKUPS = 8
 _flow_refresh_lock = threading.Lock()
 
 
-def remember_redteam_verdict(analysis_id: str, verdict: str | None) -> None:
+def remember_redteam_verdict(analysis_id: str, verdict: Any) -> None:
+    """Keep a finished verdict: runner_summary() output (or a bare verdict)."""
     if not verdict:
         return
     if len(REDTEAM_VERDICTS) >= REDTEAM_VERDICTS_MAX:
         REDTEAM_VERDICTS.pop(next(iter(REDTEAM_VERDICTS)))
     REDTEAM_VERDICTS[str(analysis_id)] = verdict
+
+
+def cached_verdict(analysis_id: str) -> str | None:
+    value = REDTEAM_VERDICTS.get(str(analysis_id))
+    if isinstance(value, dict):
+        return value.get("verdict")
+    return value
+
+
+def cached_failed_checks(analysis_id: str) -> list[str]:
+    value = REDTEAM_VERDICTS.get(str(analysis_id))
+    return list(value.get("failed") or []) if isinstance(value, dict) else []
 
 
 def refresh_redteam_verdicts(jobs: list[tuple[str, str]]) -> None:
@@ -2256,7 +2272,7 @@ def refresh_redteam_verdicts(jobs: list[tuple[str, str]]) -> None:
             except (requests.RequestException, ValueError):
                 continue
             if status < 400:
-                remember_redteam_verdict(analysis_id, runner_verdict(body))
+                remember_redteam_verdict(analysis_id, runner_summary(body))
     finally:
         _flow_refresh_lock.release()
 
@@ -2291,7 +2307,7 @@ def flow_audit_facts(start: datetime) -> dict[str, Any]:
         if outcome is not None and not outcome.get("dispatched"):
             verdicts["refused"] += 1
             continue
-        verdict = REDTEAM_VERDICTS.get(item["analysis_id"])
+        verdict = cached_verdict(item["analysis_id"])
         if verdict in verdicts:
             verdicts[verdict] += 1
             continue
@@ -2369,13 +2385,128 @@ def api_dashboard_flow():
             {"id": "analysis", "label": "AI 분석", "count": facts["analyses"], "link": "/auto-reports",
              "detail": f"자동 {facts['analyses_auto']}건 · 분석가 요청 {facts['analyses'] - facts['analyses_auto']}건",
              "extra": {"deep_scan_calls": facts["deep_scan_calls"]}},
-            {"id": "redteam", "label": "레드팀 검증", "count": facts["sent"], "link": "/",
+            {"id": "redteam", "label": "레드팀 검증", "count": facts["sent"], "link": "/redteam?range=24h",
              "detail": f"통과 {verdicts['passed']} · 실패 {verdicts['failed']} · 오류 {verdicts['error'] + verdicts['refused']} · 확인 중 {verdicts['checking']}",
              "verdicts": verdicts,
              "drop": {"count": sum(facts["not_sent"].values()), "text": "레드팀 미경유", "reasons": facts["not_sent"]}},
             {"id": "handled", "label": "분석가 처리", "count": settled, "link": "/alerts?status=handled&range=24h&category=all",
              "detail": f"추가 조사 {investigating}건 · 승인 대기 {pending}건"},
         ],
+    })
+
+
+# 레드팀 검증 화면: every analysis and what became of its evaluation.
+REDTEAM_RANGES = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30), "all": None}
+REDTEAM_STATUSES = ("all", "passed", "failed", "error", "refused", "checking", "not_sent")
+REDTEAM_KINDS = ("all", "manual", "auto", "deep")
+
+
+def redteam_evaluation_rows(since: datetime | None) -> list[dict[str, Any]]:
+    """Newest first: one row per analysis, with its evaluation outcome."""
+    dispatched: dict[str, dict[str, Any]] = {}
+    analyses: list[dict[str, Any]] = []
+    for record in read_jsonl(AUDIT_LOG_PATH):
+        detail = record.get("detail") or {}
+        kind = record.get("event_type")
+        if kind == "redteam_eval_dispatched" and detail.get("analysis_id"):
+            dispatched[str(detail["analysis_id"])] = detail
+            continue
+        if kind not in {"alert_analysis_completed", "auto_report_analyzed"} or not detail.get("analysis_id"):
+            continue
+        when = parse_time(record.get("timestamp"))
+        if since is not None and (when is None or when < since):
+            continue
+        decision = str(detail.get("redteam") or "")
+        analyses.append({
+            "analysis_id": str(detail["analysis_id"]),
+            "alert_id": str(detail.get("alert_id") or ""),
+            "report_id": str(detail.get("report_id") or ""),
+            "timestamp": record.get("timestamp"),
+            "by": (record.get("actor") or {}).get("username") or ("hawki-auto" if kind == "auto_report_analyzed" else ""),
+            "kind": "deep" if decision == "skipped_recursive_request" else ("auto" if kind == "auto_report_analyzed" else "manual"),
+            "decision": decision,
+            "model": detail.get("model"),
+            "served_model": detail.get("served_model"),
+        })
+    rows = []
+    for item in reversed(analyses):
+        outcome = dispatched.get(item["analysis_id"])
+        if item["decision"] not in {"send", "queued"}:
+            status = "not_sent"
+        elif outcome is not None and not outcome.get("dispatched"):
+            status = "refused"
+        else:
+            status = cached_verdict(item["analysis_id"]) or "checking"
+        rows.append({
+            **item,
+            "status": status,
+            "failed_checks": cached_failed_checks(item["analysis_id"]),
+            "job_id": (outcome or {}).get("job_id") or "",
+            "status_code": (outcome or {}).get("status_code"),
+        })
+    return rows
+
+
+@app.get("/redteam")
+@role_required("analyst")
+def redteam_page():
+    return render_template("redteam.html", **template_context("redteam"))
+
+
+@app.get("/api/redteam/evaluations")
+@role_required("analyst")
+def api_redteam_evaluations():
+    period = (request.args.get("range") or "7d").strip()
+    status = (request.args.get("status") or "all").strip()
+    kind = (request.args.get("kind") or "all").strip()
+    if period not in REDTEAM_RANGES or status not in REDTEAM_STATUSES or kind not in REDTEAM_KINDS:
+        return jsonify({"error": "Unsupported red team filter."}), 400
+    try:
+        page = max(int(request.args.get("page") or 1), 1)
+        page_size = int(request.args.get("page_size") or 50)
+    except ValueError:
+        return jsonify({"error": "page and page_size must be integers."}), 400
+    if page_size not in ALERT_PAGE_SIZES:
+        return jsonify({"error": "Unsupported page size."}), 400
+    window = REDTEAM_RANGES[period]
+    since = datetime.now(timezone.utc) - window if window else None
+    rows = redteam_evaluation_rows(since)
+
+    # Summary over the period, without the analyses a deep scan made itself.
+    counted = [row for row in rows if row["kind"] != "deep"]
+    summary = {key: sum(1 for row in counted if row["status"] == key) for key in REDTEAM_STATUSES if key != "all"}
+    summary["total"] = len(counted)
+    failing: dict[str, int] = {}
+    for row in counted:
+        for name in row["failed_checks"]:
+            failing[name] = failing.get(name, 0) + 1
+
+    unknown = [(row["analysis_id"], row["job_id"]) for row in rows if row["status"] == "checking" and row["job_id"]]
+    if unknown and CONFIG["redteam_runner_url"] and CONFIG["redteam_runner_token"]:
+        threading.Thread(target=refresh_redteam_verdicts, args=(unknown,),
+                         name="hawki-redteam-page", daemon=True).start()
+
+    if kind != "all":
+        rows = [row for row in rows if row["kind"] == kind]
+    if status != "all":
+        rows = [row for row in rows if row["status"] == status]
+    total = len(rows)
+    pages = max(1, -(-total // page_size))
+    start = (min(page, pages) - 1) * page_size
+    return jsonify({
+        "range": period,
+        "summary": summary,
+        "failing_checks": sorted(failing.items(), key=lambda pair: -pair[1])[:8],
+        "total": total,
+        "page": min(page, pages),
+        "pages": pages,
+        "page_size": page_size,
+        "evaluations": rows[start:start + page_size],
+        "settings": {
+            "auto_eval": bool(CONFIG["redteam_auto_eval_enabled"]),
+            "tools": CONFIG["redteam_auto_tools"],
+            "auto_reports_forwarded": bool(getattr(AUTO_REPORT_SETTINGS, "forward_redteam", False)),
+        },
     })
 
 
@@ -2439,9 +2570,15 @@ def api_redteam_recent():
             **analysis,
             "dispatch": {key: outcome.get(key) for key in ("dispatched", "status_code", "job_id", "error", "timestamp")}
             if outcome else None,
+            "verdict": cached_verdict(str(analysis["analysis_id"])),
         })
         if len(items) >= 10:
             break
+    unknown = [(str(item["analysis_id"]), str(item["dispatch"]["job_id"])) for item in items
+               if not item["verdict"] and item["dispatch"] and item["dispatch"].get("dispatched") and item["dispatch"].get("job_id")]
+    if unknown and CONFIG["redteam_runner_url"] and CONFIG["redteam_runner_token"]:
+        threading.Thread(target=refresh_redteam_verdicts, args=(unknown,),
+                         name="hawki-redteam-recent", daemon=True).start()
     return jsonify({
         "enabled": bool(CONFIG["redteam_auto_eval_enabled"]),
         "token_configured": bool(CONFIG["redteam_runner_token"]),
@@ -2965,6 +3102,165 @@ def api_analyze_alert(alert_id: str):
     )
 
     return jsonify(result)
+
+
+# LLM 분석 as a background job. The analysis takes minutes on the local model;
+# a browser waiting on one HTTP request lost the answer whenever the tunnel or
+# the page gave up. The page now starts a job and polls it, and the last
+# finished analysis of each alert is kept so reopening the alert shows it.
+# Jobs live in files, not memory: gunicorn runs several workers and the poll
+# may reach a different one than the start did.
+ANALYSIS_JOB_ROOT = Path(os.getenv("ANALYSIS_JOB_ROOT", str(DATA_DIR / "analysis_jobs")))
+ANALYSIS_JOB_STALE_SECONDS = 15 * 60
+ANALYSIS_JOB_KEEP_SECONDS = 24 * 3600
+JOB_ID_FILE_PATTERN = re.compile(r"^[0-9a-f]{24}$")
+_analysis_jobs_lock = threading.Lock()
+LAST_ANALYSIS_ROOT = Path(os.getenv("ALERT_ANALYSIS_ROOT", str(DATA_DIR / "alert_analyses")))
+
+
+def write_job(job: dict[str, Any]) -> None:
+    ANALYSIS_JOB_ROOT.mkdir(parents=True, exist_ok=True)
+    path = ANALYSIS_JOB_ROOT / f"{job['id']}.json"
+    temporary = path.with_suffix(f".{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
+
+
+def read_job(job_id: str) -> dict[str, Any] | None:
+    if not JOB_ID_FILE_PATTERN.fullmatch(str(job_id or "")):
+        return None
+    try:
+        job = json.loads((ANALYSIS_JOB_ROOT / f"{job_id}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    started = parse_time(job.get("started_at"))
+    if job.get("status") == "running" and started is not None and \
+            (datetime.now(timezone.utc) - started).total_seconds() > ANALYSIS_JOB_STALE_SECONDS:
+        # The worker that ran it is gone (restart, crash).
+        job.update(status="error", error={"error": "The analysis job stopped before it finished."})
+    return job
+
+
+def running_job_for(alert_id: str) -> dict[str, Any] | None:
+    if not ANALYSIS_JOB_ROOT.exists():
+        return None
+    now = time.time()
+    for path in ANALYSIS_JOB_ROOT.glob("*.json"):
+        try:
+            age = now - path.stat().st_mtime
+        except OSError:
+            continue
+        if age > ANALYSIS_JOB_KEEP_SECONDS:
+            with contextlib.suppress(OSError):
+                path.unlink()
+            continue
+        if age > ANALYSIS_JOB_STALE_SECONDS:
+            continue
+        job = read_job(path.stem)
+        if job and job.get("alert_id") == alert_id and job.get("status") == "running":
+            return job
+    return None
+
+
+def last_analysis_path(alert_id: str) -> Path:
+    return LAST_ANALYSIS_ROOT / f"{hashlib.sha256(str(alert_id).encode('utf-8')).hexdigest()[:40]}.json"
+
+
+def save_last_analysis(alert_id: str, result: dict[str, Any]) -> None:
+    try:
+        LAST_ANALYSIS_ROOT.mkdir(parents=True, exist_ok=True)
+        path = last_analysis_path(alert_id)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"alert_id": alert_id, "saved_at": utc_now_iso(), "result": result},
+                                        ensure_ascii=False), encoding="utf-8")
+        temporary.replace(path)
+    except OSError:
+        pass  # the job result still reaches the open page
+
+
+def public_job(job: dict[str, Any], *, with_result: bool = True) -> dict[str, Any]:
+    view = {key: job.get(key) for key in ("id", "alert_id", "status", "started_at", "finished_at", "by")}
+    if with_result and job.get("status") == "done":
+        view["result"] = job.get("result")
+    if job.get("status") == "error":
+        view["error"] = job.get("error")
+    return view
+
+
+def run_analysis_job(job: dict[str, Any], payload: dict[str, Any], user: dict[str, Any]) -> None:
+    alert_id = job["alert_id"]
+    status_code, body = 500, {"error": "The alert analysis response could not be processed."}
+    try:
+        with app.test_request_context(f"/api/alerts/{alert_id}/analyze", method="POST", json=payload):
+            g.user = user
+            response = app.make_response(api_analyze_alert.__wrapped__(alert_id))
+            status_code, body = response.status_code, response.get_json(silent=True) or {}
+    except Exception as exc:  # noqa: BLE001 - a job must always finish
+        body = {"error": "The alert analysis response could not be processed.", "detail": str(exc)[:300]}
+    job = {**job, "finished_at": utc_now_iso()}
+    if status_code < 400:
+        job.update(status="done", result=body)
+    else:
+        job.update(status="error", error={key: body.get(key) for key in ("error", "detail", "code")})
+    try:
+        write_job(job)
+    except OSError:
+        pass
+    if status_code < 400:
+        save_last_analysis(alert_id, body)
+
+
+@app.post("/api/alerts/<alert_id>/analysis-jobs")
+@role_required("analyst")
+def api_start_analysis_job(alert_id: str):
+    payload = request.get_json(silent=True) or {}
+    payload = {"question": str(payload.get("question", ""))[:2000]}
+    with _analysis_jobs_lock:
+        # One analysis per alert at a time: a second click joins the first.
+        running = running_job_for(alert_id)
+        if running is not None:
+            return jsonify(public_job(running, with_result=False)), 202
+        job = {
+            "id": secrets.token_hex(12),
+            "alert_id": alert_id,
+            "status": "running",
+            "started_at": utc_now_iso(),
+            "finished_at": None,
+            "by": str(g.user["username"]),
+        }
+        try:
+            write_job(job)
+        except OSError as exc:
+            return jsonify({"error": "The analysis job could not be started.", "detail": str(exc)[:200]}), 500
+    threading.Thread(target=run_analysis_job, args=(job, payload, dict(g.user)),
+                     name="hawki-analysis-job", daemon=True).start()
+    return jsonify(public_job(job, with_result=False)), 202
+
+
+@app.get("/api/analysis-jobs/<job_id>")
+@role_required("analyst")
+def api_analysis_job(job_id: str):
+    job = read_job(job_id)
+    if job is None:
+        return jsonify({"error": "Analysis job not found."}), 404
+    return jsonify(public_job(job))
+
+
+@app.get("/api/alerts/<alert_id>/last-analysis")
+@role_required("analyst")
+def api_last_analysis(alert_id: str):
+    found = running_job_for(alert_id)
+    running = public_job(found, with_result=False) if found else None
+    path = last_analysis_path(alert_id)
+    saved: dict[str, Any] = {}
+    if path.exists():
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            saved = {}
+    if saved.get("alert_id") != alert_id:
+        saved = {}
+    return jsonify({"running": running, "saved_at": saved.get("saved_at"), "result": saved.get("result")})
 
 
 def redteam_dispatch_done(outcome: dict[str, Any], *, alert_id: str = "", actor: dict[str, Any] | None = None) -> None:
