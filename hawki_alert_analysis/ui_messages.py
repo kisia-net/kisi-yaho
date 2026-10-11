@@ -80,6 +80,7 @@ ERROR_MESSAGES_KO: dict[str, str] = {
     "Unsupported page size.": "지원하지 않는 페이지 크기입니다.",
     "page and page_size must be integers.": "페이지 번호와 페이지 크기는 정수여야 합니다.",
     "Unsupported sensitive category.": "지원하지 않는 민감 대상 구분입니다.",
+    "Wazuh flow query failed.": "Wazuh 처리 흐름 조회에 실패했습니다.",
     "Verified Suricata import failed.": "검증된 Suricata 룰 가져오기에 실패했습니다.",
     "Verifier returned a rule that failed local structural validation.": "검증기가 돌려준 룰이 구조 검증을 통과하지 못했습니다.",
     "Wazuh Indexer request failed.": "Wazuh Indexer 요청에 실패했습니다.",

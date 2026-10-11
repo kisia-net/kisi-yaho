@@ -926,8 +926,98 @@ async function initDashboard() {
 
     renderDashboardAlerts(data.recent_alerts || []);
     renderDashboardVisuals(data.visuals || {});
+    loadDashboardFlow();
     loadDashboardCti();
     loadDashboardRedteam();
+}
+
+// 처리 흐름 (10주차 멘토링 1번): one card per stage, from collection to the
+// analyst. Widths are set through the DOM (el.style), never as inline style
+// attributes, which the page's Content-Security-Policy blocks.
+const FLOW_REFRESH_MS = 60_000;
+const RT_NOT_SENT_LABELS = {
+    disabled: "자동평가 꺼짐", not_sent: "보고서 전송 꺼짐", skipped_no_token: "토큰 없음",
+    skipped_not_live: "실데이터 아님", skipped_demo_result: "데모 결과", skipped_no_runner_url: "실행기 주소 없음",
+    skipped_no_tools: "도구 미지정", unknown: "기록 없음",
+};
+let flowTimer = null;
+
+function flowSparkline(points) {
+    if (!points.length) return "";
+    const values = points.map((point) => Number(point.count) || 0);
+    const max = Math.max(1, ...values);
+    const width = 160;
+    const height = 34;
+    const step = values.length > 1 ? width / (values.length - 1) : width;
+    const path = values.map((value, index) => `${(index * step).toFixed(1)},${(height - 2 - (value / max) * (height - 4)).toFixed(1)}`).join(" ");
+    const last = values[values.length - 1];
+    return `<svg class="flow-spark" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 ${values.length}분 분당 유입량, 마지막 1분 ${last}건">
+        <polyline class="flow-spark-line" points="${path}"></polyline></svg>
+        <span class="flow-spark-note">최근 ${values.length}분 · 마지막 1분 ${escapeHtml(formatNumber(last))}건</span>`;
+}
+
+function renderDashboardFlow(data) {
+    const root = byId("dashboard-flow");
+    const list = root?.querySelector("[data-flow-stages]");
+    if (!list) return;
+    const stages = data.stages || [];
+    const max = Math.max(1, ...stages.map((stage) => Number(stage.count) || 0));
+    list.innerHTML = stages.map((stage) => {
+        const known = stage.count !== null && stage.count !== undefined;
+        const drop = stage.drop;
+        const reasons = drop && drop.reasons
+            ? Object.entries(drop.reasons).map(([key, value]) => `${RT_NOT_SENT_LABELS[key] || key} ${formatNumber(value)}`).join(" · ")
+            : "";
+        const verdicts = stage.verdicts
+            ? `<span class="flow-verdicts" aria-hidden="true">${["passed", "failed", "error", "checking"].map((key) =>
+                `<span class="flow-verdict flow-verdict-${key}" data-share="${key === "error" ? (stage.verdicts.error || 0) + (stage.verdicts.refused || 0) : stage.verdicts[key] || 0}"></span>`).join("")}</span>`
+            : "";
+        return `<li class="flow-stage flow-stage-${escapeHtml(stage.id)}">
+            ${drop ? `<p class="flow-drop" title="${escapeHtml(reasons)}">${drop.count !== null && drop.count !== undefined ? `<strong>${escapeHtml(formatNumber(drop.count))}건</strong> ` : ""}${escapeHtml(drop.text)}${reasons ? ` <span class="muted">(${escapeHtml(reasons)})</span>` : ""}</p>` : `<p class="flow-drop flow-drop-empty"></p>`}
+            <a class="flow-card" href="${escapeHtml(stage.link || "/")}">
+                <span class="flow-label">${escapeHtml(stage.label)}</span>
+                <strong class="flow-count">${known ? escapeHtml(formatNumber(stage.count)) : "—"}</strong>
+                <span class="flow-bar"><span class="flow-fill" data-count="${known ? Number(stage.count) || 0 : 0}"></span></span>
+                ${verdicts}
+                <span class="flow-detail">${escapeHtml(stage.detail || "")}</span>
+                ${stage.id === "raw" ? flowSparkline(data.per_minute || []) : ""}
+                ${stage.extra?.deep_scan_calls ? `<span class="flow-detail">정밀 검사가 부른 분석 ${escapeHtml(formatNumber(stage.extra.deep_scan_calls))}건은 따로 셈</span>` : ""}
+            </a>
+        </li>`;
+    }).join("") || `<li class="muted">표시할 흐름이 없습니다.</li>`;
+    const scale = Math.log10(max + 1);
+    list.querySelectorAll(".flow-fill").forEach((fill) => {
+        const count = Number(fill.dataset.count) || 0;
+        fill.style.width = `${count ? Math.max(4, (Math.log10(count + 1) / scale) * 100) : 0}%`;
+    });
+    list.querySelectorAll(".flow-verdicts").forEach((bar) => {
+        const parts = [...bar.querySelectorAll(".flow-verdict")];
+        const total = parts.reduce((sum, part) => sum + (Number(part.dataset.share) || 0), 0);
+        parts.forEach((part) => {
+            const share = Number(part.dataset.share) || 0;
+            part.style.width = total ? `${(share / total) * 100}%` : "0";
+        });
+    });
+    const updated = root.querySelector("[data-flow-updated]");
+    if (updated && data.window?.end) {
+        updated.textContent = `${new Date(data.window.end).toLocaleTimeString("ko-KR", { hour12: false })} 기준`;
+    }
+}
+
+async function loadDashboardFlow() {
+    const root = byId("dashboard-flow");
+    if (!root) return;
+    try {
+        renderDashboardFlow(await api("/api/dashboard/flow"));
+    } catch (error) {
+        const list = root.querySelector("[data-flow-stages]");
+        if (list) list.innerHTML = `<li class="muted">처리 흐름을 불러오지 못했습니다 · ${escapeHtml(error.message)}</li>`;
+    }
+    clearTimeout(flowTimer);
+    flowTimer = setTimeout(() => {
+        if (document.visibilityState === "visible") loadDashboardFlow();
+        else document.addEventListener("visibilitychange", loadDashboardFlow, { once: true });
+    }, FLOW_REFRESH_MS);
 }
 
 const CTI_STATE = {

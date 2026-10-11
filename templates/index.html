@@ -29,6 +29,23 @@
 </section>
 <p class="metric-window muted" id="metric-window"></p>
 
+<section class="panel flow-panel" id="dashboard-flow">
+    <div class="panel-header">
+        <div>
+            <p class="panel-kicker">최근 24시간 · 1분마다 갱신</p>
+            <h2>처리 흐름</h2>
+        </div>
+        <span class="muted" data-flow-updated></span>
+    </div>
+    <ol class="flow-stages" data-flow-stages>
+        <li class="muted">처리 흐름을 불러오는 중…</li>
+    </ol>
+    <p class="muted flow-note">
+        수집된 이벤트가 Wazuh 룰로 경보가 되고, HAW-KI가 우선순위로 골라 AI가 분석한 뒤, 그 분석을 레드팀이 검증하고 분석가가 처리하기까지의 흐름입니다.
+        막대 길이는 단계 간 차이가 커서 로그 비율로 그렸고, 숫자는 실제 건수입니다.
+    </p>
+</section>
+
 <section class="dashboard-grid">
     <article class="panel notices-panel">
         <div class="panel-header">
