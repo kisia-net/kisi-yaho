@@ -17,7 +17,7 @@
         <button class="metric-card" type="button" data-quick-filter="band=P1">
             <span>P1 보고서</span>
             <strong data-count="p1">—</strong>
-            <small>전체 <b data-count="total">—</b>건 중</small>
+            <small data-range-note>전체 <b data-count="total">—</b>건 중</small>
         </button>
         <div class="metric-card metric-neutral auto-report-worker">
             <span>자동 분석 작업기</span>
@@ -31,6 +31,14 @@
     <div class="split-grid auto-report-grid">
         <section class="panel auto-report-list-panel">
             <form class="toolbar-form auto-report-filters" data-filters>
+                <label>기간
+                    <select name="range">
+                        <option value="24h">최근 24시간</option>
+                        <option value="7d">최근 7일</option>
+                        <option value="30d">최근 30일</option>
+                        <option value="all" selected>전체</option>
+                    </select>
+                </label>
                 <label>검색<input name="q" placeholder="호스트, IP, 룰, 보고서 ID, credential, .env"></label>
                 <label>민감 대상
                     <select name="sensitive">

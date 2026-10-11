@@ -11,6 +11,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -91,6 +92,7 @@ from hawki_alert_analysis.auto_report import (
     parse_time,
     render_markdown,
     report_summary,
+    rescored_priority,
 )
 from hawki_alert_analysis.explain import build_explanation
 from hawki_alert_analysis.live_bundle import fit_live_bundle
@@ -2380,9 +2382,9 @@ def api_dashboard_flow():
             {"id": "level8", "label": "레벨 8 이상", "count": level8,
              "link": "/alerts?min_level=8&range=24h&category=all&status=all", "detail": "",
              "drop": {"count": max(alerts_total - level8, 0), "text": "레벨 8 미만"}},
-            {"id": "selected", "label": "자동 선별", "count": len(reports), "link": "/auto-reports",
+            {"id": "selected", "label": "자동 선별", "count": len(reports), "link": "/auto-reports?range=24h",
              "detail": f"자동 보고서 · P1·P2 {urgent}건"},
-            {"id": "analysis", "label": "AI 분석", "count": facts["analyses"], "link": "/auto-reports",
+            {"id": "analysis", "label": "AI 분석", "count": facts["analyses"], "link": "/redteam?range=24h",
              "detail": f"자동 {facts['analyses_auto']}건 · 분석가 요청 {facts['analyses'] - facts['analyses_auto']}건",
              "extra": {"deep_scan_calls": facts["deep_scan_calls"]}},
             {"id": "redteam", "label": "레드팀 검증", "count": facts["sent"], "link": "/redteam?range=24h",
@@ -8420,6 +8422,47 @@ def auto_report_command(once: bool, lookback_hours: float | None) -> None:
         time.sleep(AUTO_REPORT_SETTINGS.poll_seconds)
 
 
+@app.cli.command("auto-report-rescore")
+@click.option("--apply", "apply_changes", is_flag=True, help="Write the new priority into the changed reports.")
+def auto_report_rescore_command(apply_changes: bool) -> None:
+    """Re-apply the current priority rules to stored reports (a dry run unless --apply)."""
+    before: Counter[str] = Counter()
+    after: Counter[str] = Counter()
+    changed: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    top_after: Counter[str] = Counter()
+    for report in AUTO_REPORT_STORE.all():
+        old = report.get("priority") or {}
+        new = rescored_priority(report)
+        before[str(old.get("band") or "-")] += 1
+        after[str(new.get("band") or "-")] += 1
+        alert = report.get("alert") or {}
+        rule = f"{alert.get('rule_id') or '?'} {str(alert.get('title') or '')[:60]}"
+        if new.get("band") in {"P1", "P2"}:
+            top_after[f"{new['band']} {rule}"] += 1
+        if (new.get("score"), new.get("band")) != (old.get("score"), old.get("band")):
+            changed.append((report, new))
+
+    moved = Counter(f"{(report.get('priority') or {}).get('band')}->{new['band']} "
+                    f"{(report.get('alert') or {}).get('rule_id') or '?'} {str((report.get('alert') or {}).get('title') or '')[:60]}"
+                    for report, new in changed)
+    if apply_changes:
+        now = utc_now_iso()
+        for report, new in changed:
+            previous = {key: (report.get("priority") or {}).get(key) for key in ("score", "band")}
+            AUTO_REPORT_STORE.update(report["id"], lambda stored, new=new, previous=previous: stored.update(
+                priority={**new, "rescored": {"at": now, "from": previous}}, updated_at=now))
+        append_audit("auto_report_rescored", {"changed": len(changed), "before": dict(before), "after": dict(after)})
+    click.echo(json.dumps({
+        "mode": "applied" if apply_changes else "dry_run",
+        "reports": sum(before.values()),
+        "bands_before": dict(sorted(before.items())),
+        "bands_after": dict(sorted(after.items())),
+        "changed": len(changed),
+        "changed_by_rule": moved.most_common(15),
+        "p1_p2_after_by_rule": top_after.most_common(15),
+    }, ensure_ascii=False, indent=2))
+
+
 def auto_report_worker_status() -> dict[str, Any]:
     state = AUTO_REPORT_STORE.load_state()
     beat = parse_time(state.get("heartbeat_at") or state.get("last_cycle_at"))
@@ -8451,11 +8494,20 @@ def api_auto_reports():
     sensitive = request.args.get("sensitive", "all").strip()
     if sensitive != "all" and sensitive not in SENSITIVE_CATEGORIES:
         return jsonify({"error": "Unsupported sensitive category."}), 400
+    # The same periods as the 레드팀 검증 screen. The dashboard's 자동 선별
+    # card counts reports written in the last 24 hours and links here with
+    # range=24h, so both show the same number; the counts follow the period.
+    period = request.args.get("range", "all").strip()
+    if period not in REDTEAM_RANGES:
+        return jsonify({"error": "Unsupported range."}), 400
     # "credential", "자격증명", ".env": a category word searches the
     # structured facets (hawki_alert_analysis/sensitive.py), not the text.
     query_category = category_for_query(query)
 
     reports = AUTO_REPORT_STORE.all()
+    if REDTEAM_RANGES[period] is not None:
+        since = datetime.now(timezone.utc) - REDTEAM_RANGES[period]
+        reports = [report for report in reports if (parse_time(report.get("created_at")) or since - timedelta(seconds=1)) >= since]
     summaries = [report_summary(report) for report in reports]
     counts = {
         "total": len(summaries),
@@ -8484,6 +8536,7 @@ def api_auto_reports():
             "query_category": query_category,
             "settings": AUTO_REPORT_SETTINGS.public(),
             "worker": auto_report_worker_status(),
+            "range": period,
             "counts": counts,
             "reports": summaries[:300],
         }

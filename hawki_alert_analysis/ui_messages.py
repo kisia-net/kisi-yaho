@@ -80,6 +80,7 @@ ERROR_MESSAGES_KO: dict[str, str] = {
     "Unsupported page size.": "지원하지 않는 페이지 크기입니다.",
     "page and page_size must be integers.": "페이지 번호와 페이지 크기는 정수여야 합니다.",
     "Unsupported sensitive category.": "지원하지 않는 민감 대상 구분입니다.",
+    "Unsupported range.": "지원하지 않는 기간입니다.",
     "Wazuh flow query failed.": "Wazuh 처리 흐름 조회에 실패했습니다.",
     "Wazuh source flow query failed.": "Wazuh 출처 흐름 조회에 실패했습니다.",
     "Unsupported red team filter.": "지원하지 않는 레드팀 검증 필터입니다.",

@@ -72,6 +72,16 @@ PRIORITY_BANDS = (
 # merely showing up as the other end of a connection.
 TARGET_ROLES = {"event_host", "destination_ip"}
 
+# Reconnaissance and error responses (출처 흐름 types "웹 스캔·정찰" and
+# "웹 오류 응답"). An internet-facing asset is scanned all day, so its asset
+# points would put every level-10 "multiple 400 errors" alert on web-01 in P1
+# (40 + 33 = 73) and bury the alerts that matter. These alerts stop at the top
+# of P3 unless a known malicious address sent them itself. The cut is a named
+# factor with negative points, so the factors still add up to the score.
+RECONNAISSANCE_TYPES = {"scan": "웹 스캔·정찰", "web_error": "웹 오류 응답"}
+RECONNAISSANCE_CEILING_BAND = "P3"
+RECONNAISSANCE_FACTOR = "reconnaissance_ceiling"
+
 
 def _rule_level(trigger: dict[str, Any]) -> int:
     rule = trigger.get("rule") if isinstance(trigger.get("rule"), dict) else {}
@@ -133,10 +143,68 @@ def _cti_factor(intel_matches: list[dict[str, Any]]) -> dict[str, Any] | None:
                 "factor": "threat_intel_match",
                 "indicator_id": item.get("id"),
                 "value": f"{verdict} ({confidence}) {match.get('matched_value', '')}".strip(),
+                "verdict": verdict,
                 "on_trigger": on_trigger,
                 "points": points,
             }
     return best
+
+
+def alert_kind(trigger: dict[str, Any]) -> str:
+    """The 출처 흐름 detection type of a Wazuh event or an alert-queue item."""
+    from .source_flow import classify
+
+    rule = trigger.get("rule") if isinstance(trigger.get("rule"), dict) else {}
+    item = {
+        "groups": trigger.get("groups") or rule.get("groups") or [],
+        "rule_id": trigger.get("rule_id") or rule.get("id") or "",
+        "decoder": trigger.get("decoder") or "",
+    }
+    return classify(item)[1]
+
+
+def _malicious_sender(factors: list[dict[str, Any]]) -> bool:
+    for factor in factors:
+        if factor.get("factor") != "threat_intel_match" or not factor.get("on_trigger"):
+            continue
+        verdict = factor.get("verdict") or str(factor.get("value") or "").split(" ", 1)[0]
+        if str(verdict).lower() == "malicious":
+            return True
+    return False
+
+
+def _band_top(band: str) -> int:
+    """Highest score that still falls in ``band``."""
+    floors = [floor for floor, _ in PRIORITY_BANDS]
+    labels = [label for _, label in PRIORITY_BANDS]
+    position = labels.index(band)
+    return floors[position - 1] - 1 if position else 100
+
+
+def apply_reconnaissance_ceiling(factors: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
+    """Factors with the reconnaissance cut added when it applies.
+
+    Also used to re-score stored reports, so an earlier cut is replaced, not
+    stacked.
+    """
+    factors = [factor for factor in factors if factor.get("factor") != RECONNAISSANCE_FACTOR]
+    if kind not in RECONNAISSANCE_TYPES or _malicious_sender(factors):
+        return factors
+    score = min(100, sum(int(factor.get("points") or 0) for factor in factors))
+    ceiling = _band_top(RECONNAISSANCE_CEILING_BAND)
+    if score <= ceiling:
+        return factors
+    return factors + [{
+        "factor": RECONNAISSANCE_FACTOR,
+        "value": f"{RECONNAISSANCE_TYPES[kind]} · {RECONNAISSANCE_CEILING_BAND} 상한",
+        "kind": kind,
+        "points": ceiling - score,
+    }]
+
+
+def score_and_band(factors: list[dict[str, Any]]) -> tuple[int, str]:
+    score = max(0, min(100, sum(int(factor.get("points") or 0) for factor in factors)))
+    return score, _band(score)
 
 
 def compute_priority(
@@ -200,17 +268,18 @@ def compute_priority(
     if cti is not None:
         factors.append(cti)
 
-    score = min(100, sum(int(item["points"]) for item in factors))
+    factors = apply_reconnaissance_ceiling(factors, alert_kind(trigger))
+    score, band = score_and_band(factors)
 
     return {
         "schema": "hawki.priority/v1",
         "score": score,
-        "band": _band(score),
+        "band": band,
         "primary_asset_id": primary.get("id") if primary else None,
         "inventory_configured": inventory_configured,
         "threat_intel_configured": intel_configured,
         "factors": factors,
-        "method": "deterministic: rule level + asset + threat intel; computed in code",
+        "method": "deterministic: rule level + asset + threat intel, reconnaissance capped at P3; computed in code",
     }
 
 
@@ -246,7 +315,8 @@ def priority_for_alert_item(
     host = str(item.get("host") or "")
     trigger = {
         "evidence_id": "TRIGGER",
-        "rule": {"level": level},
+        "rule": {"level": level, "id": str(item.get("rule_id") or ""), "groups": list(item.get("groups") or [])},
+        "decoder": item.get("decoder") or item.get("source") or "",
         "agent": {"name": host, "ip": str(item.get("agent_ip") or "")},
         "data": {"srcip": str(item.get("source_ip") or "")},
     }

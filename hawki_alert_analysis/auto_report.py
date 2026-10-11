@@ -44,7 +44,13 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .explain import BAND_EXPECTED_SEVERITY, severity_agreement
-from .priority import SEVERITY_AS_LEVEL
+from .priority import (
+    RECONNAISSANCE_FACTOR,
+    SEVERITY_AS_LEVEL,
+    alert_kind,
+    apply_reconnaissance_ceiling,
+    score_and_band,
+)
 from .sensitive import facets_from_alert, report_facets
 
 try:  # POSIX (the containers). Windows development runs one process anyway.
@@ -302,13 +308,31 @@ def evidence_facts(bundle: dict[str, Any], item: dict[str, Any], now: datetime) 
     }
 
 
+def rescored_priority(report: dict[str, Any]) -> dict[str, Any]:
+    """A stored report's priority under the current rules, from its own factors.
+
+    Only the reconnaissance ceiling is re-applied: the other factors keep the
+    values the inventory and feeds had when the report was written.
+    """
+    alert = report.get("alert") if isinstance(report.get("alert"), dict) else {}
+    priority = report.get("priority") if isinstance(report.get("priority"), dict) else {}
+    kind = alert_kind({"groups": alert.get("groups") or [], "rule_id": alert.get("rule_id") or ""})
+    factors = apply_reconnaissance_ceiling(list(priority.get("factors") or []), kind)
+    score, band = score_and_band(factors)
+    return {**priority, "score": score, "band": band, "factors": factors}
+
+
 def selection_reasons(facts: dict[str, Any], settings: AutoReportSettings) -> list[str]:
     """Why this alert gets a report. Empty means it does not."""
     reasons = []
     band = str((facts.get("priority") or {}).get("band") or "")
     if band in settings.bands:
         reasons.append(f"priority_{band}")
-    if any(
+    # A scanner on a "suspicious" list is still a scanner: when the
+    # reconnaissance ceiling applied, the listing alone does not make a report.
+    capped = any(factor.get("factor") == RECONNAISSANCE_FACTOR
+                 for factor in (facts.get("priority") or {}).get("factors") or [])
+    if not capped and any(
         not row.get("expired") and row.get("verdict") in {"malicious", "suspicious"}
         for row in facts.get("threat_intelligence") or []
     ):
@@ -910,6 +934,7 @@ FACTOR_LABELS = {
     "asset_data_classification": "민감 데이터",
     "asset_not_in_inventory": "자산 목록에 없음",
     "threat_intel_match": "위협 인텔리전스 일치",
+    "reconnaissance_ceiling": "정찰·오류 응답 상한",
 }
 REASON_LABELS = {
     "priority_P1": "우선순위 P1",

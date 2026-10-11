@@ -134,6 +134,7 @@ const PRIORITY_FACTOR_LABELS = {
     asset_data_classification: "민감 데이터",
     asset_not_in_inventory: "미등록 호스트",
     threat_intel_match: "위협 인텔리전스",
+    reconnaissance_ceiling: "정찰 상한",
 };
 
 /*
@@ -146,8 +147,8 @@ function priorityBadge(alert) {
     if (!priority || !priority.band) return "";
     const band = String(priority.band).toLowerCase();
     const parts = (priority.factors || [])
-        .filter((factor) => Number(factor.points) > 0)
-        .map((factor) => `${PRIORITY_FACTOR_LABELS[factor.factor] || factor.factor} +${factor.points}`);
+        .filter((factor) => Number(factor.points) !== 0)
+        .map((factor) => `${PRIORITY_FACTOR_LABELS[factor.factor] || factor.factor} ${Number(factor.points) > 0 ? "+" : ""}${factor.points}`);
     const tip = `우선순위 점수 ${priority.score}점${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
     return `<span class="prio-chip prio-${escapeHtml(band)}" title="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">${escapeHtml(priority.band)}</span>`;
 }
@@ -1154,7 +1155,7 @@ function renderSourceFlow(data) {
     const bridge = root.querySelector("[data-source-flow-bridge]");
     if (bridge) {
         const unscored = Math.max((data.level8_total || 0) - (data.scored || 0), 0);
-        bridge.innerHTML = `P1·P2 ${escapeHtml(formatNumber(data.urgent || 0))}건 → <a href="/auto-reports">자동 선별 ${escapeHtml(formatNumber(data.selected_reports || 0))}건</a>${unscored ? ` · 우선순위 미계산 ${escapeHtml(formatNumber(unscored))}건` : ""}`;
+        bridge.innerHTML = `P1·P2 ${escapeHtml(formatNumber(data.urgent || 0))}건 → <a href="/auto-reports?range=24h">자동 선별 ${escapeHtml(formatNumber(data.selected_reports || 0))}건</a>${unscored ? ` · 우선순위 미계산 ${escapeHtml(formatNumber(unscored))}건` : ""}`;
     }
 }
 
