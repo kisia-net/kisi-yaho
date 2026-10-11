@@ -74,6 +74,7 @@ from hawki_alert_analysis.redteam_bridge import (
     dispatch_in_background,
     fetch_job_status,
     forwarding_decision,
+    runner_verdict,
     new_analysis_id,
     parse_tools,
     sha256_json,
@@ -2216,9 +2217,168 @@ def api_redteam_status(analysis_id: str):
             timeout=CONFIG["redteam_runner_timeout"], job_id=job_id, jobs_path=CONFIG["redteam_jobs_path"],
         )
         result.update(runner_status=status, runner=body if status < 400 else None)
+        if status < 400:
+            remember_redteam_verdict(analysis_id, runner_verdict(body))
     except (requests.RequestException, ValueError) as exc:
         result.update(runner_status=None, runner_error=str(exc)[:200])
     return jsonify(result)
+
+
+# 처리 흐름 (10주차 멘토링 1번 "데이터 흐름 시각화"). A finished red team
+# verdict never changes, so it is kept here once seen; the flow refreshes
+# unknown ones in the background instead of making the dashboard wait on
+# the runner.
+REDTEAM_VERDICTS: dict[str, str] = {}
+REDTEAM_VERDICTS_MAX = 5000
+FLOW_REDTEAM_LOOKUPS = 8
+_flow_refresh_lock = threading.Lock()
+
+
+def remember_redteam_verdict(analysis_id: str, verdict: str | None) -> None:
+    if not verdict:
+        return
+    if len(REDTEAM_VERDICTS) >= REDTEAM_VERDICTS_MAX:
+        REDTEAM_VERDICTS.pop(next(iter(REDTEAM_VERDICTS)))
+    REDTEAM_VERDICTS[str(analysis_id)] = verdict
+
+
+def refresh_redteam_verdicts(jobs: list[tuple[str, str]]) -> None:
+    """Ask the runner about a few accepted jobs without a known verdict."""
+    if not _flow_refresh_lock.acquire(blocking=False):
+        return
+    try:
+        for analysis_id, job_id in jobs[:FLOW_REDTEAM_LOOKUPS]:
+            try:
+                status, body = fetch_job_status(
+                    runner_url=CONFIG["redteam_runner_url"], token=CONFIG["redteam_runner_token"],
+                    timeout=CONFIG["redteam_runner_timeout"], job_id=job_id, jobs_path=CONFIG["redteam_jobs_path"],
+                )
+            except (requests.RequestException, ValueError):
+                continue
+            if status < 400:
+                remember_redteam_verdict(analysis_id, runner_verdict(body))
+    finally:
+        _flow_refresh_lock.release()
+
+
+def flow_audit_facts(start: datetime) -> dict[str, Any]:
+    """AI analyses and red team outcomes since `start`, from the audit log."""
+    analyses: list[dict[str, Any]] = []
+    dispatched: dict[str, dict[str, Any]] = {}
+    for record in read_jsonl(AUDIT_LOG_PATH):
+        when = parse_time(record.get("timestamp"))
+        if when is None or when < start:
+            continue
+        detail = record.get("detail") or {}
+        kind = record.get("event_type")
+        if kind in {"alert_analysis_completed", "auto_report_analyzed"} and detail.get("analysis_id"):
+            analyses.append({"analysis_id": str(detail["analysis_id"]), "redteam": str(detail.get("redteam") or ""),
+                             "auto": kind == "auto_report_analyzed"})
+        elif kind == "redteam_eval_dispatched" and detail.get("analysis_id"):
+            dispatched[str(detail["analysis_id"])] = detail
+    deep = [item for item in analyses if item["redteam"] == "skipped_recursive_request"]
+    analyses = [item for item in analyses if item["redteam"] != "skipped_recursive_request"]
+    sent = [item for item in analyses if item["redteam"] in {"send", "queued"}]
+    not_sent: dict[str, int] = {}
+    for item in analyses:
+        if item["redteam"] not in {"send", "queued"}:
+            reason = item["redteam"] or "unknown"
+            not_sent[reason] = not_sent.get(reason, 0) + 1
+    verdicts = {"passed": 0, "failed": 0, "error": 0, "refused": 0, "checking": 0}
+    unknown: list[tuple[str, str]] = []
+    for item in sent:
+        outcome = dispatched.get(item["analysis_id"])
+        if outcome is not None and not outcome.get("dispatched"):
+            verdicts["refused"] += 1
+            continue
+        verdict = REDTEAM_VERDICTS.get(item["analysis_id"])
+        if verdict in verdicts:
+            verdicts[verdict] += 1
+            continue
+        verdicts["checking"] += 1
+        job_id = (outcome or {}).get("job_id") or REDTEAM_JOB_INDEX.job_for(item["analysis_id"])
+        if job_id:
+            unknown.append((item["analysis_id"], str(job_id)))
+    return {
+        "analyses": len(analyses),
+        "analyses_auto": sum(1 for item in analyses if item["auto"]),
+        "deep_scan_calls": len(deep),
+        "sent": len(sent),
+        "not_sent": not_sent,
+        "verdicts": verdicts,
+        "unknown_jobs": list(reversed(unknown)),
+    }
+
+
+@app.get("/api/dashboard/flow")
+@role_required("analyst")
+def api_dashboard_flow():
+    """수집 → 탐지 → 선별 → AI 분석 → 레드팀 검증 → 분석가 처리, last 24 hours."""
+    end = datetime.now(timezone.utc).replace(microsecond=0)
+    start = end - timedelta(hours=24)
+    counts: dict[str, Any] = {"raw_events": None, "alerts": 0, "level_8_plus": 0, "per_minute": []}
+    source = "fixture_repository"
+    if callable(getattr(ALERT_REPOSITORY, "flow_counts", None)):
+        try:
+            counts = ALERT_REPOSITORY.flow_counts(start=start, end=end)
+            source = "wazuh_indexer"
+        except (WazuhIndexerError, ValueError) as exc:
+            return jsonify({"error": "Wazuh flow query failed.", "detail": str(exc)}), 502
+    else:
+        alerts = ALERT_ANALYSIS.list_alerts()
+        counts["alerts"] = len(alerts)
+        counts["level_8_plus"] = sum(1 for item in alerts if int(item.get("rule_level") or 0) >= 8)
+
+    reports = [report for report in AUTO_REPORT_STORE.all()
+               if (parse_time(report.get("created_at")) or start - timedelta(seconds=1)) >= start]
+    urgent = sum(1 for report in reports if (report.get("priority") or {}).get("band") in {"P1", "P2"})
+
+    facts = flow_audit_facts(start)
+    unknown = facts.pop("unknown_jobs")
+    if unknown and CONFIG["redteam_runner_url"] and CONFIG["redteam_runner_token"]:
+        threading.Thread(target=refresh_redteam_verdicts, args=(unknown,),
+                         name="hawki-flow-redteam", daemon=True).start()
+
+    settled = investigating = 0
+    for record in FEEDBACK_STORE.latest():
+        when = parse_time(record.get("recorded_at"))
+        if when is None or when < start:
+            continue
+        if record.get("verdict") in SETTLED_VERDICTS:
+            settled += 1
+        elif record.get("verdict") == "investigating":
+            investigating += 1
+    pending = sum(1 for item in read_jsonl(ACTION_QUEUE_PATH) if item.get("status") == "pending_approval")
+
+    alerts_total = int(counts.get("alerts") or 0)
+    level8 = int(counts.get("level_8_plus") or 0)
+    verdicts = facts["verdicts"]
+    return jsonify({
+        "source": source,
+        "window": {"start": start.isoformat(), "end": end.isoformat(), "hours": 24},
+        "per_minute": counts.get("per_minute") or [],
+        "stages": [
+            {"id": "raw", "label": "원시 이벤트", "count": counts.get("raw_events"), "link": "/logs",
+             "detail": "Wazuh 아카이브 수집량"},
+            {"id": "alerts", "label": "Wazuh 경보", "count": alerts_total, "link": "/alerts?range=24h&category=all&status=all",
+             "detail": "룰에 걸린 이벤트"},
+            {"id": "level8", "label": "레벨 8 이상", "count": level8,
+             "link": "/alerts?min_level=8&range=24h&category=all&status=all", "detail": "주의가 필요한 경보",
+             "drop": {"count": max(alerts_total - level8, 0), "text": "레벨 8 미만은 관찰만"}},
+            {"id": "selected", "label": "자동 선별", "count": len(reports), "link": "/auto-reports",
+             "detail": f"자동 보고서 · P1·P2 {urgent}건",
+             "drop": {"count": None, "text": "레벨 8 이상 + P1·P2, 같은 룰·출발지는 한 보고서로 묶음"}},
+            {"id": "analysis", "label": "AI 분석", "count": facts["analyses"], "link": "/auto-reports",
+             "detail": f"자동 {facts['analyses_auto']}건 · 분석가 요청 {facts['analyses'] - facts['analyses_auto']}건",
+             "extra": {"deep_scan_calls": facts["deep_scan_calls"]}},
+            {"id": "redteam", "label": "레드팀 검증", "count": facts["sent"], "link": "/",
+             "detail": f"통과 {verdicts['passed']} · 실패 {verdicts['failed']} · 오류 {verdicts['error'] + verdicts['refused']} · 확인 중 {verdicts['checking']}",
+             "verdicts": verdicts,
+             "drop": {"count": sum(facts["not_sent"].values()), "text": "레드팀을 거치지 않은 분석", "reasons": facts["not_sent"]}},
+            {"id": "handled", "label": "분석가 처리", "count": settled, "link": "/alerts?status=handled&range=24h&category=all",
+             "detail": f"추가 조사 {investigating}건 · 승인 대기 {pending}건"},
+        ],
+    })
 
 
 @app.get("/api/redteam/recent")

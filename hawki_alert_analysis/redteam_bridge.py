@@ -292,3 +292,30 @@ def fetch_job_status(
     except ValueError:
         body = {"raw": response.text[:500]}
     return response.status_code, body if isinstance(body, dict) else {"data": body}
+
+
+# The runner's tool states that count as a pass, and the job states that
+# mean the runner has finished (same reading as static/redteam.js overall()).
+TOOL_PASS_STATES = {"passed", "pass", "ok", "success", "succeeded", "completed", "complete", "done", "finished"}
+TOOL_ERROR_STATES = {"error", "errored", "timeout"}
+TOOL_RUNNING_STATES = {"running", "queued", "pending", "in_progress", "started"}
+
+
+def runner_verdict(body: Any) -> str | None:
+    """"passed", "failed" or "error" once the runner has a verdict, else None."""
+    if not isinstance(body, dict):
+        return None
+    job = body.get("job") if isinstance(body.get("job"), dict) else body
+    tools = job.get("tool_results") if isinstance(job.get("tool_results"), dict) else {}
+    states = [str((value or {}).get("status") or "").lower() for value in tools.values() if isinstance(value, dict)]
+    if not states:
+        return None
+    if "failed" in states:
+        return "failed"
+    if any(state in TOOL_ERROR_STATES for state in states):
+        return "error"
+    if any(state in TOOL_RUNNING_STATES or not state for state in states):
+        return None
+    if all(state in TOOL_PASS_STATES or state == "skipped" for state in states):
+        return "passed"
+    return None

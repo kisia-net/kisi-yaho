@@ -746,6 +746,38 @@ class WazuhEventRepository:
             "recent_alerts": self.list_alerts()[:6],
         }
 
+    def flow_counts(self, *, start: datetime, end: datetime, minutes: int = 60) -> dict[str, Any]:
+        """Counts for the dashboard's processing flow, over one exact window.
+
+        Raw events, alerts and level 8+ alerts between start and end, and the
+        raw events of the last `minutes` per minute (what is arriving now).
+        """
+        window = {"range": {self.timestamp_field: {"gte": start.isoformat(), "lte": end.isoformat()}}}
+
+        def count(index: str, query: dict[str, Any]) -> int:
+            payload = self.client.search(index, {"size": 0, "track_total_hits": True, "query": query})
+            return _total_hits(payload)[0]
+
+        recent_start = end - timedelta(minutes=max(int(minutes), 1))
+        histogram = self.client.search(self.archive_index, {
+            "size": 0,
+            "query": {"range": {self.timestamp_field: {"gte": recent_start.isoformat(), "lte": end.isoformat()}}},
+            "aggs": {"per_minute": {"date_histogram": {
+                "field": self.timestamp_field, "fixed_interval": "1m", "min_doc_count": 0,
+                "extended_bounds": {"min": recent_start.isoformat(), "max": end.isoformat()},
+            }}},
+        })
+        buckets = ((histogram.get("aggregations") or {}).get("per_minute") or {}).get("buckets") or []
+        return {
+            "raw_events": count(self.archive_index, window),
+            "alerts": count(self.alert_index, window),
+            "level_8_plus": count(self.alert_index, {"bool": {"filter": [window, {"range": {"rule.level": {"gte": 8}}}]}}),
+            "per_minute": [
+                {"time": str(bucket.get("key_as_string") or bucket.get("key") or ""), "count": int(bucket.get("doc_count") or 0)}
+                for bucket in buckets if isinstance(bucket, dict)
+            ][-max(int(minutes), 1):],
+        }
+
     def get_alert_record(self, alert_id: str) -> dict[str, Any]:
         """Return the native Wazuh source document for analyst evidence."""
         body = {
