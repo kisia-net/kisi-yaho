@@ -35,6 +35,9 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(classify({"groups": ["web", "accesslog", "web_scan", "recon"]}), ("web", "scan"))
         self.assertEqual(classify({"groups": ["web", "accesslog", "attack"]}), ("web", "web_attack"))
         self.assertEqual(classify({"groups": []}), ("other", "other"))
+        # Wazuh puts 31101 (400 error) in "attack"; it is an error response.
+        self.assertEqual(classify({"groups": ["web", "accesslog", "attack"], "rule_id": "31101"}), ("web", "web_error"))
+        self.assertEqual(classify({"groups": ["web", "appsec", "attack"], "rule_id": "31516"}), ("web", "web_attack"))
 
     def test_fixture_items_use_their_source_type(self):
         self.assertEqual(classify({"source": "suricata"})[0], "suricata")

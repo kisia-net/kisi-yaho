@@ -6,8 +6,9 @@ counted by the indexer under "웹 스캔·정찰" is the same alert the Python s
 prioritises under that type. The first matching entry wins; anything
 unmatched is "기타".
 
-Matching uses Wazuh rule groups and the decoder name (and, for fixture
-alerts, the adapter's source type), never free text.
+Matching uses Wazuh rule groups, the decoder name and a few rule ids
+written "rule:<id>" (and, for fixture alerts, the adapter's source type),
+never free text.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ SOURCES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("suricata", "Suricata IDS", ("suricata", "ids")),
     ("modsecurity", "ModSecurity WAF", ("modsecurity",)),
     ("ssh", "SSH 인증 로그", ("sshd",)),
-    ("web", "웹 접근 로그", ("web", "accesslog", "web-accesslog", "nginx", "apache")),
+    ("web", "웹 서버 로그", ("web", "accesslog", "web-accesslog", "nginx", "apache")),
     ("system", "시스템·인증 로그", ("syslog", "pam", "authentication_success", "authentication_failed",
                                    "authlog", "sudo", "ossec", "rootcheck", "syscheck", "sca")),
 )
@@ -32,6 +33,9 @@ TYPES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # Wazuh tags many access-log rules "attack" as well; scanning is the more
     # specific reading, so web_scan / recon is checked first.
     ("scan", "웹 스캔·정찰", ("web_scan", "recon", "scan")),
+    # 31101 "Web server 400 error code" and 31120 (500) carry the "attack"
+    # group but only say the server answered with an error.
+    ("web_error", "웹 오류 응답 (4xx·5xx)", ("rule:31101", "rule:31120")),
     ("web_attack", "웹 공격 시도", ("attack", "modsecurity", "sql_injection", "xss", "web_attack",
                                      "exploit_attempt")),
     ("web_other", "기타 웹 요청", ("accesslog", "web", "web-accesslog")),
@@ -45,6 +49,9 @@ UNSCORED = ("unscored", "우선순위 미계산")
 
 def _tags(item: dict[str, Any]) -> set[str]:
     tags = {str(value).lower() for value in (item.get("groups") or []) if value}
+    rule_id = item.get("rule_id") or ((item.get("rule") or {}).get("id") if isinstance(item.get("rule"), dict) else "")
+    if rule_id:
+        tags.add(f"rule:{rule_id}")
     for key in ("decoder", "source"):
         value = item.get(key)
         if isinstance(value, dict):
@@ -68,8 +75,14 @@ def classify(item: dict[str, Any]) -> tuple[str, str]:
 
 
 def _matches(tags: tuple[str, ...]) -> dict[str, Any]:
-    return {"bool": {"should": [{"terms": {"rule.groups": list(tags)}}, {"terms": {"decoder.name": list(tags)}}],
-                     "minimum_should_match": 1}}
+    names = [tag for tag in tags if not tag.startswith("rule:")]
+    rule_ids = [tag[5:] for tag in tags if tag.startswith("rule:")]
+    should: list[dict[str, Any]] = []
+    if names:
+        should += [{"terms": {"rule.groups": names}}, {"terms": {"decoder.name": names}}]
+    if rule_ids:
+        should.append({"terms": {"rule.id": rule_ids}})
+    return {"bool": {"should": should, "minimum_should_match": 1}}
 
 
 def exclusive_filters(spec: Iterable[tuple[str, str, tuple[str, ...]]]) -> dict[str, dict[str, Any]]:

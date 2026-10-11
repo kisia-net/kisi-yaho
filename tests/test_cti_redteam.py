@@ -322,8 +322,11 @@ class DeepScanAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         call.assert_not_called()
 
-    def test_dashboard_shows_the_card(self):
+    def test_the_red_team_page_shows_the_card(self):
+        # Moved off the dashboard (2026-10-11): a manual, GPU-heavy check.
         with mock.patch("hawki_redteam_ui.requests.request", return_value=self.runner_reply(404, {"error": "No deep scan is available."})):
-            page = self.client.get("/").get_data(as_text=True)
+            page = self.client.get("/redteam").get_data(as_text=True)
+            dashboard = self.client.get("/").get_data(as_text=True)
         self.assertIn("data-redteam-scan-card", page)
         self.assertIn("redteam_deep_scan.js", page)
+        self.assertNotIn("data-redteam-scan-card", dashboard)

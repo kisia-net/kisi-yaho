@@ -5578,3 +5578,25 @@ html[data-theme="light"] .src-5 { fill: #e87ba4; background: #e87ba4; }
     .source-flow-head { flex-direction: column; align-items: flex-start; }
 }
 .flow-panel .flow-view { padding: 0 16px 14px; }
+
+/* 레드팀 검증 화면 */
+.rt-summary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 4px 0 14px; }
+.rt-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: transparent; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.rt-tile span { font-size: 12px; font-weight: 650; }
+.rt-tile strong { font-size: 22px; color: var(--text, inherit); }
+.rt-tile:hover { border-color: currentColor; }
+.rt-filters { margin-bottom: 10px; }
+.rt-failing { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 10px; font-size: 12.5px; }
+.rt-eval-list { list-style: none; margin: 0; padding: 0; }
+.rt-eval-item { border-bottom: 1px solid var(--line); padding: 10px 2px; }
+.rt-eval-row { display: grid; grid-template-columns: 110px 150px minmax(180px, 1.2fr) minmax(200px, 1.6fr) 90px; gap: 12px; align-items: center; font-size: 13px; }
+.rt-eval-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.rt-eval-links a { color: var(--accent); }
+.rt-eval-state .tag { margin-left: 4px; }
+.rt-more-link { display: inline-block; margin-top: 8px; font-size: 12.5px; color: var(--accent); font-weight: 650; }
+@media (max-width: 1100px) {
+    .rt-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .rt-eval-row { grid-template-columns: 1fr 1fr; }
+}
+.alert-handling { padding: 0 18px; }
+#redteam-root .rt-summary, #redteam-root .rt-filters, #redteam-root .rt-failing, #redteam-root .table-header, #redteam-root .rt-eval-list, #redteam-root .alert-pager { padding-left: 16px; padding-right: 16px; }

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block subtitle %}
+<p class="page-description">LLM 분석마다 받은 레드팀 검증 결과와 모델 심층 점검입니다.</p>
+<script src="{{ url_for('static', filename='redteam.js', v=asset_version) }}"></script>
+{% endblock %}
+
+{% block content %}
+<section class="panel" id="redteam-root">
+    <div class="panel-header">
+        <div>
+            <p class="panel-kicker">분석별 자동 검증 · Promptfoo</p>
+            <h2>검증 내역</h2>
+        </div>
+        <span class="muted" data-rt-settings></span>
+    </div>
+
+    <div class="rt-summary" data-rt-summary-tiles></div>
+
+    <form class="toolbar-form rt-filters" data-rt-filters>
+        <label>기간
+            <select name="range">
+                <option value="24h">최근 24시간</option>
+                <option value="7d" selected>최근 7일</option>
+                <option value="30d">최근 30일</option>
+                <option value="all">전체</option>
+            </select>
+        </label>
+        <label>결과
+            <select name="status">
+                <option value="all">전체</option>
+                <option value="passed">통과</option>
+                <option value="failed">실패</option>
+                <option value="error">오류</option>
+                <option value="refused">전송 거부</option>
+                <option value="checking">확인 중</option>
+                <option value="not_sent">보내지 않음</option>
+            </select>
+        </label>
+        <label>분석 종류
+            <select name="kind">
+                <option value="all">전체</option>
+                <option value="manual">분석가 요청</option>
+                <option value="auto">자동 보고서</option>
+                <option value="deep">정밀 검사 중 분석</option>
+            </select>
+        </label>
+    </form>
+
+    <div class="rt-failing" data-rt-failing hidden></div>
+
+    <div class="table-header"><span data-rt-count>불러오는 중…</span></div>
+    <ul class="rt-eval-list" data-rt-list></ul>
+    <nav class="alert-pager" data-rt-pager aria-label="검증 내역 페이지" hidden></nav>
+</section>
+
+{% if current_user and current_user.role in ['analyst', 'approver', 'admin'] %}
+    {% include "_redteam_deep_scan.html" %}
+{% endif %}
+
+<script src="{{ url_for('static', filename='redteam_page.js', v=asset_version) }}"></script>
+{% endblock %}
