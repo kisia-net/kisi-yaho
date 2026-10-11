@@ -54,6 +54,7 @@
         asset_data_classification: "민감 데이터",
         asset_not_in_inventory: "자산 목록에 없음",
         threat_intel_match: "위협 인텔리전스 일치",
+        reconnaissance_ceiling: "정찰·오류 응답 상한",
     };
     const VERDICT_LABELS = { malicious: "악성", suspicious: "의심", benign: "정상", unknown: "알 수 없음" };
     const ACTION_LABELS = {
@@ -119,7 +120,16 @@
         const form = root.querySelector("[data-filters]");
         const list = root.querySelector("[data-list]");
         const detail = root.querySelector("[data-detail]");
-        let selectedId = new URLSearchParams(location.search).get("id") || "";
+        const preset = new URLSearchParams(location.search);
+        let selectedId = preset.get("id") || "";
+        // /auto-reports?range=24h (the dashboard's 자동 선별 card) and the
+        // other filters can be given in the address.
+        ["range", "review", "band", "ai", "sensitive"].forEach((name) => {
+            const value = preset.get(name);
+            const field = form.elements[name];
+            if (value && field && [...field.options].some((option) => option.value === value)) field.value = value;
+        });
+        const RANGE_LABELS = { "24h": "최근 24시간", "7d": "최근 7일", "30d": "최근 30일", all: "전체" };
         let current = null;
 
         const post = (url, body) => requestJson(url, {
@@ -133,6 +143,8 @@
             root.querySelectorAll("[data-count]").forEach((node) => {
                 node.textContent = counts[node.dataset.count] ?? 0;
             });
+            const rangeNote = root.querySelector("[data-range-note]");
+            if (rangeNote?.firstChild?.nodeType === Node.TEXT_NODE) rangeNote.firstChild.textContent = `${RANGE_LABELS[data.range] || "전체"} `;
             const settings = data.settings || {};
             const worker = data.worker || {};
             const state = root.querySelector("[data-worker-state]");
@@ -243,7 +255,7 @@
             const factorRows = (priority.factors || []).map((f) => [
                 escapeHtml(FACTOR_LABELS[f.factor] || f.factor),
                 escapeHtml(Array.isArray(f.value) ? f.value.join(", ") : (f.value ?? "—")),
-                `<strong>+${escapeHtml(f.points ?? 0)}</strong>`,
+                `<strong>${Number(f.points) < 0 ? "" : "+"}${escapeHtml(f.points ?? 0)}</strong>`,
             ]);
             const assetRows = (report.assets || []).map((a) => [
                 escapeHtml(a.hostname || a.id || "—"),
@@ -368,7 +380,9 @@
         root.querySelectorAll("[data-quick-filter]").forEach((button) => {
             button.addEventListener("click", () => {
                 const [name, value] = button.dataset.quickFilter.split("=");
+                const period = form.elements.range.value;
                 form.reset();
+                form.elements.range.value = period;
                 form.elements[name].value = value;
                 loadList();
             });

@@ -42,6 +42,7 @@
         asset_data_classification: "민감 데이터",
         asset_not_in_inventory: "자산 목록에 없음",
         threat_intel_match: "위협 인텔리전스 일치",
+        reconnaissance_ceiling: "정찰·오류 응답 상한",
     };
     const AGENT_STOP = {
         finish: "에이전트가 증거 충분 판단",
@@ -200,8 +201,8 @@
             const points = Number(factor.points) || 0;
             const value = Array.isArray(factor.value) ? factor.value.join(", ") : (factor.value ?? "—");
             return `<li><span class="xai-factor-name">${escapeHtml(FACTOR[factor.factor] || factor.factor)}</span>
-                <span class="xai-factor-bar"><i data-width="${Math.round((points / maxPoints) * 100)}"></i></span>
-                <span class="xai-factor-points">+${escapeHtml(points)}</span>
+                <span class="xai-factor-bar"><i data-width="${Math.round((Math.max(0, points) / maxPoints) * 100)}"></i></span>
+                <span class="xai-factor-points">${points < 0 ? "" : "+"}${escapeHtml(points)}</span>
                 <span class="xai-factor-value">${escapeHtml(value)}</span></li>`;
         }).join("");
 
