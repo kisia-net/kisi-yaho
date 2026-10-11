@@ -7,6 +7,7 @@ from .live_bundle import LIVE_BUNDLE_SCHEMA, build_live_evidence_bundle
 from .priority import priority_for_alert_item
 from .repository import EventRepository
 from .wazuh import is_vulnerability_alert
+from .source_flow import build as build_source_flow, classify as classify_source
 
 
 class AlertAnalysisService:
@@ -158,6 +159,56 @@ class AlertAnalysisService:
             "pages": pages,
             "window_limited": window_limited,
         }
+
+    def source_flow(self, *, start: Any = None, end: Any = None) -> dict[str, Any]:
+        """출처 흐름: sensor -> detection type -> HAW-KI priority (level 8+)."""
+        counter = getattr(self.repository, "source_flow_counts", None)
+        if callable(counter):
+            counts = counter(start=start, end=end)
+            items = counts["level8_items"]
+            source_type = counts["source_type"]
+            type_below = counts["type_below"]
+            source_level8 = counts["source_level8"]
+            level8_total = counts["level8_total"]
+        else:
+            source_type, type_below, source_level8, items = {}, {}, {}, []
+            for item in self.repository.list_alerts():
+                source, kind = classify_source(item)
+                source_type[(source, kind)] = source_type.get((source, kind), 0) + 1
+                try:
+                    level = int(item.get("rule_level"))
+                except (TypeError, ValueError):
+                    level = 0
+                if level >= 8:
+                    items.append(item)
+                    source_level8[source] = source_level8.get(source, 0) + 1
+                else:
+                    type_below[kind] = type_below.get(kind, 0) + 1
+            level8_total = len(items)
+
+        inventory = getattr(self.repository, "asset_inventory", None)
+        feed = getattr(self.repository, "threat_intel_feed", None)
+        type_band: dict[tuple[str, str], int] = {}
+        type_scored: dict[str, int] = {}
+        for item in items:
+            _, kind = classify_source(item)
+            band = str((priority_for_alert_item(item, asset_inventory=inventory, threat_intel_feed=feed) or {}).get("band") or "P4")
+            type_band[(kind, band)] = type_band.get((kind, band), 0) + 1
+            type_scored[kind] = type_scored.get(kind, 0) + 1
+        # Level 8+ alerts past the scoring limit: counted, not prioritised.
+        type_level8: dict[str, int] = {}
+        for (source, kind), count in source_type.items():
+            type_level8[kind] = type_level8.get(kind, 0) + count
+        for kind, below in type_below.items():
+            type_level8[kind] = type_level8.get(kind, 0) - below
+        type_unscored = {kind: max(total - type_scored.get(kind, 0), 0) for kind, total in type_level8.items()}
+
+        flow = build_source_flow(source_type, type_below, type_band, type_unscored)
+        for row in flow["table"]["rows"]:
+            row["level_8_plus"] = int(source_level8.get(row["source"]) or 0)
+        flow["level8_total"] = level8_total
+        flow["scored"] = len(items)
+        return flow
 
     def get_case(self, alert_id: str):
         return self.repository.build_alert_case(alert_id)

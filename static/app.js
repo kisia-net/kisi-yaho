@@ -979,10 +979,11 @@ function renderDashboardFlow(data) {
                 <strong class="flow-count">${known ? escapeHtml(formatNumber(stage.count)) : "—"}</strong>
                 <span class="flow-bar"><span class="flow-fill" data-count="${known ? Number(stage.count) || 0 : 0}"></span></span>
                 ${verdicts}
-                <span class="flow-detail">${escapeHtml(stage.detail || "")}</span>
+                ${stage.detail ? `<span class="flow-detail">${escapeHtml(stage.detail)}</span>` : ""}
                 ${stage.id === "raw" ? flowSparkline(data.per_minute || []) : ""}
-                ${stage.extra?.deep_scan_calls ? `<span class="flow-detail">정밀 검사가 부른 분석 ${escapeHtml(formatNumber(stage.extra.deep_scan_calls))}건은 따로 셈</span>` : ""}
+                ${stage.extra?.deep_scan_calls ? `<span class="flow-detail">정밀 검사 분석 ${escapeHtml(formatNumber(stage.extra.deep_scan_calls))}건 별도</span>` : ""}
             </a>
+            ${stage.switch === "source" ? `<button type="button" class="flow-switch-link" data-flow-select="source">출처별로 보기 →</button>` : ""}
         </li>`;
     }).join("") || `<li class="muted">표시할 흐름이 없습니다.</li>`;
     const scale = Math.log10(max + 1);
@@ -1004,15 +1005,221 @@ function renderDashboardFlow(data) {
     }
 }
 
+// 출처 흐름: sensor -> detection type -> priority, drawn as a Sankey (or a
+// table). Same panel and window as 처리 흐름; colours follow the source.
+const FLOW_VIEW_KEY = "hawki.dashboard.flowView";
+const SOURCE_FORMAT_KEY = "hawki.dashboard.sourceFormat";
+const SOURCE_SLOTS = ["web", "modsecurity", "suricata", "ssh", "vulnerability", "system", "other"];
+
+function storedChoice(key, allowed, fallback) {
+    try {
+        const value = window.localStorage.getItem(key);
+        return allowed.includes(value) ? value : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function storeChoice(key, value) {
+    try {
+        window.localStorage.setItem(key, value);
+    } catch {
+        /* private mode: the choice is simply not remembered */
+    }
+}
+
+function sankeyLayout(data, width, height) {
+    const nodes = (data.nodes || []).map((node) => ({ ...node }));
+    const links = (data.links || []).map((link) => ({ ...link }));
+    const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]));
+    // A type's ribbons onward take the colour of its largest source.
+    const mainSource = {};
+    links.filter((link) => link.from.startsWith("s:")).forEach((link) => {
+        if (!mainSource[link.to] || link.value > mainSource[link.to].value) mainSource[link.to] = link;
+    });
+    const columns = [0, 1, 2].map((column) => nodes.filter((node) => node.column === column));
+    const top = 34;
+    const gap = 8;
+    const labelRoom = 34; // two label lines beside a node
+    const xs = [width * 0.22, width * 0.52, width * 0.80];
+    // Small nodes still need room for their labels: each node takes at least
+    // labelRoom, and the scale shrinks until every column fits.
+    const fits = (scale) => columns.every((column) =>
+        column.reduce((sum, node) => sum + Math.max(node.value * scale, labelRoom) + gap, top) <= height);
+    let scale = (height - top) / Math.max(1, ...columns.map((column) => column.reduce((sum, node) => sum + node.value, 0)));
+    for (let tries = 0; tries < 40 && !fits(scale); tries += 1) scale *= 0.92;
+    columns.forEach((column, index) => {
+        let y = top;
+        column.forEach((node) => {
+            node.h = Math.max(2, node.value * scale);
+            const room = Math.max(node.h, labelRoom);
+            node.x = xs[index];
+            node.y = y + (room - node.h) / 2;
+            node.outOffset = 0;
+            node.inOffset = 0;
+            y += room + gap;
+        });
+    });
+    links.forEach((link) => {
+        const from = nodeById[link.from];
+        const to = nodeById[link.to];
+        const h = Math.max(1, link.value * scale);
+        link.y0 = from.y + from.outOffset;
+        link.y1 = to.y + to.inOffset;
+        link.h = h;
+        link.x0 = from.x + 12;
+        link.x1 = to.x;
+        from.outOffset += h;
+        to.inOffset += h;
+        link.source = from.column === 0 ? from.key : (mainSource[from.id]?.from || "s:other").slice(2);
+    });
+    return { nodes, links, xs };
+}
+
+function sourceSlot(key) {
+    const index = SOURCE_SLOTS.indexOf(key);
+    return index >= 0 ? index + 1 : SOURCE_SLOTS.length;
+}
+
+function renderSourceSankey(target, data) {
+    if (!data.links?.length) {
+        target.innerHTML = `<p class="muted">최근 24시간 경보가 없습니다.</p>`;
+        return;
+    }
+    const width = 1080;
+    const height = 460;
+    const { nodes, links, xs } = sankeyLayout(data, width, height);
+    const ribbon = (link) => {
+        const xm = (link.x0 + link.x1) / 2;
+        return `M${link.x0},${link.y0} C${xm},${link.y0} ${xm},${link.y1} ${link.x1},${link.y1} L${link.x1},${link.y1 + link.h} C${xm},${link.y1 + link.h} ${xm},${link.y0 + link.h} ${link.x0},${link.y0 + link.h} Z`;
+    };
+    const name = Object.fromEntries(nodes.map((node) => [node.id, node.label]));
+    const ribbons = links.map((link) => `<path class="sankey-link src-${sourceSlot(link.source)}${link.from.startsWith("t:") ? " second" : ""}" d="${ribbon(link)}"><title>${escapeHtml(`${name[link.from]} → ${name[link.to]} · ${formatNumber(link.value)}건`)}</title></path>`).join("");
+    const nodeMarks = nodes.map((node) => {
+        const cls = node.column === 0 ? `src-${sourceSlot(node.key)}` : (node.key === "P1" ? "p1" : node.column === 1 ? "mid" : "target");
+        const labelX = node.column === 0 ? node.x - 10 : node.x + 22;
+        const anchor = node.column === 0 ? "end" : "start";
+        const center = node.y + node.h / 2;
+        const href = node.column === 1
+            ? (node.key === "cve" ? "/alerts?category=vulnerability&range=24h&status=all" : "/alerts?category=all&range=24h&status=all")
+            : node.column === 2 && node.key !== "below_8" && node.key !== "unscored" ? "/alerts?min_level=8&range=24h&category=all&status=all" : "";
+        const label = `<text x="${labelX}" y="${center - 7}" text-anchor="${anchor}" class="sankey-label${node.column === 1 ? " halo" : ""}">${escapeHtml(node.label)}</text>
+            <text x="${labelX}" y="${center + 10}" text-anchor="${anchor}" class="sankey-value${node.column === 1 ? " halo" : ""}">${escapeHtml(formatNumber(node.value))}건</text>`;
+        const mark = `<rect class="sankey-node ${cls}" x="${node.x}" y="${node.y}" width="12" height="${node.h}" rx="3"><title>${escapeHtml(`${node.label} · ${formatNumber(node.value)}건`)}</title></rect>`;
+        return href ? `<a href="${href}">${mark}${label}</a>` : `${mark}${label}`;
+    }).join("");
+    const heads = [["출처", xs[0] + 6, "end"], ["탐지 유형", xs[1] + 6, "middle"], ["우선순위", xs[2], "start"]]
+        .map(([text, x, anchor]) => `<text x="${x}" y="16" text-anchor="${anchor}" class="sankey-head">${text}</text>`).join("");
+    target.innerHTML = `<svg class="sankey" viewBox="0 0 ${width} ${height}" role="img" aria-label="출처에서 탐지 유형, 우선순위로 이어지는 최근 24시간 경보 흐름">${heads}${ribbons}${nodeMarks}</svg>`;
+}
+
+function heatClass(value) {
+    if (!value) return "hm-0";
+    if (value >= 300) return "hm-5";
+    if (value >= 150) return "hm-4";
+    if (value >= 80) return "hm-3";
+    if (value >= 30) return "hm-2";
+    return "hm-1";
+}
+
+function renderSourceTable(target, data) {
+    const table = data.table || {};
+    const columns = table.columns || [];
+    const rows = table.rows || [];
+    if (!rows.length) {
+        target.innerHTML = `<p class="muted">최근 24시간 경보가 없습니다.</p>`;
+        return;
+    }
+    const totals = table.column_totals || {};
+    target.innerHTML = `<div class="heat-wrap"><table class="heat">
+        <thead><tr><th scope="col">출처</th>${columns.map((column) => `<th scope="col">${escapeHtml(column.label)}</th>`).join("")}<th scope="col">합계</th><th scope="col">레벨 8 이상</th></tr></thead>
+        <tbody>${rows.map((row) => `<tr><th scope="row"><span class="heat-swatch src-${sourceSlot(row.source)}"></span>${escapeHtml(row.label)}</th>
+            ${columns.map((column) => {
+                const value = Number(row.cells[column.key]) || 0;
+                return `<td class="hm ${heatClass(value)}">${value ? escapeHtml(formatNumber(value)) : "·"}</td>`;
+            }).join("")}
+            <td class="heat-total">${escapeHtml(formatNumber(row.total))}</td><td class="heat-total">${escapeHtml(formatNumber(row.level_8_plus || 0))}</td></tr>`).join("")}
+        <tr class="heat-sum"><th scope="row">합계</th>${columns.map((column) => `<td>${escapeHtml(formatNumber(totals[column.key] || 0))}</td>`).join("")}<td class="heat-total">${escapeHtml(formatNumber(data.total || 0))}</td><td class="heat-total">${escapeHtml(formatNumber(data.level8_total || 0))}</td></tr>
+        </tbody></table></div>
+        <p class="heat-legend"><span class="hm-1"></span>1–29 <span class="hm-2"></span>30–79 <span class="hm-3"></span>80–149 <span class="hm-4"></span>150–299 <span class="hm-5"></span>300+</p>`;
+}
+
+function renderSourceFlow(data) {
+    const root = byId("dashboard-flow");
+    if (!root) return;
+    const caption = root.querySelector("[data-source-flow-caption]");
+    if (caption) caption.textContent = `Wazuh 경보 ${formatNumber(data.total || 0)}건 · 레벨 8 이상 ${formatNumber(data.level8_total || 0)}건`;
+    renderSourceSankey(root.querySelector("[data-source-flow-chart]"), data);
+    renderSourceTable(root.querySelector("[data-source-flow-table]"), data);
+    const bridge = root.querySelector("[data-source-flow-bridge]");
+    if (bridge) {
+        const unscored = Math.max((data.level8_total || 0) - (data.scored || 0), 0);
+        bridge.innerHTML = `P1·P2 ${escapeHtml(formatNumber(data.urgent || 0))}건 → <a href="/auto-reports">자동 선별 ${escapeHtml(formatNumber(data.selected_reports || 0))}건</a>${unscored ? ` · 우선순위 미계산 ${escapeHtml(formatNumber(unscored))}건` : ""}`;
+    }
+}
+
+function showFlowView(view, remember = true) {
+    const root = byId("dashboard-flow");
+    if (!root) return;
+    root.dataset.flowView = view;
+    root.querySelectorAll("[data-flow-pane]").forEach((pane) => { pane.hidden = pane.dataset.flowPane !== view; });
+    root.querySelectorAll(".flow-switch [data-flow-select]").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.flowSelect === view)));
+    if (remember) storeChoice(FLOW_VIEW_KEY, view);
+    if (view === "source" && !root.dataset.sourceLoaded) loadSourceFlow();
+}
+
+function showSourceFormat(format, remember = true) {
+    const root = byId("dashboard-flow");
+    if (!root) return;
+    root.querySelector("[data-source-flow-chart]").hidden = format !== "chart";
+    root.querySelector("[data-source-flow-table]").hidden = format !== "table";
+    root.querySelectorAll("[data-source-format]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.sourceFormat === format)));
+    if (remember) storeChoice(SOURCE_FORMAT_KEY, format);
+}
+
+async function loadSourceFlow() {
+    const root = byId("dashboard-flow");
+    if (!root) return;
+    try {
+        renderSourceFlow(await api("/api/dashboard/source-flow"));
+        root.dataset.sourceLoaded = "1";
+    } catch (error) {
+        const chart = root.querySelector("[data-source-flow-chart]");
+        if (chart) chart.innerHTML = `<p class="muted">출처 흐름을 불러오지 못했습니다 · ${escapeHtml(error.message)}</p>`;
+    }
+}
+
+function initFlowPanel() {
+    const root = byId("dashboard-flow");
+    if (!root || root.dataset.flowReady) return;
+    root.dataset.flowReady = "1";
+    root.addEventListener("click", (event) => {
+        const select = event.target.closest("[data-flow-select]");
+        if (select) {
+            event.preventDefault();
+            showFlowView(select.dataset.flowSelect);
+            return;
+        }
+        const format = event.target.closest("[data-source-format]");
+        if (format) showSourceFormat(format.dataset.sourceFormat);
+    });
+    // A narrow screen cannot read a Sankey: the table is shown instead.
+    const narrow = window.matchMedia("(max-width: 720px)").matches;
+    showSourceFormat(narrow ? "table" : storedChoice(SOURCE_FORMAT_KEY, ["chart", "table"], "chart"), false);
+    showFlowView(storedChoice(FLOW_VIEW_KEY, ["process", "source"], "process"), false);
+}
+
 async function loadDashboardFlow() {
     const root = byId("dashboard-flow");
     if (!root) return;
+    initFlowPanel();
     try {
         renderDashboardFlow(await api("/api/dashboard/flow"));
     } catch (error) {
         const list = root.querySelector("[data-flow-stages]");
         if (list) list.innerHTML = `<li class="muted">처리 흐름을 불러오지 못했습니다 · ${escapeHtml(error.message)}</li>`;
     }
+    if (root.dataset.flowView === "source") loadSourceFlow();
     clearTimeout(flowTimer);
     flowTimer = setTimeout(() => {
         if (document.visibilityState === "visible") loadDashboardFlow();

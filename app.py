@@ -2358,27 +2358,59 @@ def api_dashboard_flow():
         "window": {"start": start.isoformat(), "end": end.isoformat(), "hours": 24},
         "per_minute": counts.get("per_minute") or [],
         "stages": [
-            {"id": "raw", "label": "원시 이벤트", "count": counts.get("raw_events"), "link": "/logs",
-             "detail": "Wazuh 아카이브 수집량"},
+            {"id": "raw", "label": "원시 이벤트", "count": counts.get("raw_events"), "link": "/logs", "detail": ""},
             {"id": "alerts", "label": "Wazuh 경보", "count": alerts_total, "link": "/alerts?range=24h&category=all&status=all",
-             "detail": "룰에 걸린 이벤트"},
+             "detail": "", "switch": "source"},
             {"id": "level8", "label": "레벨 8 이상", "count": level8,
-             "link": "/alerts?min_level=8&range=24h&category=all&status=all", "detail": "주의가 필요한 경보",
-             "drop": {"count": max(alerts_total - level8, 0), "text": "레벨 8 미만은 관찰만"}},
+             "link": "/alerts?min_level=8&range=24h&category=all&status=all", "detail": "",
+             "drop": {"count": max(alerts_total - level8, 0), "text": "레벨 8 미만"}},
             {"id": "selected", "label": "자동 선별", "count": len(reports), "link": "/auto-reports",
-             "detail": f"자동 보고서 · P1·P2 {urgent}건",
-             "drop": {"count": None, "text": "레벨 8 이상 + P1·P2, 같은 룰·출발지는 한 보고서로 묶음"}},
+             "detail": f"자동 보고서 · P1·P2 {urgent}건"},
             {"id": "analysis", "label": "AI 분석", "count": facts["analyses"], "link": "/auto-reports",
              "detail": f"자동 {facts['analyses_auto']}건 · 분석가 요청 {facts['analyses'] - facts['analyses_auto']}건",
              "extra": {"deep_scan_calls": facts["deep_scan_calls"]}},
             {"id": "redteam", "label": "레드팀 검증", "count": facts["sent"], "link": "/",
              "detail": f"통과 {verdicts['passed']} · 실패 {verdicts['failed']} · 오류 {verdicts['error'] + verdicts['refused']} · 확인 중 {verdicts['checking']}",
              "verdicts": verdicts,
-             "drop": {"count": sum(facts["not_sent"].values()), "text": "레드팀을 거치지 않은 분석", "reasons": facts["not_sent"]}},
+             "drop": {"count": sum(facts["not_sent"].values()), "text": "레드팀 미경유", "reasons": facts["not_sent"]}},
             {"id": "handled", "label": "분석가 처리", "count": settled, "link": "/alerts?status=handled&range=24h&category=all",
              "detail": f"추가 조사 {investigating}건 · 승인 대기 {pending}건"},
         ],
     })
+
+
+SOURCE_FLOW_TTL_SECONDS = 60
+_source_flow_cache: dict[str, Any] = {}
+
+
+@app.get("/api/dashboard/source-flow")
+@role_required("analyst")
+def api_dashboard_source_flow():
+    """출처 흐름: sensor -> detection type -> HAW-KI priority, last 24 hours.
+
+    Level 8+ alerts get HAW-KI's own P1-P4 (the highest 2,000); alerts below
+    level 8 are one "레벨 8 미만" target, as on the 처리 흐름 view. Kept for a
+    minute so several open dashboards cost one indexer query.
+    """
+    now = time.monotonic()
+    cached = _source_flow_cache.get("value")
+    if cached and now - _source_flow_cache.get("at", 0) < SOURCE_FLOW_TTL_SECONDS:
+        return jsonify(cached)
+    end = datetime.now(timezone.utc).replace(microsecond=0)
+    start = end - timedelta(hours=24)
+    try:
+        flow = ALERT_ANALYSIS.source_flow(start=start, end=end)
+    except (WazuhIndexerError, ValueError) as exc:
+        return jsonify({"error": "Wazuh source flow query failed.", "detail": str(exc)}), 502
+    reports = [report for report in AUTO_REPORT_STORE.all()
+               if (parse_time(report.get("created_at")) or start - timedelta(seconds=1)) >= start]
+    value = {
+        **flow,
+        "selected_reports": len(reports),
+        "window": {"start": start.isoformat(), "end": end.isoformat(), "hours": 24},
+    }
+    _source_flow_cache.update(value=value, at=now)
+    return jsonify(value)
 
 
 @app.get("/api/redteam/recent")
