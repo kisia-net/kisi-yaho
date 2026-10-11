@@ -23,7 +23,7 @@ from __future__ import annotations
 import ipaddress
 import re
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 from urllib.parse import quote
 
@@ -36,6 +36,7 @@ from .correlation_profiles import select_profile
 from .models import AlertCase, CanonicalEvent, parse_timestamp
 from .repository import AlertNotFound
 from .threat_intel import NullThreatIntelFeed, ThreatIntelFeed, match_indicators
+from .sensitive import category_for_query, category_patterns
 
 INDEX_PATTERN = re.compile(r"^[A-Za-z0-9._*,\-]{1,256}$")
 
@@ -114,6 +115,12 @@ def alert_text_clause(text: str) -> dict[str, Any] | None:
         address = ""
     if address:
         should.extend({"term": {field: address}} for field in SOURCE_IP_FIELDS + DESTINATION_IP_FIELDS + ["agent.ip"])
+    # A category word ("credential", "자격증명", ".env") also searches the
+    # paths and file names that mean it (hawki_alert_analysis/sensitive.py).
+    category = category_for_query(text)
+    for literal in category_patterns(category or ""):
+        should.append({"wildcard": {"data.url": {"value": f"*{_wildcard_literal(literal)}*", "case_insensitive": True}}})
+        should.append({"match_phrase": {"full_log": literal}})
     return {"bool": {"should": should, "minimum_should_match": 1}}
 
 
@@ -220,6 +227,23 @@ def _hits(payload: dict[str, Any]) -> list[dict[str, Any]]:
     hits = payload.get("hits")
     values = hits.get("hits") if isinstance(hits, dict) else None
     return [hit for hit in values if isinstance(hit, dict)] if isinstance(values, list) else []
+
+
+# OpenSearch's default index.max_result_window: from + size beyond it fails.
+MAX_RESULT_WINDOW = 10000
+
+
+def _total_hits(payload: dict[str, Any]) -> tuple[int, str]:
+    total = (payload.get("hits") or {}).get("total") if isinstance(payload.get("hits"), dict) else None
+    if isinstance(total, dict):
+        try:
+            return int(total.get("value") or 0), str(total.get("relation") or "eq")
+        except (TypeError, ValueError):
+            return 0, "eq"
+    try:
+        return int(total or 0), "eq"
+    except (TypeError, ValueError):
+        return 0, "eq"
 
 
 class WazuhEventRepository:
@@ -407,6 +431,52 @@ class WazuhEventRepository:
             )
         return alerts
 
+    def search_alert_page(
+        self,
+        min_level: int = 0,
+        *,
+        category: str = "all",
+        since: str = "",
+        order: str = "newest",
+        host: str = "",
+        text: str = "",
+        offset: int = 0,
+        size: int = 50,
+        exclude_ids: list[str] | None = None,
+        only_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """One page of the alert queue and how many alerts match in total.
+
+        The indexer counts the matches (track_total_hits), so "전체 N건" is
+        the real number and not the size of the newest page. Deep paging
+        stops at MAX_RESULT_WINDOW, the indexer's default from+size limit.
+        """
+        size = max(1, min(int(size), 200))
+        offset = max(0, int(offset))
+        window_limited = offset + size > MAX_RESULT_WINDOW
+        if window_limited:
+            offset = max(0, MAX_RESULT_WINDOW - size)
+        body = self._alert_query(min_level, category=category, since=since, order=order, host=host, text=text)
+        body.update({"from": offset, "size": size, "track_total_hits": True})
+        query = body["query"]["bool"]
+        if exclude_ids:
+            query.setdefault("must_not", []).append({"ids": {"values": list(exclude_ids)}})
+        if only_ids is not None:
+            query.setdefault("filter", []).append({"ids": {"values": list(only_ids)}})
+        try:
+            payload = self.client.search(self.alert_index, body)
+        except (WazuhIndexerError, ValueError) as exc:
+            self.last_error = str(exc)
+            return {"alerts": [], "total": 0, "relation": "eq", "error": True, "window_limited": window_limited}
+        self.last_error = ""
+        total, relation = _total_hits(payload)
+        return {
+            "alerts": self._alert_items(_hits(payload)),
+            "total": total,
+            "relation": relation,
+            "window_limited": window_limited,
+        }
+
     def list_alerts_since(
         self,
         since: datetime,
@@ -576,17 +646,26 @@ class WazuhEventRepository:
         self,
         *,
         hours: int = 24,
+        now: datetime | None = None,
     ) -> dict[str, Any]:
-        """Return small live SOC metrics from Wazuh Indexer."""
+        """Return small live SOC metrics from Wazuh Indexer.
 
+        Each metric is counted twice: everything retained ("전체") and the
+        last `hours` (10주차 멘토링 1번). The window is fixed here to exact
+        timestamps and returned, so the page can say which 24 hours it means
+        (e.g. 10.03 16:43:05 ~ 10.04 16:43:05) instead of a relative "now-24h".
+        """
+        end = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(microsecond=0)
+        start = end - timedelta(hours=max(int(hours), 1))
         window = {
             "range": {
                 self.timestamp_field: {
-                    "gte": f"now-{max(int(hours), 1)}h",
-                    "lte": "now",
+                    "gte": start.isoformat(),
+                    "lte": end.isoformat(),
                 }
             }
         }
+        everything = {"match_all": {}}
 
         def count(
             index: str,
@@ -648,11 +727,22 @@ class WazuhEventRepository:
             },
         )
 
+        level_8 = {"range": {"rule.level": {"gte": 8}}}
+        not_cve = [{"terms": {"rule.groups": list(VULNERABILITY_GROUPS)}}]
+        totals = {
+            "alerts": count(self.alert_index, everything),
+            "level_8_plus": count(self.alert_index, {"bool": {"filter": [level_8]}}),
+            "level_8_plus_attack": count(self.alert_index, {"bool": {"filter": [level_8], "must_not": not_cve}}),
+            "archive_events": count(self.archive_index, everything),
+        }
+
         return {
             "alerts_24h": alerts_24h,
             "level_8_plus_24h": level_8_plus,
             "level_8_plus_attack_24h": level_8_plus_attack,
             "archive_events_24h": archive_events_24h,
+            "totals": totals,
+            "window": {"start": start.isoformat(), "end": end.isoformat(), "hours": max(int(hours), 1)},
             "recent_alerts": self.list_alerts()[:6],
         }
 

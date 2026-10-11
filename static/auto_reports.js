@@ -162,8 +162,15 @@
             if (runNow) runNow.hidden = !(isAdmin && settings.enabled);
         }
 
-        function renderList(reports) {
-            root.querySelector("[data-list-count]").textContent = `보고서 ${reports.length}건`;
+        const SENSITIVE_LABELS = {
+            credential: "자격증명", secret_config: "설정·비밀 파일", backup: "백업 파일",
+            admin_login: "관리자·로그인", traversal: "경로 조작",
+        };
+
+        function renderList(reports, queryCategory = "") {
+            root.querySelector("[data-list-count]").textContent = queryCategory
+                ? `보고서 ${reports.length}건 · '${SENSITIVE_LABELS[queryCategory] || queryCategory}' 대상 포함`
+                : `보고서 ${reports.length}건`;
             if (!reports.length) {
                 list.innerHTML = `<div class="empty-state">조건에 맞는 보고서가 없습니다.</div>`;
                 return;
@@ -171,10 +178,12 @@
             list.innerHTML = reports.map((item) => {
                 const repeat = Number(item.occurrences) > 1 ? `<span class="tag">반복 ${escapeHtml(item.occurrences)}건</span>` : "";
                 const intel = Number(item.intel_matches) > 0 ? `<span class="tag tag-danger">CTI ${escapeHtml(item.intel_matches)}</span>` : "";
+                const sensitive = (item.sensitive || []).map((key) =>
+                    `<span class="tag" title="${escapeHtml((item.paths || []).slice(0, 5).join("\n"))}">${escapeHtml(SENSITIVE_LABELS[key] || key)}</span>`).join(" ");
                 return `<button type="button" role="listitem" class="auto-report-item ${item.id === selectedId ? "selected" : ""}" data-report-id="${escapeHtml(item.id)}">
                     <span class="auto-report-item-top">${band(item.priority)} ${reviewChip(item.review_status)} ${aiChip(item.ai_status, item.ai_waiting)}</span>
                     <strong>${escapeHtml(item.title || "제목 없는 경보")}</strong>
-                    <span class="auto-report-item-meta">${escapeHtml(item.host || "—")} · ${escapeHtml(item.source_ip || "출발지 없음")} · L${escapeHtml(item.level ?? "—")} ${repeat} ${intel}</span>
+                    <span class="auto-report-item-meta">${escapeHtml(item.host || "—")} · ${escapeHtml(item.source_ip || "출발지 없음")} · L${escapeHtml(item.level ?? "—")} ${repeat} ${intel} ${sensitive}</span>
                     <span class="auto-report-item-time">${escapeHtml(formatDateTime(item.alert_time || item.created_at))} · ${escapeHtml(item.id)}</span>
                 </button>`;
             }).join("");
@@ -185,7 +194,7 @@
             try {
                 const data = await requestJson(`/api/auto-reports?${params.toString()}`);
                 renderStatus(data);
-                renderList(data.reports || []);
+                renderList(data.reports || [], data.query_category || "");
                 if (!selectedId && data.reports?.length) selectedId = data.reports[0].id;
                 const typing = detail.contains(document.activeElement) && document.activeElement.matches("textarea, select");
                 const waitingForAi = current && current.id === selectedId && current.ai?.status === "pending";

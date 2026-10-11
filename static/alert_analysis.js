@@ -183,12 +183,56 @@
                 });
                 panel.querySelector("[data-feedback-result]").textContent =
                     `'${VERDICT_LABELS_KO[values.verdict] || values.verdict}' 판정을 저장했습니다.`;
+                renderHandling(root, alertId, csrf);
             } catch (error) {
                 panel.querySelector("[data-feedback-result]").textContent = error.message;
             } finally {
                 button.disabled = false;
             }
         });
+    }
+
+    // 처리 상태: settle an alert without running an analysis first, so the
+    // queue's 미처리 filter can drop it (10주차 멘토링 2번).
+    const HANDLING_STATE_KO = { confirmed: "처리됨 · 실제 위협", false_positive: "처리됨 · 오탐", investigating: "추가 조사 중" };
+
+    async function renderHandling(root, alertId, csrf) {
+        const box = root.querySelector("[data-alert-handling]");
+        if (!box) return;
+        let history = { for_alert: [] };
+        try {
+            history = await requestJson(`/api/alerts/${encodeURIComponent(alertId)}/feedback`);
+        } catch (error) {
+            console.warn("Alert handling state unavailable:", error);
+            return;
+        }
+        const last = (history.for_alert || []).filter((item) => item.verdict !== "withdrawn").slice(-1)[0];
+        const current = last ? HANDLING_STATE_KO[last.verdict] || last.verdict : "미처리";
+        box.hidden = false;
+        box.innerHTML = `
+            <span class="muted">처리 상태</span>
+            <span class="handling-state">${escapeHtml(current)}</span>
+            ${last ? `<span class="muted">${escapeHtml(formatDateTime(last.recorded_at))} · ${escapeHtml(last.reviewer || "")}</span>` : ""}
+            <button type="button" class="button secondary small" data-handle="false_positive">오탐으로 처리</button>
+            <button type="button" class="button secondary small" data-handle="confirmed">실제 위협으로 처리</button>
+            <button type="button" class="button secondary small" data-handle="investigating">추가 조사로 두기</button>
+            <span class="muted" data-handling-result></span>`;
+        box.querySelectorAll("[data-handle]").forEach((button) => button.addEventListener("click", async () => {
+            const verdict = button.dataset.handle;
+            box.querySelectorAll("[data-handle]").forEach((item) => { item.disabled = true; });
+            try {
+                await requestJson(`/api/alerts/${encodeURIComponent(alertId)}/feedback`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+                    body: JSON.stringify({ verdict, note: "", analysis_id: "" }),
+                });
+                await renderHandling(root, alertId, csrf);
+            } catch (error) {
+                const result = box.querySelector("[data-handling-result]");
+                if (result) result.textContent = error.message;
+                box.querySelectorAll("[data-handle]").forEach((item) => { item.disabled = false; });
+            }
+        }));
     }
 
     function renderCase(root, data) {
@@ -396,10 +440,13 @@
 
         const sourceIp = String(
             data.srcip ||
+            data.src_ip ||
             data.sourceIp ||
             data.eventdata?.sourceIp ||
             ""
         ).trim();
+        const destinationIp = String(data.dest_ip || data.dstip || "").trim();
+        const signatureId = String(data.alert?.signature_id ?? "").trim();
 
         const agentId = String(agent.id || "").trim();
         const ruleId = String(rule.id || "").trim();
@@ -451,6 +498,7 @@
                     index: "wazuh-alerts-*",
                     query:
                         `(data.srcip:"${safeIp}" OR ` +
+                        `data.src_ip:"${safeIp}" OR ` +
                         `data.eventdata.sourceIp:"${safeIp}" OR ` +
                         `full_log:"${safeIp}")`,
                     start: historyStart,
@@ -489,6 +537,58 @@
             });
         }
 
+        // Suricata (10주차 멘토링 6번): the original concept is to collect
+        // every log and, when a Suricata signature fires, pull the logs that
+        // share its signature id and address so similar traffic is seen
+        // together. These pivots do exactly that; the team's AI rule
+        // generation is a separate, added step (Suricata 룰 화면).
+        const safeSid = /^[0-9]{1,12}$/.test(signatureId) ? signatureId : "";
+        const safeDestination = /^[0-9A-Fa-f:.]{3,64}$/.test(destinationIp) ? destinationIp : "";
+        if (safeSid) {
+            const addresses = [safeIp, safeDestination].filter(Boolean);
+            const addressClause = addresses.length
+                ? ` AND (${addresses.map((ip) => `data.src_ip:"${ip}" OR data.dest_ip:"${ip}"`).join(" OR ")})`
+                : "";
+            if (addressClause) {
+                links.push({
+                    label: `Suricata SID ${safeSid} + 같은 IP · 24시간`,
+                    href: investigationLogUrl({
+                        index: "wazuh-alerts-*",
+                        query: `data.alert.signature_id:"${safeSid}"${addressClause}`,
+                        start: historyStart,
+                        end: historyEnd,
+                        pivot: "suricata_sid_ip",
+                        alertId,
+                    }),
+                });
+            }
+            links.push({
+                label: `같은 SID ${safeSid} · 모든 IP · 24시간`,
+                href: investigationLogUrl({
+                    index: "wazuh-alerts-*",
+                    query: `data.alert.signature_id:"${safeSid}"`,
+                    start: historyStart,
+                    end: historyEnd,
+                    pivot: "suricata_sid",
+                    alertId,
+                }),
+            });
+            if (addresses.length) {
+                links.push({
+                    label: "같은 IP의 전체 원시 로그 · ±1시간",
+                    href: investigationLogUrl({
+                        index: "wazuh-archives-*",
+                        query: addresses.map((ip) =>
+                            `data.src_ip:"${ip}" OR data.dest_ip:"${ip}" OR data.srcip:"${ip}" OR full_log:"${ip}"`).join(" OR "),
+                        start: new Date(timestamp - 60 * 60 * 1000).toISOString(),
+                        end: new Date(timestamp + 60 * 60 * 1000).toISOString(),
+                        pivot: "suricata_ip_raw",
+                        alertId,
+                    }),
+                });
+            }
+        }
+
         if (safeAgentId) {
             links.push({
                 label: "원시 이벤트 · ±5분",
@@ -513,6 +613,8 @@
                 ${escapeHtml(item.label)}
             </a>
         `).join("");
+        const note = root.querySelector("[data-suricata-pivot-note]");
+        if (note) note.hidden = !safeSid;
 
         section.hidden = false;
     }
@@ -700,6 +802,7 @@
         const alertId = root.dataset.alertId;
         const csrf = root.dataset.csrf;
         renderAlertHistory(root, alertId);
+        renderHandling(root, alertId, csrf);
         try {
             renderCase(root, await requestJson(`/api/alerts/${encodeURIComponent(alertId)}`));
             try {

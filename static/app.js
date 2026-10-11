@@ -11,6 +11,7 @@ const state = {
     csrfToken: "",
     agentSaveTimer: null,
     agentAlerts: [],
+    alertPage: 1,
 };
 
 function escapeHtml(value) {
@@ -888,21 +889,34 @@ async function initDashboard() {
     const data = await api("/api/dashboard");
     const stats = data.stats || {};
 
-    byId("metric-alerts-24h").textContent =
-        formatNumber(stats.alerts_24h || 0);
-
-    byId("metric-level8-24h").textContent =
-        formatNumber(stats.level_8_plus_24h || 0);
-
-    byId("metric-archive-24h").textContent =
-        formatNumber(stats.archive_events_24h || 0);
-
-    byId("metric-actions").textContent =
-        formatNumber(stats.pending_actions || 0);
+    // 전체 / 최근 24시간 (10주차 멘토링 1번): the total is shown first and
+    // smaller, the last 24 hours after it, as analysts usually read them.
+    const totals = data.totals || {};
+    const pair = (id, total, recent) => {
+        const target = byId(id);
+        if (!target) return;
+        target.innerHTML = Number.isFinite(Number(total)) && total !== undefined && total !== null
+            ? `<span class="metric-total">${escapeHtml(formatNumber(total))}</span><span class="metric-sep">/</span>${escapeHtml(formatNumber(recent || 0))}`
+            : escapeHtml(formatNumber(recent || 0));
+    };
+    pair("metric-alerts-24h", totals.alerts, stats.alerts_24h);
+    pair("metric-level8-24h", totals.level_8_plus, stats.level_8_plus_24h);
+    pair("metric-archive-24h", totals.archive_events, stats.archive_events_24h);
+    pair("metric-actions", totals.pending_actions ?? stats.pending_actions, stats.pending_actions_24h);
+    const windowNote = byId("metric-window");
+    if (windowNote && data.window?.start && data.window?.end) {
+        const stamp = (value) => new Date(value).toLocaleString("ko-KR", {
+            month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+        });
+        windowNote.textContent = `최근 ${data.window.hours || 24}시간 = ${stamp(data.window.start)} ~ ${stamp(data.window.end)} (이 브라우저 시간 기준, 대시보드를 연 시각까지)`;
+    }
 
     const attackOnly = stats.level_8_plus_attack_24h;
     if (byId("metric-level8-note") && Number.isFinite(attackOnly)) {
-        byId("metric-level8-note").textContent = `CVE 취약점 경보 제외 ${formatNumber(attackOnly)}건`;
+        const attackTotal = (data.totals || {}).level_8_plus_attack;
+        byId("metric-level8-note").textContent = Number.isFinite(attackTotal)
+            ? `CVE 취약점 경보 제외 ${formatNumber(attackTotal)} / ${formatNumber(attackOnly)}건`
+            : `CVE 취약점 경보 제외 ${formatNumber(attackOnly)}건`;
     }
     if (data.recent_alerts_kind === "top_attack") {
         if (byId("dashboard-alert-kicker")) byId("dashboard-alert-kicker").textContent = "공격 경보 · 최근 24시간 · 우선순위 순";
@@ -978,6 +992,7 @@ async function loadDashboardCti() {
 const RT_DECISION_SHORT = {
     send: "전송", queued: "전송", disabled: "꺼짐", not_sent: "보내지 않음", skipped_no_token: "토큰 없음",
     skipped_not_live: "실데이터 아님", skipped_demo_result: "데모", skipped_no_runner_url: "주소 없음",
+    skipped_recursive_request: "정밀 검사 중 분석", skipped_no_tools: "도구 미지정",
 };
 
 // 대시보드 레드팀 목록: the latest analyses and where their evaluation stands.
@@ -2503,7 +2518,7 @@ function renderAlertRow(alert, group = null) {
 
     return `
         <div class="alert-row sev-row sev-${alertSeverity(alert).key}${repeated ? " alert-row-grouped" : ""}">
-            <span class="alert-time">${escapeHtml(formatAlertTime(alert.time))}</span>
+            <span class="alert-time">${escapeHtml(formatAlertTime(alert.time))}${handlingChip(alert)}</span>
             <span class="wazuh-level">${priorityBadge(alert)} ${severityChip(alert)}</span>
             <div class="alert-description">
                 <strong>${escapeHtml(alert.title || "Wazuh 경보")}</strong>
@@ -2540,15 +2555,25 @@ async function loadAlertsInner() {
     const note = document.querySelector("[data-category-note]");
     if (note) note.textContent = ALERT_CATEGORY_NOTES[category] || "";
 
+    const status = byId("alert-status")?.value || "open";
+    const pageSize = Number(byId("alert-page-size")?.value || 50);
     const params = new URLSearchParams({
         q: queryInput.value.trim(),
         min_level: levelInput.value || "0",
         category,
         range,
         sort: sortMode,
+        status,
+        page: String(state.alertPage || 1),
+        page_size: String(pageSize),
     });
     if (state.alertHost) params.set("host", state.alertHost);
     const data = await api(`/api/alerts?${params}`);
+    // A filter that leaves fewer pages than the one shown: go to the last.
+    if (data.total && data.page > data.pages) {
+        state.alertPage = data.pages;
+        return loadAlertsInner();
+    }
 
     const level = Number(levelInput.value || 0);
     const alerts = [...(data.alerts || [])];
@@ -2562,10 +2587,12 @@ async function loadAlertsInner() {
     }
     const rows = grouped ? groupAlerts(alerts) : alerts.map((alert) => ({ lead: alert, count: 1 }));
 
-    const capped = data.limit && data.total >= data.limit;
+    const first = data.total ? (data.page - 1) * data.page_size + 1 : 0;
+    const last = Math.min(data.page * data.page_size, data.total);
     count.textContent = [
-        `${ALERT_RANGE_LABELS[range] ?? "최근"} 경보 ${formatNumber(data.total)}건${capped ? ` (${sortMode === "priority" ? "레벨 높은 순" : "최신순"} 상위 ${formatNumber(data.limit)}건)` : ""}`,
-        grouped && rows.length !== alerts.length ? `${formatNumber(rows.length)}개 묶음` : "",
+        `${ALERT_RANGE_LABELS[range] ?? "최근"} ${ALERT_STATUS_LABELS[status] || ""} 경보 전체 ${formatNumber(data.total)}건${data.total_relation === "gte" ? " 이상" : ""}`,
+        data.total ? `${formatNumber(first)}–${formatNumber(last)}번째 (${sortMode === "priority" ? "레벨 높은 순" : "최신순"})` : "",
+        grouped && rows.length !== alerts.length ? `이 페이지 ${formatNumber(rows.length)}개 묶음` : "",
         level > 0 ? `Wazuh 레벨 ≥ ${level}` : "",
         state.alertHost ? `호스트 ${state.alertHost}` : "",
     ].filter(Boolean).join(" · ");
@@ -2582,9 +2609,56 @@ async function loadAlertsInner() {
 
     table.innerHTML = header + rows.map((row) => renderAlertRow(row.lead, row)).join("") || `
         <div class="empty-state">
-            필터와 일치하는 경보가 없습니다.
+            ${status === "open" && !data.total ? "미처리 경보가 없습니다. 처리 상태를 '전체'로 바꾸면 처리된 경보도 볼 수 있습니다." : "필터와 일치하는 경보가 없습니다."}
         </div>
     `;
+    renderAlertPager(data);
+}
+
+const ALERT_STATUS_LABELS = { open: "미처리", handled: "처리됨", all: "" };
+const HANDLING_LABELS = {
+    confirmed: ["처리됨 · 실제 위협", "handling-confirmed"],
+    false_positive: ["처리됨 · 오탐", "handling-fp"],
+    investigating: ["추가 조사 중", "handling-open"],
+};
+
+function handlingChip(alert) {
+    const record = alert.handling;
+    if (!record) return "";
+    const [label, css] = HANDLING_LABELS[record.verdict] || [record.verdict, "handling-open"];
+    const when = record.recorded_at ? ` · ${formatAlertTime(record.recorded_at, false)}` : "";
+    return `<span class="handling-chip ${css}" title="${escapeHtml(`${label}${when}${record.reviewer ? ` · ${record.reviewer}` : ""}`)}">${escapeHtml(label)}</span>`;
+}
+
+// Page numbers around the current one, with the first and last always shown.
+function pagerNumbers(current, total) {
+    const wanted = new Set([1, total, current - 2, current - 1, current, current + 1, current + 2]);
+    const numbers = [...wanted].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
+    const out = [];
+    numbers.forEach((n, i) => {
+        if (i && n - numbers[i - 1] > 1) out.push("…");
+        out.push(n);
+    });
+    return out;
+}
+
+function renderAlertPager(data) {
+    const pager = byId("alert-pager");
+    if (!pager) return;
+    if (!data.total || data.pages <= 1) {
+        pager.hidden = true;
+        pager.innerHTML = "";
+        return;
+    }
+    const current = data.page;
+    const button = (label, target, extra = "") => `<button type="button" class="pager-button${target === current ? " active" : ""}" data-page="${target}" ${target === current ? 'aria-current="page"' : ""} ${extra}>${label}</button>`;
+    pager.hidden = false;
+    pager.innerHTML = [
+        button("이전", Math.max(1, current - 1), current <= 1 ? "disabled" : ""),
+        ...pagerNumbers(current, data.pages).map((n) => (n === "…" ? `<span class="pager-gap">…</span>` : button(formatNumber(n), n))),
+        button("다음", Math.min(data.pages, current + 1), current >= data.pages ? "disabled" : ""),
+        data.window_limited ? `<span class="muted">1만 번째 이후는 검색 조건을 좁혀 주세요</span>` : "",
+    ].join("");
 }
 
 function initAlerts() {
@@ -2598,15 +2672,27 @@ function initAlerts() {
 
     form.addEventListener("submit", (event) => {
         event.preventDefault();
+        state.alertPage = 1;
         loadAlerts();
     });
-    ["alert-sort", "alert-range", "alert-group", "alert-min-level"].forEach((id) => {
-        byId(id)?.addEventListener("change", () => loadAlerts());
+    ["alert-sort", "alert-range", "alert-group", "alert-min-level", "alert-status", "alert-page-size"].forEach((id) => {
+        byId(id)?.addEventListener("change", () => {
+            state.alertPage = 1;
+            loadAlerts();
+        });
+    });
+    byId("alert-pager")?.addEventListener("click", (event) => {
+        const target = event.target.closest("[data-page]");
+        if (!target || target.disabled) return;
+        state.alertPage = Number(target.dataset.page) || 1;
+        loadAlerts();
+        byId("alert-count")?.scrollIntoView({ block: "start", behavior: "smooth" });
     });
     const tabs = [...document.querySelectorAll(".alert-tab")];
     const selectTab = (category) => tabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.category === category)));
     tabs.forEach((tab) => tab.addEventListener("click", () => {
         selectTab(tab.dataset.category);
+        state.alertPage = 1;
         loadAlerts();
     }));
 
@@ -2628,6 +2714,12 @@ function initAlerts() {
     state.alertHost = /^[A-Za-z0-9_.:-]{1,128}$/.test(params.get("host") || "") ? params.get("host") : "";
     preset("alert-range", params.get("range"));
     preset("alert-sort", params.get("sort"));
+    // A dashboard count links here with its filter; it counts every alert,
+    // so the list it opens shows every alert too unless a status is given.
+    const linkedFilter = ["min_level", "range", "host", "q", "category"].some((key) => params.has(key));
+    preset("alert-status", params.get("status") || (linkedFilter ? "all" : null));
+    preset("alert-page-size", params.get("page_size"));
+    if (/^\d{1,4}$/.test(params.get("page") || "")) state.alertPage = Math.max(1, Number(params.get("page")));
     if (["attack", "vulnerability", "all"].includes(params.get("category"))) selectTab(params.get("category"));
     if (params.get("group") === "0" && byId("alert-group")) byId("alert-group").checked = false;
     const presetQuery = params.get("q");

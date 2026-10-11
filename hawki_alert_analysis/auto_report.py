@@ -45,6 +45,7 @@ from typing import Any, Callable, Iterator
 
 from .explain import BAND_EXPECTED_SEVERITY, severity_agreement
 from .priority import SEVERITY_AS_LEVEL
+from .sensitive import facets_from_alert, report_facets
 
 try:  # POSIX (the containers). Windows development runs one process anyway.
     import fcntl
@@ -458,6 +459,8 @@ def report_summary(report: dict[str, Any]) -> dict[str, Any]:
         "ai_status": ai.get("status"),
         "ai_waiting": ai.get("waiting_reason"),
         "review_status": (report.get("review") or {}).get("status", "unreviewed"),
+        "sensitive": sorted(((report.get("facets") or facets_from_alert(alert)).get("sensitive") or {}).keys()),
+        "paths": ((report.get("facets") or facets_from_alert(alert)).get("paths") or [])[:10],
         # Indicators that count against the alert: live, malicious or suspicious.
         "intel_matches": sum(
             1
@@ -861,6 +864,9 @@ class AutoReporter:
                 "explanation": explanation,
                 "feedback_used": len(((bundle.get("analyst_feedback") or {}).get("items")) or []),
             }
+            # What people search (10주차 멘토링 5번): structured, from the
+            # evidence package, never from the model's text.
+            r["facets"] = report_facets(bundle, alert)
             # The evidence the model actually saw, which may be newer than at creation.
             r["evidence"] = {
                 "bundle_schema": facts["bundle_schema"],

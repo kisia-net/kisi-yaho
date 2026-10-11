@@ -31,7 +31,17 @@
     <div class="split-grid auto-report-grid">
         <section class="panel auto-report-list-panel">
             <form class="toolbar-form auto-report-filters" data-filters>
-                <label>검색<input name="q" placeholder="호스트, IP, 룰, 보고서 ID"></label>
+                <label>검색<input name="q" placeholder="호스트, IP, 룰, 보고서 ID, credential, .env"></label>
+                <label>민감 대상
+                    <select name="sensitive">
+                        <option value="all">전체</option>
+                        <option value="credential">자격증명·계정 정보</option>
+                        <option value="secret_config">설정·비밀 파일</option>
+                        <option value="backup">백업·덤프 파일</option>
+                        <option value="admin_login">관리자·로그인 페이지</option>
+                        <option value="traversal">경로 조작</option>
+                    </select>
+                </label>
                 <label>검토 상태
                     <select name="review">
                         <option value="all">전체</option>

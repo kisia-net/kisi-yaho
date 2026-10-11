@@ -83,19 +83,42 @@
         } catch {
             ctiByAgent = {};
         }
+        const count = (value) => Number(value || 0).toLocaleString("ko-KR");
         list.querySelectorAll("[data-agent-id]").forEach((row) => {
             const badge = badges[row.dataset.agentId] || {};
+            const cti = Number(ctiByAgent[row.dataset.agentId] || 0);
             const parts = [
-                `<span class="host-badge" title="CVE 경보를 뺀 최근 24시간 경보">경보 ${Number(badge.alerts_24h || 0).toLocaleString("ko-KR")}</span>`,
-                badge.high_24h ? `<span class="host-badge host-badge-high" title="레벨 10 이상">고위험 ${Number(badge.high_24h).toLocaleString("ko-KR")}</span>` : "",
-                badge.critical_vulnerabilities ? `<span class="host-badge host-badge-vuln" title="치명 등급 취약점">치명 취약점 ${Number(badge.critical_vulnerabilities).toLocaleString("ko-KR")}</span>` : "",
-                ctiByAgent[row.dataset.agentId] ? `<span class="host-badge host-badge-high" title="최근 24시간 경보 중 CTI 등재 출발지에서 온 것">CTI 일치 ${Number(ctiByAgent[row.dataset.agentId]).toLocaleString("ko-KR")}</span>` : "",
+                `<span class="host-badge" title="최근 24시간 이 호스트의 경보 (CVE 취약점 경보 제외)">경보 ${count(badge.alerts_24h)}</span>`,
+                badge.high_24h ? `<span class="host-badge host-badge-high" title="공격 활동: 최근 24시간 이 호스트에서 난 레벨 10 이상 경보 (CVE 경보 제외). 지금 공격받고 있는 정도입니다.">고위험 공격 ${count(badge.high_24h)}</span>` : "",
+                badge.critical_vulnerabilities ? `<span class="host-badge host-badge-vuln" title="노출 상태: Wazuh 취약점 상태 인덱스의 치명(Critical) 등급 미해결 취약점. CVE와 패키지 조합마다 1건이며 기간과 무관합니다. 공격받을 수 있는 정도입니다.">치명 취약점 ${count(badge.critical_vulnerabilities)}</span>` : "",
+                cti ? `<span class="host-badge host-badge-high" title="최근 24시간 경보 중 CTI 등재 출발지에서 온 것">CTI 일치 ${count(cti)}</span>` : "",
             ].filter(Boolean).join("");
             const holder = document.createElement("div");
             holder.className = "host-badges";
             holder.innerHTML = parts;
             row.querySelector("div")?.appendChild(holder);
+            row.appendChild(healthBar(badge.health, row.dataset.hostStatus, cti));
         });
+    }
+
+    // 호스트 상태바 (10주차 멘토링 3번): the server's verdict from attack
+    // activity and exposure (hawki_alert_analysis/siem.py host_health);
+    // a disconnected agent is reported as such whatever its last numbers.
+    function healthBar(health, status, cti) {
+        const value = health || { state: "healthy", label: "양호", level: 8, reasons: ["최근 24시간 고위험 공격과 치명·높음 취약점이 없습니다"] };
+        const offline = status && status !== "active";
+        const reasons = [...(value.reasons || [])];
+        if (cti) reasons.push(`CTI 등재 출발지 경보 ${cti.toLocaleString("ko-KR")}건`);
+        const state = offline ? "offline" : value.state;
+        const label = offline ? "연결 끊김" : value.label;
+        const bar = document.createElement("div");
+        bar.className = `host-health host-health-${state}`;
+        bar.title = (offline ? ["에이전트가 연결되어 있지 않아 최신 상태가 아닐 수 있습니다", ...reasons] : reasons).join("\n");
+        bar.innerHTML = `
+            <span class="host-health-label">${escapeHtml(label)}</span>
+            <span class="host-health-track"><span class="host-health-fill"></span></span>
+            <span class="host-health-reason">${escapeHtml(offline ? "에이전트 연결 끊김 · 마지막 수치 기준" : reasons.join(" · "))}</span>`;
+        return bar;
     }
 
     async function initHosts(root) {
@@ -111,6 +134,7 @@
             list.innerHTML = (data.hosts || []).map((host) => `
                 <a class="host-row"
                    data-agent-id="${escapeHtml(host.id)}"
+                   data-host-status="${escapeHtml(String(host.status || "").toLowerCase())}"
                    href="/hosts/${encodeURIComponent(host.id)}">
 
                     <span class="host-status ${escapeHtml(host.status)}">
