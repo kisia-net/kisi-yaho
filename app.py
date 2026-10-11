@@ -91,7 +91,8 @@ from hawki_alert_analysis.auto_report import (
 )
 from hawki_alert_analysis.explain import build_explanation
 from hawki_alert_analysis.live_bundle import fit_live_bundle
-from hawki_alert_analysis.feedback import ANALYST_VERDICTS, FeedbackStore, context_block, identity as feedback_identity
+from hawki_alert_analysis.sensitive import SENSITIVE_CATEGORIES, category_for_query
+from hawki_alert_analysis.feedback import ANALYST_VERDICTS, SETTLED_VERDICTS, FeedbackStore, context_block, identity as feedback_identity
 from hawki_alert_analysis.priority import SEVERITY_AS_LEVEL
 from hawki_alert_analysis.ui_messages import (
     REVIEW_NOTE_CODES,
@@ -1695,10 +1696,13 @@ def api_siem_web_scenarios():
 @app.get("/api/dashboard")
 def api_dashboard():
     actions = read_jsonl(ACTION_QUEUE_PATH)
-    pending = sum(
-        1
-        for item in actions
-        if item.get("status") == "pending_approval"
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    window_start = now - timedelta(hours=24)
+    pending_items = [item for item in actions if item.get("status") == "pending_approval"]
+    pending = len(pending_items)
+    pending_recent = sum(
+        1 for item in pending_items
+        if (parse_time(item.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)) >= window_start
     )
 
     if isinstance(
@@ -1708,6 +1712,7 @@ def api_dashboard():
         try:
             summary = ALERT_REPOSITORY.dashboard_summary(
                 hours=24,
+                now=now,
             )
             visuals = SIEM.dashboard_visuals(
                 hours=24,
@@ -1744,6 +1749,12 @@ def api_dashboard():
                         summary["archive_events_24h"]
                     ),
                     "pending_actions": pending,
+                    "pending_actions_24h": pending_recent,
+                },
+                # 전체 / 최근 24시간 (10주차 멘토링 1번)
+                "totals": {**summary.get("totals", {}), "pending_actions": pending},
+                "window": summary.get("window") or {
+                    "start": window_start.isoformat(), "end": now.isoformat(), "hours": 24,
                 },
                 # Up to 60, so the page can fold repeats before showing six.
                 "recent_alerts": top[:60] or summary["recent_alerts"],
@@ -1762,7 +1773,10 @@ def api_dashboard():
                 "level_8_plus_24h": 0,
                 "archive_events_24h": 0,
                 "pending_actions": pending,
+                "pending_actions_24h": pending_recent,
             },
+            "totals": {"alerts": len(alerts), "pending_actions": pending},
+            "window": {"start": window_start.isoformat(), "end": now.isoformat(), "hours": 24},
             "recent_alerts": alerts[:6],
         }
     )
@@ -1771,6 +1785,32 @@ def api_dashboard():
 ALERT_CATEGORIES = {"all", "attack", "vulnerability"}
 # 보안 경보 기간: "" keeps the old behaviour (newest alerts, any age).
 ALERT_PERIODS = {"": "", "1h": "now-1h", "24h": "now-24h", "7d": "now-7d", "30d": "now-30d"}
+
+
+# 미처리 / 처리됨: an alert is handled once its latest analyst verdict is
+# settled (확인됨 or 오탐); "추가 조사" keeps it open. Recorded on the alert
+# page or from an automatic report review (hawki_alert_analysis/feedback.py).
+ALERT_STATUSES = ("all", "open", "handled")
+ALERT_PAGE_SIZES = (25, 50, 100, 200)
+ALERT_PAGE_SIZE_DEFAULT = 100
+# The indexer query names handled alerts by id; the newest this many count.
+ALERT_HANDLED_ID_LIMIT = 5000
+
+
+def alert_handling_states() -> dict[str, dict[str, Any]]:
+    """Latest verdict per alert id, oldest first."""
+    states: dict[str, dict[str, Any]] = {}
+    for record in FEEDBACK_STORE.latest():
+        alert_id = str(record.get("alert_id") or "")
+        verdict = str(record.get("verdict") or "")
+        if not alert_id or verdict == "withdrawn":
+            continue
+        states[alert_id] = {
+            "verdict": verdict,
+            "recorded_at": record.get("recorded_at"),
+            "reviewer": record.get("reviewer"),
+        }
+    return dict(sorted(states.items(), key=lambda pair: str(pair[1].get("recorded_at") or "")))
 
 
 @app.get("/api/alerts")
@@ -1798,23 +1838,49 @@ def api_alerts():
     if host and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", host):
         return jsonify({"error": "Invalid host name."}), 400
 
+    status = (request.args.get("status") or "all").strip()
+    if status not in ALERT_STATUSES:
+        return jsonify({"error": "Unsupported alert status."}), 400
+    try:
+        page = max(int(request.args.get("page") or 1), 1)
+        page_size = int(request.args.get("page_size") or ALERT_PAGE_SIZE_DEFAULT)
+    except ValueError:
+        return jsonify({"error": "page and page_size must be integers."}), 400
+    if page_size not in ALERT_PAGE_SIZES:
+        return jsonify({"error": "Unsupported page size."}), 400
+
+    handling = alert_handling_states()
     options = {"category": category, "since": ALERT_PERIODS[period], "order": order}
     if host:
         options["host"] = host
-    alerts = ALERT_ANALYSIS.list_alerts(
+    result = ALERT_ANALYSIS.page_alerts(
         min_level=min_level,
         query=query,
+        page=page,
+        page_size=page_size,
+        status=status,
+        handled_ids=[alert_id for alert_id, record in handling.items()
+                     if record["verdict"] in SETTLED_VERDICTS][-ALERT_HANDLED_ID_LIMIT:],
         **options,
     )
+    alerts = result["alerts"]
+    for item in alerts:
+        record = handling.get(str(item.get("id") or ""))
+        item["handling"] = record
 
     return jsonify(
         {
-            "total": len(alerts),
+            "total": result["total"],
+            "total_relation": result["relation"],
+            "page": result["page"],
+            "page_size": result["page_size"],
+            "pages": result["pages"],
+            "window_limited": result["window_limited"],
+            "status": status,
             "alerts": alerts,
             "category": category,
             "range": period,
             "host": host,
-            "limit": getattr(ALERT_REPOSITORY, "alert_limit", None),
             "source": (
                 "wazuh_indexer"
                 if isinstance(
@@ -7894,6 +7960,12 @@ def api_auto_reports():
     band = request.args.get("band", "all").strip().upper()
     ai_status = request.args.get("ai", "all").strip()
     query = request.args.get("q", "").strip().lower()[:120]
+    sensitive = request.args.get("sensitive", "all").strip()
+    if sensitive != "all" and sensitive not in SENSITIVE_CATEGORIES:
+        return jsonify({"error": "Unsupported sensitive category."}), 400
+    # "credential", "자격증명", ".env": a category word searches the
+    # structured facets (hawki_alert_analysis/sensitive.py), not the text.
+    query_category = category_for_query(query)
 
     reports = AUTO_REPORT_STORE.all()
     summaries = [report_summary(report) for report in reports]
@@ -7910,13 +7982,18 @@ def api_auto_reports():
         summaries = [item for item in summaries if item["priority"].get("band") == band]
     if ai_status != "all":
         summaries = [item for item in summaries if item["ai_status"] == ai_status]
+    if sensitive != "all":
+        summaries = [item for item in summaries if sensitive in (item.get("sensitive") or [])]
     if query:
         summaries = [
             item for item in summaries
             if query in json.dumps(item, ensure_ascii=False).lower()
+            or (query_category and query_category in (item.get("sensitive") or []))
         ]
     return jsonify(
         {
+            "sensitive_categories": {key: value[0] for key, value in SENSITIVE_CATEGORIES.items()},
+            "query_category": query_category,
             "settings": AUTO_REPORT_SETTINGS.public(),
             "worker": auto_report_worker_status(),
             "counts": counts,

@@ -50,6 +50,24 @@
             </select>
         </label>
 
+        <label>
+            처리 상태
+            <select id="alert-status">
+                <option value="open" selected>미처리</option>
+                <option value="handled">처리됨</option>
+                <option value="all">전체</option>
+            </select>
+        </label>
+
+        <label>
+            한 페이지
+            <select id="alert-page-size">
+                <option value="25">25건</option>
+                <option value="50" selected>50건</option>
+                <option value="100">100건</option>
+            </select>
+        </label>
+
         <label class="alert-group-toggle">
             <input type="checkbox" id="alert-group" checked>
             같은 룰·출발지 묶기
@@ -68,5 +86,9 @@
     </div>
 
     <div class="data-table" id="alerts-table"></div>
+    <nav class="alert-pager" id="alert-pager" aria-label="경보 페이지" hidden></nav>
+    <p class="muted alert-status-note">
+        처리됨: 경보 화면에서 분석가 판정을 '확인됨' 또는 '오탐'으로 저장한 경보입니다. '추가 조사'는 미처리로 남습니다.
+    </p>
 </section>
 {% endblock %}

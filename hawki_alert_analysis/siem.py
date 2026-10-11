@@ -26,6 +26,45 @@ def _hit_total(payload: dict[str, Any]) -> int:
         return 0
 
 
+
+# 호스트 상태 (10주차 멘토링 3번). Two different things are behind the
+# host tags, and the status keeps them apart:
+# - 고위험: attack alerts of level 10+ on this host in the last 24 hours
+#   (activity: someone is hitting it now);
+# - 치명/높음 취약점: open Critical/High findings in Wazuh's vulnerability
+#   state index, one per CVE and package (exposure: it can be hit).
+# A host that is both attacked and exposed is the one to look at first.
+HOST_HEALTH = {
+    "danger": ("위험", 100),
+    "warning": ("주의", 66),
+    "watch": ("관찰", 33),
+    "healthy": ("양호", 8),
+}
+
+
+def host_health(badge: dict[str, Any]) -> dict[str, Any]:
+    attacked = int(badge.get("high_24h") or 0)
+    critical = int(badge.get("critical_vulnerabilities") or 0)
+    high = int(badge.get("high_vulnerabilities") or 0)
+    reasons = []
+    if attacked:
+        reasons.append(f"최근 24시간 레벨 10 이상 공격 경보 {attacked:,}건")
+    if critical:
+        reasons.append(f"치명 취약점 {critical:,}건")
+    if high:
+        reasons.append(f"높음 취약점 {high:,}건")
+    if attacked and critical:
+        state = "danger"
+    elif attacked or critical:
+        state = "warning"
+    elif high:
+        state = "watch"
+    else:
+        state = "healthy"
+        reasons.append("최근 24시간 고위험 공격과 치명·높음 취약점이 없습니다")
+    label, level = HOST_HEALTH[state]
+    return {"state": state, "label": label, "level": level, "reasons": reasons}
+
 class SiemService:
     def __init__(
         self,
@@ -509,14 +548,29 @@ class SiemService:
                 "wazuh-states-vulnerabilities-*",
                 {
                     "size": 0,
-                    "query": {"terms": {"vulnerability.severity": ["Critical", "critical"]}},
-                    "aggs": {"by_agent": {"terms": {"field": "agent.id", "size": 200}}},
+                    "query": {"terms": {"vulnerability.severity": ["Critical", "critical", "High", "high"]}},
+                    "aggs": {"by_agent": {
+                        "terms": {"field": "agent.id", "size": 200},
+                        "aggs": {"severity": {"terms": {"field": "vulnerability.severity", "size": 4}}},
+                    }},
                 },
             )
         except Exception:  # noqa: BLE001 - the vulnerability index is optional
             vulns = {}
         for bucket in ((vulns.get("aggregations") or {}).get("by_agent") or {}).get("buckets") or []:
-            badges.setdefault(str(bucket.get("key")), {})["critical_vulnerabilities"] = int(bucket.get("doc_count") or 0)
+            counts = {"critical": 0, "high": 0}
+            for item in ((bucket.get("severity") or {}).get("buckets") or []):
+                key = str(item.get("key") or "").lower()
+                if key in counts:
+                    counts[key] += int(item.get("doc_count") or 0)
+            if not (bucket.get("severity") or {}).get("buckets"):
+                # An older response without the severity split: all critical.
+                counts["critical"] = int(bucket.get("doc_count") or 0)
+            badge = badges.setdefault(str(bucket.get("key")), {})
+            badge["critical_vulnerabilities"] = counts["critical"]
+            badge["high_vulnerabilities"] = counts["high"]
+        for badge in badges.values():
+            badge["health"] = host_health(badge)
         return badges
 
     def host_security_context(

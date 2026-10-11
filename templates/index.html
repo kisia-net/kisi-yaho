@@ -4,29 +4,30 @@
 {% block content %}
 <section class="metric-grid compact" id="dashboard-metrics">
     <a class="metric-card" href="/alerts" title="보안 경보 목록 열기">
-        <span>경보 · 최근 24시간</span>
+        <span>경보 · 전체 / 최근 24시간</span>
         <strong id="metric-alerts-24h">—</strong>
         <small>Wazuh 탐지 건수</small>
     </a>
 
     <a class="metric-card metric-critical" href="/alerts?min_level=8&amp;range=24h&amp;category=all" title="레벨 8 이상 경보만 보기">
-        <span>레벨 8 이상 · 최근 24시간</span>
+        <span>레벨 8 이상 · 전체 / 최근 24시간</span>
         <strong id="metric-level8-24h">—</strong>
         <small id="metric-level8-note">Wazuh 룰 레벨 기준</small>
     </a>
 
     <a class="metric-card metric-neutral" href="/logs" title="로그 검색 열기">
-        <span>원시 이벤트 · 최근 24시간</span>
+        <span>원시 이벤트 · 전체 / 최근 24시간</span>
         <strong id="metric-archive-24h">—</strong>
         <small>Wazuh 아카이브 수집량</small>
     </a>
 
     <a class="metric-card metric-approval" href="/actions" title="승인 대기열 열기">
-        <span>승인 대기</span>
+        <span>승인 대기 · 전체 / 최근 24시간</span>
         <strong id="metric-actions">—</strong>
         <small>검토를 기다리는 변경 조치 제안</small>
     </a>
 </section>
+<p class="metric-window muted" id="metric-window"></p>
 
 <section class="dashboard-grid">
     <article class="panel notices-panel">

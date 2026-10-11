@@ -94,6 +94,71 @@ class AlertAnalysisService:
 
         return alerts
 
+    def page_alerts(
+        self,
+        *,
+        min_level: int = 0,
+        query: str = "",
+        category: str = "all",
+        since: str = "",
+        order: str = "newest",
+        host: str = "",
+        page: int = 1,
+        page_size: int = 100,
+        status: str = "all",
+        handled_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """One page of the queue, the real total, and the 처리 상태 filter.
+
+        status "open" leaves out alerts with a settled analyst verdict,
+        "handled" keeps only those; `handled_ids` names them. Live Wazuh does
+        all of it in the indexer so every page and the total agree.
+        """
+        page = max(1, int(page))
+        page_size = max(1, min(int(page_size), 200))
+        handled = list(handled_ids or [])
+        offset = (page - 1) * page_size
+        searcher = getattr(self.repository, "search_alert_page", None)
+        if callable(searcher):
+            result = searcher(
+                min_level, category=category, since=since, order=order, host=host, text=query,
+                offset=offset, size=page_size,
+                exclude_ids=handled if status == "open" else None,
+                only_ids=handled if status == "handled" else None,
+            )
+            alerts = list(result.get("alerts") or [])
+            total = int(result.get("total") or 0)
+            relation = str(result.get("relation") or "eq")
+            window_limited = bool(result.get("window_limited"))
+            inventory = getattr(self.repository, "asset_inventory", None)
+            feed = getattr(self.repository, "threat_intel_feed", None)
+            for item in alerts:
+                item["priority"] = priority_for_alert_item(
+                    item, asset_inventory=inventory, threat_intel_feed=feed
+                )
+        else:
+            options = {"host": host} if host else {}
+            matching = self.list_alerts(
+                min_level=min_level, query=query, category=category, since=since, order=order, **options,
+            )
+            wanted = set(handled)
+            if status == "open":
+                matching = [item for item in matching if str(item.get("id")) not in wanted]
+            elif status == "handled":
+                matching = [item for item in matching if str(item.get("id")) in wanted]
+            total, relation, window_limited = len(matching), "eq", False
+            alerts = matching[offset:offset + page_size]
+        pages = max(1, -(-total // page_size)) if total else 1
+        return {
+            "alerts": alerts,
+            "total": total,
+            "relation": relation,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+            "window_limited": window_limited,
+        }
+
     def get_case(self, alert_id: str):
         return self.repository.build_alert_case(alert_id)
 
