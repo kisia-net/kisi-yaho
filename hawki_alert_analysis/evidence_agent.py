@@ -24,12 +24,15 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 from typing import Any, Callable
 
 from .control_outcomes import derive_control_outcome
 from .live_bundle import _context_item, enrich_evidence
 from .assets import live_observed_values
 from .threat_intel import live_observables
+
+Fits = Callable[[dict[str, Any]], bool]
 
 HARD_MAX_CALLS = 5
 DEFAULT_MAX_CALLS = 3
@@ -217,8 +220,20 @@ def _next_ctx_id(bundle: dict[str, Any]) -> int:
     return highest + 1
 
 
-def _add_events(bundle: dict[str, Any], events: list[dict[str, Any]], tool: str, budget: int) -> list[str]:
-    """Append new events as CTX evidence; returns the evidence ids added."""
+def _add_events(
+    bundle: dict[str, Any],
+    events: list[dict[str, Any]],
+    tool: str,
+    budget: int,
+    fits: Fits | None = None,
+    record: dict[str, Any] | None = None,
+) -> list[str]:
+    """Append new events as CTX evidence; returns the evidence ids added.
+
+    With `fits`, an event that would push the package past the analysis
+    context is taken back out and adding stops there, so the agent cannot
+    gather evidence that would only be thrown away afterwards.
+    """
     existing = {
         str((item.get("provenance") or {}).get("source_document_id") or item.get("id") or "")
         for item in [bundle.get("trigger") or {}, *(bundle.get("investigation_context") or [])]
@@ -238,6 +253,12 @@ def _add_events(bundle: dict[str, Any], events: list[dict[str, Any]], tool: str,
         item["retrieval"]["origin"] = event.get("origin") or "agent_expansion"
         bundle.setdefault("investigation_context", []).append(item)
         bundle.setdefault("control_outcomes", []).append(derive_control_outcome(item))
+        if fits is not None and not fits(bundle):
+            bundle["investigation_context"].pop()
+            bundle["control_outcomes"].pop()
+            if record is not None:
+                record["context_full"] = True
+            break
         existing.add(str(event.get("id") or ""))
         added.append(item["evidence_id"])
         number += 1
@@ -252,6 +273,7 @@ def run_evidence_agent(
     *,
     max_calls: int = DEFAULT_MAX_CALLS,
     audit: Callable[[str, dict[str, Any]], None] | None = None,
+    fits: Fits | None = None,
 ) -> dict[str, Any]:
     """Run the gathering loop in place on `bundle` and return its trace."""
     max_calls = _clamp(max_calls, 0, HARD_MAX_CALLS)
@@ -311,7 +333,8 @@ def run_evidence_agent(
                 audit("agent_tool_call", {"alert_id": alert_id, **record})
             break
 
-        result_text = _execute(repository, alert_id, bundle, name, arguments, record, trigger_time, added_budget)
+        result_text = _execute(repository, alert_id, bundle, name, arguments, record, trigger_time, added_budget,
+                               fits)
         added_budget -= len(record.get("added_evidence_ids") or [])
         trace["added_evidence_ids"].extend(record.get("added_evidence_ids") or [])
         record["result"] = result_text[:300]
@@ -355,6 +378,7 @@ def _execute(
     record: dict[str, Any],
     trigger_time: str,
     added_budget: int,
+    fits: Fits | None = None,
 ) -> str:
     if name not in TOOL_NAMES:
         record["refused"] = "unknown_tool"
@@ -367,9 +391,9 @@ def _execute(
         after = _clamp(arguments.get("seconds_after"), *WINDOW_LIMITS["seconds_after"])
         record["arguments"] = {"seconds_before": before, "seconds_after": after}
         context = repository.get_alert_context(alert_id, limit=50, window_override=(before, after))
-        added = _add_events(bundle, context.get("events") or [], name, added_budget)
+        added = _add_events(bundle, context.get("events") or [], name, added_budget, fits, record)
         record.update(accepted=True, added_evidence_ids=added)
-        return f"Window widened to -{before}s/+{after}s; {len(added)} new events added as {added}."
+        return f"Window widened to -{before}s/+{after}s; {len(added)} new events added as {added}." + _full_note(record)
 
     if name == "search_address":
         address = str(arguments.get("address") or "").strip()
@@ -384,12 +408,13 @@ def _execute(
         hours = _clamp(arguments.get("hours"), *SEARCH_HOURS_LIMIT)
         record["arguments"] = {"address": address, "hours": hours}
         events = repository.search_address(address, around=trigger_time, hours=hours, limit=30)
-        added = _add_events(bundle, events, name, added_budget)
+        added = _add_events(bundle, events, name, added_budget, fits, record)
         record.update(accepted=True, added_evidence_ids=added)
-        return f"{len(events)} events carry {address} within +/-{hours}h; {len(added)} new added as {added}."
+        return (f"{len(events)} events carry {address} within +/-{hours}h; {len(added)} new added as {added}."
+                + _full_note(record))
 
     if name == "search_events":
-        return _search_events(repository, bundle, arguments, record, trigger_time, added_budget, observed)
+        return _search_events(repository, bundle, arguments, record, trigger_time, added_budget, observed, fits)
 
     value = str(arguments.get("value") or "").strip()
     if not value or value.lower() not in observed:
@@ -455,6 +480,7 @@ def _search_events(
     trigger_time: str,
     added_budget: int,
     observed: set[str],
+    fits: Fits | None = None,
 ) -> str:
     """Structured search; every value must already appear in the evidence."""
     terms = evidence_terms(bundle)
@@ -501,6 +527,43 @@ def _search_events(
         around=trigger_time, hours=hours, agent_name=agent_name, rule_id=rule_id,
         decoder=decoder, text=text, address=address, limit=30,
     )
-    added = _add_events(bundle, events, "search_events", added_budget)
+    added = _add_events(bundle, events, "search_events", added_budget, fits, record)
     record.update(accepted=True, added_evidence_ids=added)
-    return f"{len(events)} matching events within +/-{hours}h ({scope}); {len(added)} new added as {added}."
+    return (f"{len(events)} matching events within +/-{hours}h ({scope}); {len(added)} new added as {added}."
+            + _full_note(record))
+
+
+def _full_note(record: dict[str, Any]) -> str:
+    if record.get("context_full"):
+        return " Stopped adding: the analysis context is full, so call finish."
+    return ""
+
+
+CTX_ID_PATTERN = re.compile(r"\bCTX-\d+\b")
+
+
+def scrub_reverted_trace(trace: dict[str, Any]) -> dict[str, Any]:
+    """The trace to keep when the agent's additions are thrown away.
+
+    The calls stay so the analyst sees what was tried, but nothing in it may
+    name an evidence id that is no longer in the package: the model reads
+    this trace, and an id it sees here would be cited as if it were evidence.
+    """
+    calls = []
+    for call in trace.get("calls") or []:
+        if not isinstance(call, dict):
+            continue
+        clean = {key: value for key, value in call.items() if key != "added_evidence_ids"}
+        count = len(call.get("added_evidence_ids") or [])
+        if count:
+            clean["reverted_evidence_count"] = count
+            clean["result"] = f"{count} events were found but not sent: the analysis context was full."
+        else:
+            clean["result"] = CTX_ID_PATTERN.sub("(not sent)", str(call.get("result") or ""))
+        calls.append(clean)
+    return {
+        **{key: value for key, value in trace.items() if key not in ("calls", "added_evidence_ids")},
+        "calls": calls,
+        "added_evidence_ids": [],
+        "reverted_evidence_count": len(trace.get("added_evidence_ids") or []),
+    }

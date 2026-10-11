@@ -777,13 +777,26 @@
             no_filter: "검색 조건 없음",
             text_length: "검색어 길이 범위 밖",
         };
+        // The alias (e.g. hawki-local) can point at different weights over
+        // time; generation.served_model is what vLLM reported actually loaded.
+        function modelLabel(result) {
+            const alias = result.model || "로컬 모델";
+            const served = String((result.generation || {}).served_model || "");
+            if (!served || served === alias) return alias;
+            const hub = served.match(/models--([^/]+?)--([^/]+)/);
+            const name = hub ? `${hub[1]}/${hub[2]}` : served.split("/").filter(Boolean).pop();
+            return name ? `${alias} (${name})` : alias;
+        }
+
         function renderAgentRetrieval(output, trace) {
             if (!trace || !output) return;
             const calls = (trace.calls || []).map((call) => {
                 const label = TOOL_LABELS[call.tool] || call.tool;
                 const args = Object.entries(call.arguments || {}).map(([k, v]) => `${k}=${v}`).join(", ");
                 const state = call.accepted ? "실행" : `거부: ${REFUSAL_LABELS[call.refused] || call.refused || "사유 없음"}`;
-                const added = (call.added_evidence_ids || []).length ? ` → ${call.added_evidence_ids.join(", ")}` : "";
+                let added = (call.added_evidence_ids || []).length ? ` → ${call.added_evidence_ids.join(", ")}` : "";
+                if (call.reverted_evidence_count) added += ` → ${call.reverted_evidence_count}건 찾았지만 분량 한도로 제외`;
+                if (call.context_full) added += " · 분량 한도에 닿아 추가 중단";
                 return `<li><strong>${escapeHtml(label)}</strong> ${escapeHtml(args)} · ${escapeHtml(state)}${escapeHtml(added)}${call.reason ? `<br><span class="muted">${escapeHtml(call.reason)}</span>` : ""}</li>`;
             }).join("");
             const box = document.createElement("div");
@@ -830,7 +843,7 @@
                     `자산 ${counts.assets ?? 0}`,
                     `위협 지표 ${counts.threat_indicators ?? 0}`,
                 ].join(" · ");
-                root.querySelector("[data-analysis-meta]").textContent = `${result.model || "로컬 모델"} · 제공된 증거: ${bundled}`;
+                root.querySelector("[data-analysis-meta]").textContent = `${modelLabel(result)} · 제공된 증거: ${bundled}`;
                 renderAgentRetrieval(output, result.agent_retrieval);
             } catch (error) {
                 output.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
