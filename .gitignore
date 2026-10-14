@@ -94,6 +94,9 @@ data/analyst_feedback.jsonl
 data/analyst_feedback.lock
 data/redteam_jobs.jsonl
 data/redteam_jobs.lock
+# 데이터 흐름 캡처와 그 내보내기 (flow_capture.py, tools/capture_flow.py): real evidence.
+data/flow_captures/
+data/flow_exports/
 
 # Flask stuff:
 instance/

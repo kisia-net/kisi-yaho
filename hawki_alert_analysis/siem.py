@@ -11,6 +11,7 @@ from typing import Any
 
 from .wazuh import WazuhIndexerClient, WazuhIndexerError
 from .wazuh_api import WazuhServerAPIClient
+from .wazuh_visuals import parse_visuals, visuals_query
 
 
 def _hit_total(payload: dict[str, Any]) -> int:
@@ -514,6 +515,16 @@ class SiemService:
             "activity": activity,
             "levels": levels,
         }
+
+    def wazuh_visuals(self, *, hours: int = 24) -> dict[str, Any]:
+        """Wazuh 대시보드 시각화와 같은 조건의 집계 (wazuh_visuals.py)."""
+
+        hours = max(1, min(int(hours), 168))
+        payload = self.indexer.search(
+            self.alert_index,
+            visuals_query(timestamp_field=self.timestamp_field, since=f"now-{hours}h"),
+        )
+        return {"hours": hours, **parse_visuals(payload)}
 
     def host_badges(self) -> dict[str, dict[str, int]]:
         """Per-agent numbers for the host list, in two indexer queries.

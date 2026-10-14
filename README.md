@@ -50,6 +50,12 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 
 새 항목은 **맨 위에** 추가합니다. 날짜 + 무엇이 달라졌는지 한 줄로 씁니다.
 
+### 2026-10-13 — Wazuh 시각화 연동 · 데이터 흐름 캡처
+
+- 대시보드에 Wazuh 시각화와 같은 집계를 연결 (`/api/dashboard/wazuh-visuals`): 심각도별 추이, 막힘/통과 판정, MITRE, 상태 코드, 요청 URL
+- 경보마다 서버별 원본 → 이벤트 → 경보 → 증거 패키지 → AI 증거 수집 → AI 판단 → 조치를 보는 캡처 화면 (`/alerts/<id>/flow`) 과 결과 자료 내보내기 (`tools/capture_flow.py`)
+- 설명과 시험 환경 예시: [`docs/flow_capture/README.md`](docs/flow_capture/README.md)
+
 ### 2026-08-25 — 멘토링 피드백 반영
 
 - `docs/MENTORING_LOG.md` 신설 — 회차별 지적과 그에 대한 결정을 기록

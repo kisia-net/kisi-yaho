@@ -127,9 +127,10 @@
     <article class="panel dashboard-activity-panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">탐지 추이 · 막대를 누르면 그 시간의 경보를 검색</p>
+                <p class="panel-kicker">탐지 추이 · 심각도별 · 막대를 누르면 그 시간의 경보를 검색</p>
                 <h2>최근 24시간</h2>
             </div>
+            <div class="wz-legend" id="dashboard-activity-legend" aria-hidden="true"></div>
         </div>
 
         <div id="dashboard-activity-chart"
@@ -150,6 +151,53 @@
              class="dashboard-level-chart loading-block">
             룰 레벨을 불러오는 중…
         </div>
+    </article>
+</section>
+
+{# Wazuh 대시보드 시각화와 같은 집계 (/api/dashboard/wazuh-visuals, infra/wazuh-dashboard). #}
+<section class="wz-visual-grid" data-wazuh-visuals>
+    <article class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">WAF 탐지와 웹 서버 응답을 출발지 IP로 묶음 · 최근 24시간</p>
+                <h2>막힘 / 통과 판정</h2>
+            </div>
+            <span class="muted" id="wz-block-pass-summary"></span>
+        </div>
+        <div id="wz-block-pass" class="wz-block-pass loading-block">불러오는 중…</div>
+        <p class="wz-note muted">2xx 와 "공격 후 200"(룰 31106)은 경보 룰이 걸린 요청만 셉니다. 정상 200 응답은 경보가 아니어서 들어오지 않습니다.</p>
+    </article>
+
+    <article class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">공격 단계 · 칸을 누르면 그 기법의 경보 목록</p>
+                <h2>MITRE ATT&amp;CK 전술 × 기법</h2>
+            </div>
+        </div>
+        <div id="wz-mitre" class="wz-mitre loading-block">불러오는 중…</div>
+    </article>
+</section>
+
+<section class="wz-visual-grid wz-visual-grid-even" data-wazuh-visuals>
+    <article class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">웹 공격 경보의 응답 코드</p>
+                <h2>HTTP 상태 코드</h2>
+            </div>
+        </div>
+        <div id="wz-statuses" class="dashboard-level-chart loading-block">불러오는 중…</div>
+    </article>
+
+    <article class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">공격자가 노린 경로 · 출발지 IP 수가 많으면 여러 곳이 노리는 경로</p>
+                <h2>요청 URL Top 10</h2>
+            </div>
+        </div>
+        <div id="wz-urls" class="wz-urls loading-block">불러오는 중…</div>
     </article>
 </section>
 

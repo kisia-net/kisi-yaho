@@ -1,0 +1,772 @@
+{
+  "schema": "hawki.flow-capture/v1",
+  "alert_id": "044599dada071c0c7803",
+  "mode": "captured",
+  "captured_at": "2026-10-13T01:33:16.482189+00:00",
+  "stage_order": [
+    {
+      "key": "raw",
+      "label": "① 서버별 원본 로그",
+      "where": "각 서버의 로그 파일 → Wazuh Agent 가 그대로 전송 (full_log)"
+    },
+    {
+      "key": "event",
+      "label": "② 이벤트 (디코딩)",
+      "where": "wazuh-archives-* · Manager 디코더가 data.* 로 쪼갬"
+    },
+    {
+      "key": "alert",
+      "label": "③ 경보",
+      "where": "wazuh-alerts-* · 룰에 걸린 이벤트에 rule.* 가 붙음"
+    },
+    {
+      "key": "evidence",
+      "label": "④ 증거 패키지",
+      "where": "HAW-KI · 요청 때마다 같은 규칙으로 생성 (저장 안 함)"
+    },
+    {
+      "key": "ai_retrieval",
+      "label": "⑤ AI 증거 수집",
+      "where": "HAW-KI · 모델이 읽기 전용 도구로 증거를 더 가져옴"
+    },
+    {
+      "key": "ai_judgment",
+      "label": "⑥ AI 판단",
+      "where": "HAW-KI · 모델 응답을 검증된 assessment 로 정리"
+    },
+    {
+      "key": "response",
+      "label": "⑦ 조치 제안 · 승인 · 추가 수집",
+      "where": "HAW-KI 승인 대기열 → Velociraptor / Suricata 게이트웨이"
+    }
+  ],
+  "stages": {
+    "raw": {
+      "servers": [
+        {
+          "server": "web-01",
+          "ip": "10.0.1.201",
+          "sources": [
+            {
+              "label": "nginx 접근 로그",
+              "location": "/var/log/nginx/access.log",
+              "format": "텍스트 한 줄",
+              "count": 16,
+              "samples": [
+                {
+                  "evidence_id": "TRIGGER",
+                  "timestamp": "2026-10-12T23:17:04.008+0000",
+                  "full_log": "52.141.3.247 - - [13/Oct/2026:08:17:04 +0900] \"GET /portal/index.php?page=....//....//....//etc/passwd HTTP/1.1\" 200 2845 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\""
+                },
+                {
+                  "evidence_id": "CTX-001",
+                  "timestamp": "2026-10-12T23:15:34.000+0000",
+                  "full_log": "52.141.3.247 - - [13/Oct/2026:08:15:34 +0900] \"GET /wp-freya.php HTTP/1.1\" 404 153 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\""
+                },
+                {
+                  "evidence_id": "CTX-002",
+                  "timestamp": "2026-10-12T23:15:36.000+0000",
+                  "full_log": "52.141.3.247 - - [13/Oct/2026:08:15:36 +0900] \"GET /x7.php HTTP/1.1\" 404 153 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\""
+                }
+              ]
+            },
+            {
+              "label": "nginx 오류 로그 (ModSecurity 차단 포함)",
+              "location": "/var/log/nginx/error.log",
+              "format": "텍스트 한 줄",
+              "count": 3,
+              "samples": [
+                {
+                  "evidence_id": "CTX-013",
+                  "timestamp": "2026-10-12T23:16:28.150+0000",
+                  "full_log": "2026/10/13 08:16:28 [error] 2014#2014: *4756 [client 52.141.3.247] ModSecurity: Access denied with code 403 (phase 2). [file \"/etc/nginx/modsec/crs/rules/REQUEST-930-APPLICATION-ATTACK-LFI.conf\"] [id \"930100\"] [msg \"Path Traversal Attack (/../)\"] [severity \"CRITICAL\"] [hostname \"10.0.1.201\"] [uri \"/portal/index.php\"], client: 52.141.3.247, server: portal, request: \"GET /portal/index.php?page=../../../../etc/passwd HTTP/1.1\", host: \"10.0.1.201\""
+                },
+                {
+                  "evidence_id": "CTX-015",
+                  "timestamp": "2026-10-12T23:16:32.150+0000",
+                  "full_log": "2026/10/13 08:16:32 [error] 2014#2014: *3806 [client 52.141.3.247] ModSecurity: Access denied with code 403 (phase 2). [file \"/etc/nginx/modsec/crs/rules/REQUEST-930-APPLICATION-ATTACK-LFI.conf\"] [id \"930100\"] [msg \"Path Traversal Attack (/../)\"] [severity \"CRITICAL\"] [hostname \"10.0.1.201\"] [uri \"/portal/index.php\"], client: 52.141.3.247, server: portal, request: \"GET /portal/index.php?page=../../../../etc/passwd HTTP/1.1\", host: \"10.0.1.201\""
+                },
+                {
+                  "evidence_id": "CTX-019",
+                  "timestamp": "2026-10-12T23:16:24.150+0000",
+                  "full_log": "2026/10/13 08:16:24 [error] 2014#2014: *4455 [client 52.141.3.247] ModSecurity: Access denied with code 403 (phase 2). [file \"/etc/nginx/modsec/crs/rules/REQUEST-930-APPLICATION-ATTACK-LFI.conf\"] [id \"930100\"] [msg \"Path Traversal Attack (/../)\"] [severity \"CRITICAL\"] [hostname \"10.0.1.201\"] [uri \"/portal/index.php\"], client: 52.141.3.247, server: portal, request: \"GET /portal/index.php?page=../../../../etc/passwd HTTP/1.1\", host: \"10.0.1.201\""
+                }
+              ]
+            }
+          ],
+          "count": 19
+        },
+        {
+          "server": "ids-01",
+          "ip": "10.0.1.50",
+          "sources": [
+            {
+              "label": "Suricata eve.json",
+              "location": "/var/log/suricata/eve.json",
+              "format": "JSON 한 줄",
+              "count": 1,
+              "samples": [
+                {
+                  "evidence_id": "CTX-016",
+                  "timestamp": "2026-10-12T23:17:04.040+0000",
+                  "full_log": "{\"timestamp\": \"2026-10-13T08:17:04.040000+09:00\", \"flow_id\": 577381452783689, \"in_iface\": \"ens5\", \"event_type\": \"alert\", \"src_ip\": \"52.141.3.247\", \"src_port\": 52886, \"dest_ip\": \"10.0.1.201\", \"dest_port\": 80, \"proto\": \"TCP\", \"alert\": {\"action\": \"allowed\", \"gid\": 1, \"signature_id\": 2049416, \"rev\": 3, \"signature\": \"ET WEB_SERVER /etc/passwd Detected in URI\", \"category\": \"Web Application Attack\", \"severity\": 1}, \"http\": {\"hostname\": \"10.0.1.201\", \"url\": \"/portal/index.php?page=....//....//....//etc/passwd\", \"http_method\": \"GET\", \"status\": 200}}"
+                }
+              ]
+            }
+          ],
+          "count": 1
+        }
+      ],
+      "line_count": 20,
+      "size_chars": 5197
+    },
+    "event": {
+      "decoders": [
+        {
+          "server": "web-01",
+          "decoder": "web-accesslog",
+          "label": "nginx 접근 로그",
+          "count": 16,
+          "data_fields": [
+            "data.id",
+            "data.protocol",
+            "data.srcip",
+            "data.url"
+          ],
+          "example": {
+            "evidence_id": "TRIGGER",
+            "timestamp": "2026-10-12T23:17:04.008+0000",
+            "agent": {
+              "ip": "10.0.1.201",
+              "name": "web-01",
+              "id": "001"
+            },
+            "decoder": {
+              "name": "web-accesslog"
+            },
+            "location": "/var/log/nginx/access.log",
+            "data": {
+              "srcip": "52.141.3.247",
+              "protocol": "GET",
+              "id": "200",
+              "url": "/portal/index.php?page=....//....//....//etc/passwd"
+            }
+          }
+        },
+        {
+          "server": "web-01",
+          "decoder": "nginx-errorlog",
+          "label": "nginx 오류 로그 (ModSecurity 차단 포함)",
+          "count": 3,
+          "data_fields": [
+            "data.srcip",
+            "data.url"
+          ],
+          "example": {
+            "evidence_id": "CTX-013",
+            "timestamp": "2026-10-12T23:16:28.150+0000",
+            "agent": {
+              "ip": "10.0.1.201",
+              "name": "web-01",
+              "id": "001"
+            },
+            "decoder": {
+              "name": "nginx-errorlog"
+            },
+            "location": "/var/log/nginx/error.log",
+            "data": {
+              "srcip": "52.141.3.247",
+              "url": "/portal/index.php?page=../../../../etc/passwd"
+            }
+          }
+        },
+        {
+          "server": "ids-01",
+          "decoder": "json",
+          "label": "Suricata eve.json",
+          "count": 1,
+          "data_fields": [
+            "data.alert.action",
+            "data.alert.category",
+            "data.alert.gid",
+            "data.alert.rev",
+            "data.alert.severity",
+            "data.alert.signature",
+            "data.alert.signature_id",
+            "data.dest_ip",
+            "data.dest_port",
+            "data.event_type",
+            "data.flow_id",
+            "data.http.hostname",
+            "data.http.http_method",
+            "data.http.status",
+            "data.http.url",
+            "data.in_iface",
+            "data.proto",
+            "data.src_ip",
+            "data.src_port",
+            "data.timestamp"
+          ],
+          "example": {
+            "evidence_id": "CTX-016",
+            "timestamp": "2026-10-12T23:17:04.040+0000",
+            "agent": {
+              "ip": "10.0.1.50",
+              "name": "ids-01",
+              "id": "002"
+            },
+            "decoder": {
+              "name": "json"
+            },
+            "location": "/var/log/suricata/eve.json",
+            "data": {
+              "in_iface": "ens5",
+              "src_ip": "52.141.3.247",
+              "src_port": 52886,
+              "event_type": "alert",
+              "alert": {
+                "severity": 1,
+                "signature_id": 2049416,
+                "rev": 3,
+                "gid": 1,
+                "signature": "ET WEB_SERVER /etc/passwd Detected in URI",
+                "action": "allowed",
+                "category": "Web Application Attack"
+              },
+              "flow_id": 577381452783689,
+              "dest_ip": "10.0.1.201",
+              "proto": "TCP",
+              "http": {
+                "hostname": "10.0.1.201",
+                "http_method": "GET",
+                "url": "/portal/index.php?page=....//....//....//etc/passwd",
+                "status": 200
+              },
+              "dest_port": 80,
+              "timestamp": "2026-10-13T08:17:04.040000+09:00"
+            }
+          }
+        }
+      ],
+      "event_count": 20,
+      "size_chars": 11896
+    },
+    "alert": {
+      "trigger": {
+        "id": "044599dada071c0c7803",
+        "index": "wazuh-alerts-4.x-2026.10.13",
+        "timestamp": "2026-10-12T23:17:04.008+0000",
+        "timestamp_kst": "2026-10-13 08:17:04 KST",
+        "agent": {
+          "ip": "10.0.1.201",
+          "name": "web-01",
+          "id": "001"
+        },
+        "rule": {
+          "firedtimes": 1,
+          "mail": false,
+          "level": 6,
+          "description": "A web attack returned code 200 (success).",
+          "groups": [
+            "web",
+            "accesslog",
+            "attack"
+          ],
+          "mitre": {
+            "technique": [
+              "Exploit Public-Facing Application"
+            ],
+            "id": [
+              "T1190"
+            ],
+            "tactic": [
+              "Initial Access"
+            ]
+          },
+          "id": "31106"
+        }
+      },
+      "rule_fields": [
+        "rule.description",
+        "rule.firedtimes",
+        "rule.groups[]",
+        "rule.id",
+        "rule.level",
+        "rule.mail",
+        "rule.mitre.id[]",
+        "rule.mitre.tactic[]",
+        "rule.mitre.technique[]"
+      ],
+      "related_rules": [
+        {
+          "rule_id": "31101",
+          "level": 5,
+          "description": "Web server 400 error code.",
+          "count": 12,
+          "evidence_ids": [
+            "CTX-001",
+            "CTX-002",
+            "CTX-003",
+            "CTX-004",
+            "CTX-005"
+          ]
+        },
+        {
+          "rule_id": "31333",
+          "level": 7,
+          "description": "ModSecurity rejected a query",
+          "count": 3,
+          "evidence_ids": [
+            "CTX-013",
+            "CTX-015",
+            "CTX-019"
+          ]
+        },
+        {
+          "rule_id": "31151",
+          "level": 10,
+          "description": "Multiple web server 400 error codes from same source ip.",
+          "count": 1,
+          "evidence_ids": [
+            "CTX-010"
+          ]
+        },
+        {
+          "rule_id": "86601",
+          "level": 10,
+          "description": "Suricata: Alert - ET WEB_SERVER /etc/passwd Detected in URI",
+          "count": 1,
+          "evidence_ids": [
+            "CTX-016"
+          ]
+        },
+        {
+          "rule_id": "31106",
+          "level": 6,
+          "description": "A web attack returned code 200 (success).",
+          "count": 1,
+          "evidence_ids": [
+            "CTX-017"
+          ]
+        }
+      ],
+      "context_without_rule": 1,
+      "alert_count": 19,
+      "size_chars": 16462
+    },
+    "evidence": {
+      "schema": "hawki.wazuh.live-evidence/v2",
+      "blocks": [
+        "agent_retrieval",
+        "alert_id",
+        "assembled_at",
+        "assets",
+        "control_outcomes",
+        "investigation_context",
+        "lineage",
+        "priority",
+        "retrieval",
+        "schema",
+        "threat_intelligence",
+        "trigger"
+      ],
+      "trigger": 1,
+      "context_count": 19,
+      "context_by_origin": {
+        "same_agent": 15,
+        "cross_agent": 1,
+        "agent_search": 3
+      },
+      "control_outcomes": [
+        {
+          "evidence_id": "TRIGGER",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 200
+        },
+        {
+          "evidence_id": "CTX-001",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 404
+        },
+        {
+          "evidence_id": "CTX-002",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 404
+        },
+        {
+          "evidence_id": "CTX-003",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 404
+        },
+        {
+          "evidence_id": "CTX-004",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 404
+        },
+        {
+          "evidence_id": "CTX-005",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 404
+        },
+        {
+          "evidence_id": "CTX-006",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 404
+        },
+        {
+          "evidence_id": "CTX-007",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 404
+        },
+        {
+          "evidence_id": "CTX-008",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 404
+        },
+        {
+          "evidence_id": "CTX-009",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 404
+        },
+        {
+          "evidence_id": "CTX-010",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 404
+        },
+        {
+          "evidence_id": "CTX-011",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 403
+        },
+        {
+          "evidence_id": "CTX-012",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 403
+        },
+        {
+          "evidence_id": "CTX-013",
+          "detection": "DETECTED",
+          "control": "modsecurity",
+          "control_status": "BLOCKED",
+          "http_status": 403
+        },
+        {
+          "evidence_id": "CTX-014",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 403
+        },
+        {
+          "evidence_id": "CTX-015",
+          "detection": "DETECTED",
+          "control": "modsecurity",
+          "control_status": "BLOCKED",
+          "http_status": 403
+        },
+        {
+          "evidence_id": "CTX-016",
+          "detection": "DETECTED",
+          "control": "suricata",
+          "control_status": "NOT_BLOCKED",
+          "http_status": null
+        },
+        {
+          "evidence_id": "CTX-017",
+          "detection": "DETECTED",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 200
+        },
+        {
+          "evidence_id": "CTX-018",
+          "detection": "UNKNOWN",
+          "control": null,
+          "control_status": "UNKNOWN",
+          "http_status": 200
+        },
+        {
+          "evidence_id": "CTX-019",
+          "detection": "DETECTED",
+          "control": "modsecurity",
+          "control_status": "BLOCKED",
+          "http_status": 403
+        }
+      ],
+      "control_summary": {
+        "UNKNOWN": 16,
+        "BLOCKED": 3,
+        "NOT_BLOCKED": 1
+      },
+      "priority": {
+        "band": "P2",
+        "score": 57,
+        "primary_asset_id": "asset-web"
+      },
+      "assets": [
+        {
+          "id": "asset-web",
+          "hostname": "web-01",
+          "criticality": "high",
+          "exposure": "internet_facing"
+        }
+      ],
+      "threat_intelligence": [],
+      "retrieval": {
+        "profile": {
+          "name": "web_attack",
+          "seconds_before": 600,
+          "seconds_after": 300,
+          "cross_agent": true
+        },
+        "window_seconds": 600,
+        "candidate_count": 28,
+        "selected_count": 19,
+        "suppressed_routine_count": 0
+      },
+      "lineage_edges": 34,
+      "size_chars": 46153
+    },
+    "ai_retrieval": {
+      "ran": true,
+      "calls": [
+        {
+          "tool": "search_address",
+          "arguments": {
+            "address": "52.141.3.247",
+            "hours": 2
+          },
+          "accepted": true,
+          "added_evidence_ids": [
+            "CTX-017",
+            "CTX-018",
+            "CTX-019"
+          ]
+        },
+        {
+          "tool": "finish",
+          "arguments": {},
+          "accepted": true
+        }
+      ],
+      "added_evidence_ids": [
+        "CTX-017",
+        "CTX-018",
+        "CTX-019"
+      ],
+      "stopped": "finish",
+      "before": {
+        "context_count": 16,
+        "size_chars": 40595
+      },
+      "after_agent": {
+        "context_count": 19,
+        "size_chars": 46153
+      },
+      "sent_to_model": {
+        "context_count": 19,
+        "size_chars": 46153
+      }
+    },
+    "ai_judgment": {
+      "ran": true,
+      "model": "mock-llm",
+      "demo": false,
+      "analysis_id": "f7273ecd646e4a55b52c76b37cacc433",
+      "answer": "스캔 뒤 경로 조작 우회 1건이 200 으로 응답됐습니다. 확신도 중간 · 다음 조치: 출발지 차단 승인과 web-01 증거 수집.\n\n---\n\n### 판단 요약\n자동화된 스캔 뒤 경로 조작(LFI) 시도로 이어졌고, 우회 변형 1건이 WAF 를 통과해 응답을 받았습니다.\n\n- **심각도: 높음** — 인터넷 노출 웹 서버에서 우회 성공 응답이 관찰됐습니다.\n- **신뢰도: 중간** — 200 응답은 확인되지만 응답 본문은 증거에 없습니다.\n\n### 공격 가설\n취약 PHP 경로 탐색 → 경로 조작 시도 → WAF 차단 → 인코딩 변형으로 우회 → /etc/passwd 노출 가능성 (가설).\n\n### 확인된 관측 사실\n1. 52.141.3.247 이 web-01 에 존재하지 않는 PHP 경로를 연속 요청해 404 를 받았습니다 (TRIGGER).\n2. 같은 출발지의 경로 조작 요청을 ModSecurity 가 403 으로 차단했습니다.\n3. 인코딩을 바꾼 경로 조작 요청 하나는 HTTP 200 으로 응답됐고, IDS 센서(ids-01)도 같은 요청을 탐지했습니다.\n\n### 뒷받침하는 증거\n- 스캔과 차단, 우회 성공이 같은 출발지에서 이어집니다. — `TRIGGER` `CTX-001` `CTX-002` `CTX-003` `CTX-004`\n\n### 영향받는 대상\n- 호스트: `web-01`\n- 주소: `52.141.3.247`, `10.0.1.201`\n- 파일: `/etc/passwd`\n\n### ATT&CK 기법\n- **T1190** Exploit Public-Facing Application — CTX-001 CTX-002\n\n### 증거 공백\n- 200 응답의 본문 크기 외 내용\n- 웹 서버 프로세스 실행 기록\n\n### 추천 검색\n- 같은 출발지 전체 요청: `data.srcip:\"52.141.3.247\"`\n\n### 권고 대응\n1. 52.141.3.247 차단 (승인 필요)\n2. web-01 의 /portal/index.php page 파라미터 입력 검증 확인",
+      "assessment": {
+        "confirmed_observations": [
+          "52.141.3.247 이 web-01 에 존재하지 않는 PHP 경로를 연속 요청해 404 를 받았습니다 (TRIGGER).",
+          "같은 출발지의 경로 조작 요청을 ModSecurity 가 403 으로 차단했습니다.",
+          "인코딩을 바꾼 경로 조작 요청 하나는 HTTP 200 으로 응답됐고, IDS 센서(ids-01)도 같은 요청을 탐지했습니다."
+        ],
+        "interpretation": "자동화된 스캔 뒤 경로 조작(LFI) 시도로 이어졌고, 우회 변형 1건이 WAF 를 통과해 응답을 받았습니다.",
+        "attack_hypothesis": "취약 PHP 경로 탐색 → 경로 조작 시도 → WAF 차단 → 인코딩 변형으로 우회 → /etc/passwd 노출 가능성 (가설).",
+        "confidence": {
+          "level": "medium",
+          "rationale": "200 응답은 확인되지만 응답 본문은 증거에 없습니다."
+        },
+        "severity": {
+          "level": "high",
+          "rationale": "인터넷 노출 웹 서버에서 우회 성공 응답이 관찰됐습니다."
+        },
+        "affected_entities": {
+          "hosts": [
+            "web-01"
+          ],
+          "users": [],
+          "addresses": [
+            "52.141.3.247",
+            "10.0.1.201"
+          ],
+          "processes": [],
+          "files": [
+            "/etc/passwd"
+          ]
+        },
+        "attack_techniques": [
+          {
+            "id": "T1190",
+            "name": "Exploit Public-Facing Application",
+            "evidence": "CTX-001 CTX-002"
+          }
+        ],
+        "supporting_evidence": [
+          {
+            "statement": "스캔과 차단, 우회 성공이 같은 출발지에서 이어집니다.",
+            "event_ids": [
+              "TRIGGER",
+              "CTX-001",
+              "CTX-002",
+              "CTX-003",
+              "CTX-004"
+            ],
+            "unknown_event_ids": []
+          }
+        ],
+        "contradictory_evidence": [],
+        "evidence_gaps": [
+          "200 응답의 본문 크기 외 내용",
+          "웹 서버 프로세스 실행 기록"
+        ],
+        "recommended_searches": [
+          {
+            "title": "같은 출발지 전체 요청",
+            "language": "wazuh",
+            "value": "data.srcip:\"52.141.3.247\"",
+            "index": "archives"
+          }
+        ],
+        "recommended_response": [
+          "52.141.3.247 차단 (승인 필요)",
+          "web-01 의 /portal/index.php page 파라미터 입력 검증 확인"
+        ]
+      },
+      "assessment_fields": [
+        "affected_entities",
+        "attack_hypothesis",
+        "attack_techniques",
+        "confidence",
+        "confirmed_observations",
+        "contradictory_evidence",
+        "evidence_gaps",
+        "interpretation",
+        "recommended_response",
+        "recommended_searches",
+        "severity",
+        "supporting_evidence"
+      ],
+      "citations": [
+        {
+          "evidence_id": "TRIGGER",
+          "exists": true,
+          "server": "web-01",
+          "full_log": "52.141.3.247 - - [13/Oct/2026:08:17:04 +0900] \"GET /portal/index.php?page=....//....//....//etc/passwd HTTP/1.1\" 200 2845 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\""
+        },
+        {
+          "evidence_id": "CTX-001",
+          "exists": true,
+          "server": "web-01",
+          "full_log": "52.141.3.247 - - [13/Oct/2026:08:15:34 +0900] \"GET /wp-freya.php HTTP/1.1\" 404 153 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\""
+        },
+        {
+          "evidence_id": "CTX-002",
+          "exists": true,
+          "server": "web-01",
+          "full_log": "52.141.3.247 - - [13/Oct/2026:08:15:36 +0900] \"GET /x7.php HTTP/1.1\" 404 153 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\""
+        },
+        {
+          "evidence_id": "CTX-003",
+          "exists": true,
+          "server": "web-01",
+          "full_log": "52.141.3.247 - - [13/Oct/2026:08:15:38 +0900] \"GET /ok.php HTTP/1.1\" 404 153 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\""
+        },
+        {
+          "evidence_id": "CTX-004",
+          "exists": true,
+          "server": "web-01",
+          "full_log": "52.141.3.247 - - [13/Oct/2026:08:15:40 +0900] \"GET /z.php HTTP/1.1\" 404 153 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\""
+        }
+      ],
+      "unknown_citations": [],
+      "review": {
+        "complete": true,
+        "missing_sections": []
+      },
+      "size_chars": 2320
+    },
+    "response": {
+      "proposed": [
+        {
+          "type": "velociraptor_collection",
+          "title": "web-01 웹 서버 증거 수집",
+          "target": "web-01",
+          "artifact": "Linux.Sys.Pslist",
+          "reason": "우회 성공 뒤 실행 흔적 확인"
+        }
+      ],
+      "queued": [
+        {
+          "id": "ACT-20261013-013D17",
+          "type": "velociraptor_collection",
+          "status": "pending_approval",
+          "created_at": "2026-10-13T01:33:33.726091+00:00",
+          "updated_at": null,
+          "title": "web-01 웹 서버 증거 수집",
+          "target": null
+        }
+      ]
+    }
+  },
+  "basis": "모델에 보낸 증거 기준",
+  "counts": {
+    "raw": 20,
+    "event": 20,
+    "alert": 19,
+    "evidence": 20,
+    "ai_retrieval": 3,
+    "ai_judgment": 5,
+    "response": 2
+  },
+  "sizes": {
+    "raw": 5197,
+    "event": 11896,
+    "alert": 16462,
+    "evidence": 46153,
+    "ai_judgment": 2320
+  },
+  "capture_id": "20261013T013316482686Z",
+  "captures": [
+    {
+      "capture_id": "20261013T013316482686Z",
+      "captured_at": "2026-10-13T01:33:16.482189+00:00",
+      "model": "mock-llm"
+    }
+  ]
+}

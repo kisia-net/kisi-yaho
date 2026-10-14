@@ -32,6 +32,12 @@
                    data-continue-agent>
                     AI 분석 작업공간에서 이어가기
                 </a>
+
+                <a class="button secondary"
+                   href="{{ url_for('alert_flow_page', alert_id=alert_id) }}"
+                   title="서버별 원본 로그부터 AI 판단까지 단계별로 봅니다">
+                    데이터 흐름 캡처
+                </a>
             </div>
         </div>
         <div class="alert-handling" data-alert-handling hidden></div>

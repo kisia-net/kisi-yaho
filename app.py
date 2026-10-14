@@ -24,6 +24,7 @@ import requests
 from dotenv import load_dotenv
 from flask import (
     Flask,
+    Response,
     abort,
     flash,
     g,
@@ -95,6 +96,7 @@ from hawki_alert_analysis.auto_report import (
     rescored_priority,
 )
 from hawki_alert_analysis.explain import build_explanation
+from hawki_alert_analysis.flow_capture import FlowCaptureStore, build_flow, snapshot as flow_snapshot, to_markdown as flow_markdown
 from hawki_alert_analysis.live_bundle import fit_live_bundle
 from hawki_alert_analysis.sensitive import SENSITIVE_CATEGORIES, category_for_query
 from hawki_alert_analysis.feedback import ANALYST_VERDICTS, SETTLED_VERDICTS, FeedbackStore, context_block, identity as feedback_identity
@@ -323,6 +325,13 @@ AUTO_REPORT_SETTINGS = AutoReportSettings.from_env()
 AUTO_REPORT_STORE = ReportStore(Path(os.getenv("AUTO_REPORT_ROOT", str(DATA_DIR / "auto_reports"))))
 AUTO_REPORT_ACTOR = {"username": "hawki-auto", "role": "system"}
 REDTEAM_JOB_INDEX = RedteamJobIndex(Path(os.getenv("REDTEAM_JOB_INDEX_PATH", str(DATA_DIR / "redteam_jobs.jsonl"))))
+# 데이터 흐름 캡처 (flow_capture.py): AI 증거 수집과 판단은 실행마다 달라서,
+# 분석을 실행한 순간의 흐름을 경보마다 최근 몇 개만 남깁니다.
+FLOW_CAPTURE_ENABLED = os.getenv("FLOW_CAPTURE_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+FLOW_CAPTURE_STORE = FlowCaptureStore(
+    Path(os.getenv("FLOW_CAPTURE_ROOT", str(DATA_DIR / "flow_captures"))),
+    keep=int(os.getenv("FLOW_CAPTURE_KEEP", "5") or 5),
+)
 FEEDBACK_STORE = FeedbackStore(Path(os.getenv("ANALYST_FEEDBACK_PATH", str(DATA_DIR / "analyst_feedback.jsonl"))))
 
 FIXTURE_EMBEDDED_ROOT = BASE_DIR / "hawki_alert_analysis" / "fixtures"
@@ -2546,6 +2555,111 @@ def api_dashboard_source_flow():
     return jsonify(value)
 
 
+def alert_queued_actions(alert_id: str) -> list[dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for record in read_jsonl(ACTION_QUEUE_PATH):
+        if str(record.get("alert_id") or "") == alert_id and record.get("id"):
+            latest[str(record["id"])] = record
+    return list(latest.values())
+
+
+def alert_flow_document(alert_id: str, view: str = "") -> dict[str, Any]:
+    """The latest capture taken when the alert was analysed, or a fresh one.
+
+    A capture holds the evidence exactly as the model saw it (after the
+    evidence agent and the context fit). Without one, or with view=live, the
+    first four stages are rebuilt now; they come from Wazuh documents and the
+    same deterministic rules, so they match what an analysis would start from.
+    """
+    captures = FLOW_CAPTURE_STORE.list(alert_id)
+    chosen = next((item for item in captures if item.get("capture_id") == view), None)
+    if chosen is None and view != "live" and captures:
+        chosen = captures[0]
+    if chosen is None:
+        bundle = ALERT_ANALYSIS.evidence_bundle(alert_id, max_related=MAX_RELATED_EVENTS_PER_CASE)
+        if str(bundle.get("schema") or "") not in {"hawki.wazuh.live-evidence/v1", "hawki.wazuh.live-evidence/v2"}:
+            raise ValueError("The data flow is available for live Wazuh alerts only.")
+        doc = build_flow(alert_id, bundle, queued_actions=alert_queued_actions(alert_id), mode="live")
+    else:
+        doc = {key: value for key, value in chosen.items() if key != "capture_id"}
+        doc["capture_id"] = chosen.get("capture_id")
+        # Approval decisions happen after the analysis; read them now.
+        response = doc.setdefault("stages", {}).setdefault("response", {})
+        response["queued"] = build_flow(
+            alert_id, {}, queued_actions=alert_queued_actions(alert_id))["stages"]["response"]["queued"]
+        doc.setdefault("counts", {})["response"] = len(response.get("proposed") or []) + len(response["queued"])
+    doc["captures"] = [
+        {"capture_id": item.get("capture_id"), "captured_at": item.get("captured_at"),
+         "model": ((item.get("stages") or {}).get("ai_judgment") or {}).get("model")}
+        for item in captures
+    ]
+    return doc
+
+
+@app.get("/alerts/<alert_id>/flow")
+@role_required("analyst")
+def alert_flow_page(alert_id: str):
+    return render_template("flow_capture.html", alert_id=alert_id, **template_context("alerts"))
+
+
+@app.get("/api/alerts/<alert_id>/flow")
+@role_required("analyst")
+def api_alert_flow(alert_id: str):
+    try:
+        return jsonify(alert_flow_document(alert_id, str(request.args.get("view") or "")[:64]))
+    except AlertNotFound:
+        return jsonify({"error": "Alert not found."}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except WazuhIndexerError as exc:
+        return jsonify({"error": "Wazuh evidence retrieval failed.", "detail": str(exc)}), 502
+
+
+@app.get("/api/alerts/<alert_id>/flow.md")
+@role_required("analyst")
+def api_alert_flow_markdown(alert_id: str):
+    try:
+        doc = alert_flow_document(alert_id, str(request.args.get("view") or "")[:64])
+    except AlertNotFound:
+        return jsonify({"error": "Alert not found."}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except WazuhIndexerError as exc:
+        return jsonify({"error": "Wazuh evidence retrieval failed.", "detail": str(exc)}), 502
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", alert_id)[:60]
+    return Response(
+        flow_markdown(doc),
+        mimetype="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="flow-{safe}.md"'},
+    )
+
+
+WAZUH_VISUALS_TTL_SECONDS = 60
+_wazuh_visuals_cache: dict[str, Any] = {}
+
+
+@app.get("/api/dashboard/wazuh-visuals")
+@role_required("analyst")
+def api_dashboard_wazuh_visuals():
+    """Wazuh 대시보드 시각화 (infra/wazuh-dashboard) 와 같은 집계, 최근 24시간.
+
+    심각도별 추이, 막힘/통과 판정, MITRE, 상태 코드, 요청 URL. 열린 대시보드가
+    여럿이어도 Indexer 조회는 1분에 한 번입니다.
+    """
+    if not isinstance(ALERT_REPOSITORY, WazuhEventRepository):
+        return jsonify({"source": "fixture_repository", "available": False})
+    now = time.monotonic()
+    cached = _wazuh_visuals_cache.get("value")
+    if cached and now - _wazuh_visuals_cache.get("at", 0) < WAZUH_VISUALS_TTL_SECONDS:
+        return jsonify(cached)
+    try:
+        value = {"source": "wazuh_indexer", "available": True, **SIEM.wazuh_visuals(hours=24)}
+    except (WazuhIndexerError, ValueError) as exc:
+        return jsonify({"error": "Wazuh visual query failed.", "detail": str(exc)}), 502
+    _wazuh_visuals_cache.update(value=value, at=now)
+    return jsonify(value)
+
+
 @app.get("/api/redteam/recent")
 @role_required("analyst")
 def api_redteam_recent():
@@ -2912,11 +3026,15 @@ def api_analyze_alert(alert_id: str):
         "hawki.wazuh.live-evidence/v2",
     }
 
+    flow_sizes = {"initial": flow_snapshot(bundle)} if is_live else {}
     if is_live and CONFIG["agent_tool_loop_enabled"] and CONFIG["agent_max_tool_calls"] > 0:
         bundle = gather_more_evidence(alert_id, bundle)
+        flow_sizes["after_agent"] = flow_snapshot(bundle)
 
     context_fit = fit_bundle_to_context(alert_id, bundle)
     feedback_used = attach_feedback_context(alert_id, bundle)
+    if is_live:
+        flow_sizes["sent"] = flow_snapshot(bundle)
 
     if is_live:
         context_events = bundle.get("investigation_context")
@@ -3102,6 +3220,16 @@ def api_analyze_alert(alert_id: str):
         bundle,
         priority=None if is_live else (alert_list_item(alert_id) or {}).get("priority"),
     )
+
+    if is_live and FLOW_CAPTURE_ENABLED:
+        # A capture that cannot be written never costs the analyst the answer.
+        try:
+            saved = FLOW_CAPTURE_STORE.save(build_flow(
+                alert_id, bundle, result=result, snapshots=flow_sizes, mode="captured",
+            ))
+        except Exception:  # noqa: BLE001
+            saved = None
+        result["flow_capture"] = {"saved": saved is not None, "capture_id": saved.stem if saved else None}
 
     return jsonify(result)
 
@@ -6504,6 +6632,8 @@ def api_queue_action():
         "source": str(payload.get("source", "agent"))[:40],
         "execution_enabled": CONFIG["response_actions_enabled"],
     }
+    if str(payload.get("alert_id") or "").strip():
+        record["alert_id"] = str(payload["alert_id"]).strip()[:128]
     with ACTION_QUEUE_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     append_audit("action_queued", {"action_id": record["id"], "type": record["type"]})

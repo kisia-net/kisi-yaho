@@ -886,6 +886,179 @@ function renderDashboardVisuals(visuals) {
     }
 }
 
+// Wazuh 대시보드 시각화와 같은 집계 (/api/dashboard/wazuh-visuals).
+// 막대 높이·칸 색은 SVG 속성과 클래스로만 정합니다: 페이지 CSP 가 인라인
+// style 속성을 막습니다.
+const WZ_BAND_ORDER = ["low", "mid", "high"];
+
+function wzLogsHref(query, start, end) {
+    const params = new URLSearchParams({ index: "wazuh-alerts-*", query, size: "200", run: "1" });
+    if (start) params.set("start", start);
+    if (end) params.set("end", end);
+    return `/logs?${params}`;
+}
+
+function renderSeverityActivity(data) {
+    const target = byId("dashboard-activity-chart");
+    const legend = byId("dashboard-activity-legend");
+    const activity = data.activity || [];
+    if (!target || !activity.length) return;
+    const labels = Object.fromEntries((data.bands || []).map((band) => [band.key, band.label]));
+    if (legend) {
+        legend.innerHTML = WZ_BAND_ORDER.map((key) => `<span class="wz-legend-item"><i class="wz-swatch activity-band-${key}"></i>${escapeHtml(labels[key] || key)}</span>`).join("");
+        legend.removeAttribute("aria-hidden");
+    }
+    const width = 720;
+    const baseline = 150;
+    const slot = width / activity.length;
+    const barWidth = Math.max(5, slot - 5);
+    const maxCount = Math.max(1, ...activity.map((item) => Number(item.count) || 0));
+    const bars = activity.map((item, index) => {
+        const parsed = Date.parse(item.time || "");
+        const label = Number.isFinite(parsed)
+            ? new Date(parsed).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false })
+            : "";
+        const showLabel = index === 0 || index === activity.length - 1 || index % 6 === 0;
+        const href = Number.isFinite(parsed)
+            ? wzLogsHref("*", new Date(parsed).toISOString(), new Date(parsed + 3600 * 1000).toISOString())
+            : "";
+        const x = Math.round(index * slot + 2);
+        let top = baseline;
+        const segments = WZ_BAND_ORDER.map((key) => {
+            const count = Number((item.bands || {})[key]) || 0;
+            if (!count) return "";
+            const height = Math.max(1, Math.round((count / maxCount) * 118));
+            top -= height;
+            return `<rect class="activity-bar activity-band-${key}" x="${x}" y="${top}" width="${barWidth}" height="${height}" rx="1.5"></rect>`;
+        }).join("");
+        const breakdown = WZ_BAND_ORDER.map((key) => `${labels[key] || key} ${formatNumber((item.bands || {})[key] || 0)}`).join(" · ");
+        return `<g>
+            <title>${escapeHtml(label)} · 경보 ${formatNumber(item.count)}건 (${escapeHtml(breakdown)})${href ? " · 눌러서 검색" : ""}</title>
+            ${href ? `<a href="${escapeHtml(href)}" class="activity-link">` : ""}
+            <rect class="activity-hit" x="${Math.round(index * slot)}" y="0" width="${Math.ceil(slot)}" height="${baseline}"></rect>
+            ${segments}
+            ${href ? "</a>" : ""}
+            ${showLabel ? `<text class="activity-axis-label" x="${x}" y="174">${escapeHtml(label)}</text>` : ""}
+        </g>`;
+    }).join("");
+    target.innerHTML = `<svg class="activity-svg" viewBox="0 0 ${width} 190" role="img" aria-label="최근 24시간 Wazuh 탐지 추이, 심각도별">
+        <line class="activity-baseline" x1="0" y1="${baseline}" x2="${width}" y2="${baseline}"></line>${bars}</svg>`;
+}
+
+function renderBlockPass(data) {
+    const target = byId("wz-block-pass");
+    const summaryTarget = byId("wz-block-pass-summary");
+    if (!target) return;
+    target.classList.remove("loading-block");
+    const rows = data.block_pass || [];
+    const signals = data.signals || [];
+    const summary = data.block_pass_summary || {};
+    if (summaryTarget) {
+        summaryTarget.textContent = `통과 의심 ${formatNumber(summary.passed || 0)} · 막힘 ${formatNumber(summary.blocked || 0)} · 관찰 ${formatNumber(summary.observed || 0)} (출발지 IP 수)`;
+    }
+    if (!rows.length) {
+        target.innerHTML = `<div class="empty-state">최근 24시간 출발지 IP가 있는 웹 경보가 없습니다.</div>`;
+        return;
+    }
+    const max = Math.max(1, ...rows.flatMap((row) => signals.map((signal) => Number(row[signal.key]) || 0)));
+    const heat = (value) => (value ? Math.min(4, 1 + Math.floor((value / max) * 4)) : 0);
+    target.innerHTML = `<div class="data-table"><table class="report-table wz-table">
+        <thead><tr><th>출발지 IP</th><th>판정</th>${signals.map((signal) => `<th class="num">${escapeHtml(signal.label)}</th>`).join("")}<th class="num">경보</th></tr></thead>
+        <tbody>${rows.map((row) => `<tr class="wz-row-${escapeHtml(row.verdict)}">
+            <td><a href="/alerts?${new URLSearchParams({ q: row.ip, range: "24h", category: "all", sort: "priority" })}">${escapeHtml(row.ip)}</a></td>
+            <td><span class="wz-verdict wz-verdict-${escapeHtml(row.verdict)}">${escapeHtml(row.verdict_label)}</span></td>
+            ${signals.map((signal) => {
+                const value = Number(row[signal.key]) || 0;
+                const tone = signal.key === "status_2xx" || signal.key === "success_rule" ? "pass" : "block";
+                return `<td class="num"><span class="wz-cell wz-${tone}-${heat(value)}">${value ? escapeHtml(formatNumber(value)) : "·"}</span></td>`;
+            }).join("")}
+            <td class="num">${escapeHtml(formatNumber(row.alerts))}${row.partial ? "<sup title=\"성공 신호만 센 값\">*</sup>" : ""}</td>
+        </tr>`).join("")}</tbody></table></div>`;
+}
+
+function renderMitre(data) {
+    const target = byId("wz-mitre");
+    if (!target) return;
+    target.classList.remove("loading-block");
+    const tactics = data.mitre || [];
+    if (!tactics.length) {
+        target.innerHTML = `<div class="empty-state">MITRE 매핑이 있는 경보가 없습니다.</div>`;
+        return;
+    }
+    const max = Math.max(1, ...tactics.flatMap((tactic) => tactic.techniques.map((item) => item.count)));
+    target.innerHTML = tactics.map((tactic) => `
+        <div class="wz-mitre-row">
+            <strong class="wz-mitre-tactic">${escapeHtml(tactic.tactic)}<small>${escapeHtml(formatNumber(tactic.count))}</small></strong>
+            <div class="wz-mitre-cells">${tactic.techniques.map((item) => `
+                <a class="wz-mitre-cell wz-heat-${Math.min(4, 1 + Math.floor((item.count / max) * 4))}"
+                   href="${escapeHtml(wzLogsHref(`rule.mitre.technique:"${item.technique.replace(/"/g, "")}"`))}"
+                   title="${escapeHtml(`${tactic.tactic} · ${item.technique} · ${formatNumber(item.count)}건`)}">
+                    <span>${escapeHtml(item.technique)}</span><b>${escapeHtml(formatNumber(item.count))}</b>
+                </a>`).join("")}</div>
+        </div>`).join("");
+}
+
+function renderStatuses(data) {
+    const target = byId("wz-statuses");
+    if (!target) return;
+    target.classList.remove("loading-block");
+    const statuses = data.statuses || [];
+    if (!statuses.length) {
+        target.innerHTML = `<div class="empty-state">상태 코드가 있는 웹 경보가 없습니다.</div>`;
+        return;
+    }
+    const max = Math.max(1, ...statuses.map((item) => item.count));
+    const meaning = (code) => code.startsWith("2") ? "성공" : code === "403" ? "거부(WAF 등)" : code.startsWith("4") ? "실패" : code.startsWith("5") ? "서버 오류" : "";
+    target.innerHTML = statuses.map((item) => `
+        <a class="level-distribution-row wz-status-row wz-status-${escapeHtml(item.code.charAt(0))}xx" href="${escapeHtml(wzLogsHref(`rule.groups:web AND data.id:"${item.code}"`))}" title="${escapeHtml(meaning(item.code))}">
+            <strong>${escapeHtml(item.code)}</strong>
+            <progress max="${max}" value="${Number(item.count) || 0}"></progress>
+            <span>${escapeHtml(formatNumber(item.count))}</span>
+        </a>`).join("");
+}
+
+function renderUrls(data) {
+    const target = byId("wz-urls");
+    if (!target) return;
+    target.classList.remove("loading-block");
+    const urls = data.urls || [];
+    if (!urls.length) {
+        target.innerHTML = `<div class="empty-state">URL이 있는 웹 경보가 없습니다.</div>`;
+        return;
+    }
+    target.innerHTML = `<div class="data-table"><table class="report-table wz-table">
+        <thead><tr><th>URL</th><th class="num">요청</th><th class="num">출발지 IP</th></tr></thead>
+        <tbody>${urls.map((item) => `<tr>
+            <td class="wz-url"><a href="/alerts?${new URLSearchParams({ q: item.url, range: "24h", category: "attack" })}" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</a></td>
+            <td class="num">${escapeHtml(formatNumber(item.count))}</td>
+            <td class="num">${escapeHtml(formatNumber(item.sources))}</td>
+        </tr>`).join("")}</tbody></table></div>`;
+}
+
+async function loadWazuhVisuals() {
+    const panels = ["wz-block-pass", "wz-mitre", "wz-statuses", "wz-urls"];
+    try {
+        const data = await api("/api/dashboard/wazuh-visuals");
+        if (!data.available) {
+            // Fixture data has no Indexer to aggregate.
+            document.querySelectorAll("[data-wazuh-visuals]").forEach((section) => section.remove());
+            return;
+        }
+        renderSeverityActivity(data);
+        renderBlockPass(data);
+        renderMitre(data);
+        renderStatuses(data);
+        renderUrls(data);
+    } catch (error) {
+        panels.forEach((id) => {
+            const target = byId(id);
+            if (!target) return;
+            target.classList.remove("loading-block");
+            target.innerHTML = `<p class="muted">Wazuh 시각화를 불러오지 못했습니다 · ${escapeHtml(error.message)}</p>`;
+        });
+    }
+}
+
 async function initDashboard() {
     const data = await api("/api/dashboard");
     const stats = data.stats || {};
@@ -927,6 +1100,7 @@ async function initDashboard() {
 
     renderDashboardAlerts(data.recent_alerts || []);
     renderDashboardVisuals(data.visuals || {});
+    loadWazuhVisuals();
     loadDashboardFlow();
     loadDashboardCti();
     loadDashboardRedteam();
@@ -2392,10 +2566,13 @@ async function clearAgentHistory() {
 }
 
 async function queueAction(action, source) {
+    // On an alert page the proposal is tied to that alert, so the alert's
+    // data flow capture (⑦ 조치) can show what happened to it.
+    const alertId = byId("alert-analysis-root")?.dataset.alertId || "";
     const data = await api("/api/actions/queue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, source }),
+        body: JSON.stringify(alertId ? { action, source, alert_id: alertId } : { action, source }),
     });
     toast(`${data.action.id} 승인 요청을 올렸습니다.`);
     return data.action;
