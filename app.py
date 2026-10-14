@@ -101,6 +101,7 @@ from hawki_alert_analysis.flow_capture import (
     FlowCaptureStore,
     build_flow,
     capture_record,
+    dropped_by_fit,
     snapshot as flow_snapshot,
     to_markdown as flow_markdown,
     verify_capture,
@@ -2613,7 +2614,7 @@ def read_last_analysis(alert_id: str) -> dict[str, Any] | None:
     return saved if isinstance(saved, dict) and isinstance(saved.get("result"), dict) else None
 
 
-def alert_flow_document(alert_id: str, view: str = "") -> dict[str, Any]:
+def alert_flow_document(alert_id: str, view: str = "", analysis_id: str = "") -> dict[str, Any]:
     """The flow of one alert, from the best record there is.
 
     1. A capture taken when the alert was analysed (LLM 분석 or the automatic
@@ -2626,7 +2627,14 @@ def alert_flow_document(alert_id: str, view: str = "") -> dict[str, Any]:
     view=live skips both records: stages ①~④ only.
     """
     captures = FLOW_CAPTURE_STORE.list(alert_id)
+    notice = ""
     chosen = next((item for item in captures if item.get("capture_id") == view), None)
+    if chosen is None and analysis_id:
+        # Opened from an automatic report: the capture of that very analysis.
+        chosen = next((item for item in captures
+                       if str((item.get("record") or {}).get("analysis_id") or "") == analysis_id), None)
+        if chosen is None:
+            notice = f"분석 {analysis_id} 의 캡처가 없습니다 (캡처 기능 이전 분석이거나 보관 개수를 넘어 지워짐). 가장 최근 기록을 보여 줍니다."
     if chosen is None and view not in {"live", "last"} and captures:
         chosen = captures[0]
     last = read_last_analysis(alert_id) if view != "live" else None
@@ -2672,6 +2680,7 @@ def alert_flow_document(alert_id: str, view: str = "") -> dict[str, Any]:
         for item in captures
     ]
     doc["last_analysis_available"] = bool(last)
+    doc["notice"] = notice
     return doc
 
 
@@ -2685,7 +2694,8 @@ def alert_flow_page(alert_id: str):
 @role_required("analyst")
 def api_alert_flow(alert_id: str):
     try:
-        return jsonify(alert_flow_document(alert_id, str(request.args.get("view") or "")[:64]))
+        return jsonify(alert_flow_document(alert_id, str(request.args.get("view") or "")[:64],
+                                           str(request.args.get("analysis") or "")[:64]))
     except AlertNotFound:
         return jsonify({"error": "Alert not found."}), 404
     except ValueError as exc:
@@ -2698,7 +2708,8 @@ def api_alert_flow(alert_id: str):
 @role_required("analyst")
 def api_alert_flow_markdown(alert_id: str):
     try:
-        doc = alert_flow_document(alert_id, str(request.args.get("view") or "")[:64])
+        doc = alert_flow_document(alert_id, str(request.args.get("view") or "")[:64],
+                                  str(request.args.get("analysis") or "")[:64])
     except AlertNotFound:
         return jsonify({"error": "Alert not found."}), 404
     except ValueError as exc:
@@ -3123,11 +3134,15 @@ def api_analyze_alert(alert_id: str):
         "hawki.wazuh.live-evidence/v2",
     }
 
-    flow_sizes = {"initial": flow_snapshot(bundle)} if is_live else {}
+    flow_sizes: dict[str, Any] = {"initial": flow_snapshot(bundle)} if is_live else {}
     if is_live and CONFIG["agent_tool_loop_enabled"] and CONFIG["agent_max_tool_calls"] > 0:
         bundle = gather_more_evidence(alert_id, bundle)
         flow_sizes["after_agent"] = flow_snapshot(bundle)
+    elif is_live:
+        flow_sizes["agent_status"] = "disabled"
 
+    # What the fit step removes never reaches the model; the capture keeps it beside the model's view.
+    before_fit = copy.deepcopy(bundle) if is_live and FLOW_CAPTURE_ENABLED else None
     context_fit = fit_bundle_to_context(alert_id, bundle)
     feedback_used = attach_feedback_context(alert_id, bundle)
     if is_live:
@@ -3326,7 +3341,8 @@ def api_analyze_alert(alert_id: str):
             saved = FLOW_CAPTURE_STORE.save(build_flow(
                 alert_id, bundle, result=result, snapshots=flow_sizes, mode="captured",
                 record=capture_record(source="manual", bundle=bundle, result=result,
-                                      request_text=request_text, model_replies=model_replies),
+                                      request_text=request_text, model_replies=model_replies,
+                                      dropped_evidence=dropped_by_fit(before_fit, bundle) if before_fit else []),
             ))
         except Exception:  # noqa: BLE001
             saved = None
@@ -8529,15 +8545,29 @@ def auto_fetch_alerts(since: datetime, min_level: int, limit: int) -> list[dict[
     return items[:limit]
 
 
+# auto_build_bundle -> auto_analyze, for the same bundle object in one cycle.
+_auto_fit_notes: dict[int, dict[str, Any]] = {}
+_auto_fit_lock = threading.Lock()
+
+
 def auto_build_bundle(item: dict[str, Any]) -> dict[str, Any]:
     alert_id = str(item.get("id") or "")
     bundle = ALERT_ANALYSIS.evidence_bundle(alert_id, max_related=MAX_RELATED_EVENTS_PER_CASE)
+    before_fit = copy.deepcopy(bundle) if FLOW_CAPTURE_ENABLED else None
+    initial = flow_snapshot(bundle)
     fit_bundle_to_context(alert_id, bundle)
     attach_feedback_context(
         alert_id,
         bundle,
         feedback_identity(item.get("rule_id") or item.get("title"), item.get("host"), item.get("source_ip")),
     )
+    if before_fit is not None:
+        # Kept outside the bundle, which is hashed and sent as it is; auto_analyze takes it back.
+        with _auto_fit_lock:
+            # A bundle whose analysis never ran (model off) leaves its note behind; keep only recent ones.
+            while len(_auto_fit_notes) >= 64:
+                _auto_fit_notes.pop(next(iter(_auto_fit_notes)))
+            _auto_fit_notes[id(bundle)] = {"initial": initial, "dropped": dropped_by_fit(before_fit, bundle)}
     return bundle
 
 
@@ -8582,14 +8612,20 @@ def auto_analyze(bundle: dict[str, Any], alert: dict[str, Any]) -> dict[str, Any
     result["hashes"] = {"prompt_sha256": prompt_sha256, "bundle_sha256": bundle_sha256}
     result["request_text"] = request_text
     result["explanation"] = build_explanation(result, bundle)
+    with _auto_fit_lock:
+        fit_note = _auto_fit_notes.pop(id(bundle), {})
     if FLOW_CAPTURE_ENABLED and str(bundle.get("schema") or "") in LIVE_BUNDLE_SCHEMAS_FOR_FLOW:
         # Same capture as the LLM 분석 button, marked as the automatic worker's.
         try:
+            snapshots = {"sent": flow_snapshot(bundle), "agent_status": "not_in_auto_report"}
+            if fit_note.get("initial"):
+                snapshots["initial"] = fit_note["initial"]
             FLOW_CAPTURE_STORE.save(build_flow(
                 str(alert.get("id") or ""), bundle, result=result,
-                snapshots={"sent": flow_snapshot(bundle)}, mode="captured",
+                snapshots=snapshots, mode="captured",
                 record=capture_record(source="auto_report", bundle=bundle, result=result,
-                                      request_text=request_text, model_replies=model_replies),
+                                      request_text=request_text, model_replies=model_replies,
+                                      dropped_evidence=fit_note.get("dropped")),
             ))
         except Exception:  # noqa: BLE001 - the report must not fail over its capture
             pass

@@ -953,8 +953,11 @@ function renderBlockPass(data) {
     const rows = data.block_pass || [];
     const signals = data.signals || [];
     const summary = data.block_pass_summary || {};
+    const totals = data.block_pass_totals || {};
     if (summaryTarget) {
-        summaryTarget.textContent = `통과 의심 ${formatNumber(summary.passed || 0)} · 막힘 ${formatNumber(summary.blocked || 0)} · 관찰 ${formatNumber(summary.observed || 0)} (출발지 IP 수)`;
+        // The verdict counts are over the rows found, not every address: say both.
+        summaryTarget.textContent = `표의 IP ${formatNumber(totals.shown_ips ?? rows.length)}개 중 통과 의심 ${formatNumber(summary.passed || 0)} · 막힘 ${formatNumber(summary.blocked || 0)} · 관찰 ${formatNumber(summary.observed || 0)}`
+            + (Number.isFinite(totals.web_ips) ? ` · 웹 경보 출발지 IP 전체 약 ${formatNumber(totals.web_ips)}개, 성공 응답 있는 IP 전체 약 ${formatNumber(totals.passed_ips || 0)}개` : "");
     }
     if (!rows.length) {
         target.innerHTML = `<div class="empty-state">최근 24시간 출발지 IP가 있는 웹 경보가 없습니다.</div>`;

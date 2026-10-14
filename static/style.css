@@ -5686,3 +5686,9 @@ html[data-theme="light"] .src-5 { fill: #e87ba4; background: #e87ba4; }
 .flow-verify-none { background: var(--panel-2); color: var(--muted); }
 .flow-reply { margin-top: 6px; }
 .flow-reply summary { cursor: pointer; font-size: 12.5px; }
+.flow-verify-warn { background: var(--sev-medium-bg, #fef3c7); }
+.flow-verify-warn strong { color: var(--sev-medium, #a16207); }
+.flow-more { margin-top: 6px; }
+.flow-more summary { cursor: pointer; font-size: 12.5px; color: var(--accent); }
+.flow-dropped { border-top: 1px dashed var(--line); padding-top: 8px; }
+.flow-dropped p { margin: 4px 0; font-size: 12.5px; }

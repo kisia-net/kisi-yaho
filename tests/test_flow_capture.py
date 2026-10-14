@@ -26,6 +26,7 @@ from hawki_alert_analysis.flow_capture import (  # noqa: E402
     FlowCaptureStore,
     build_flow,
     capture_record,
+    dropped_by_fit,
     field_paths,
     raw_format,
     to_markdown,
@@ -213,6 +214,67 @@ class RecordTests(unittest.TestCase):
         self.assertIn("아직 이 흐름에 연결되지 않았습니다", text)
 
 
+class OmissionTests(unittest.TestCase):
+    def test_every_raw_line_is_kept_and_the_page_folds_the_rest(self):
+        package = bundle()
+        package["investigation_context"] += [
+            item(f"CTX-{n:03d}", WEB, "/var/log/nginx/access.log", "web-accesslog", f"line {n}", {"srcip": "1.2.3.4"})
+            for n in range(10, 16)
+        ]
+        raw = build_flow("alert-1", package)["stages"]["raw"]
+        access = next(source for server in raw["servers"] for source in server["sources"]
+                      if source["location"] == "/var/log/nginx/access.log")
+        self.assertEqual(len(access["samples"]), access["count"])
+        self.assertEqual(access["samples"][0]["evidence_id"], "TRIGGER")
+        self.assertEqual(raw["preview_lines"], 3)
+
+    def test_evidence_removed_by_the_fit_is_kept_beside_the_capture(self):
+        before = bundle()
+        after = json.loads(json.dumps(before))
+        after["investigation_context"] = after["investigation_context"][:1]
+        after["retrieval"]["context_fit"] = {"dropped_evidence_ids": ["CTX-002", "CTX-003"]}
+        dropped = dropped_by_fit(before, after)
+        self.assertEqual([entry["evidence_id"] for entry in dropped], ["CTX-002", "CTX-003"])
+        self.assertEqual(dropped[0]["server"], "ids-01")
+        self.assertTrue(dropped[0]["full_log"])
+        doc = build_flow("alert-1", after, mode="captured", record={"dropped_evidence": dropped})
+        self.assertEqual(len(doc["stages"]["evidence"]["dropped"]), 2)
+        self.assertIn("모델에 보내지 않은 증거 2건", to_markdown(doc))
+        self.assertEqual(dropped_by_fit(before, before), [])
+
+    def test_retrieval_status_says_why_nothing_was_gathered(self):
+        off = build_flow("alert-1", {k: v for k, v in bundle().items() if k != "agent_retrieval"},
+                         snapshots={"agent_status": "disabled", "sent": {"context_count": 3}})
+        self.assertIn("AGENT_TOOL_LOOP_ENABLED=false", off["stages"]["ai_retrieval"]["status_label"])
+        auto = build_flow("alert-1", bundle(), snapshots={"agent_status": "not_in_auto_report"})
+        self.assertEqual(auto["stages"]["ai_retrieval"]["status"], "not_in_auto_report")
+        ran = build_flow("alert-1", bundle(), snapshots={"initial": {}})
+        self.assertEqual(ran["stages"]["ai_retrieval"]["status"], "finish")
+
+    def test_missing_audit_is_not_called_a_mismatch_and_demo_is_flagged(self):
+        package = bundle()
+        result = {**RESULT, "demo": True, "hashes": {"bundle_sha256": sha256_json(package)}}
+        doc = json.loads(json.dumps(build_flow(
+            "alert-1", package, result=result, mode="captured",
+            record=capture_record(source="manual", bundle=package, result=result, request_text="", model_replies=[])),
+            default=str))
+        check = verify_capture(doc, [])
+        self.assertEqual(check["status"], "audit_missing")
+        self.assertTrue(check["demo"])
+        audited = verify_capture(doc, [{"event_type": "alert_analysis_completed",
+                                        "detail": {"analysis_id": "an-1", "bundle_sha256": "0" * 64}}])
+        self.assertEqual(audited["status"], "mismatch")
+
+    def test_manual_and_automatic_captures_are_kept_separately(self):
+        store = FlowCaptureStore(Path(tempfile.mkdtemp()), keep=2)
+        for n in range(3):
+            store.save({"alert_id": "a", "n": n, "record": {"source": "manual"}})
+        store.save({"alert_id": "a", "n": 9, "record": {"source": "auto_report"}})
+        kept = store.list("a")
+        self.assertEqual(sorted((c["record"]["source"], c["n"]) for c in kept),
+                         [("auto_report", 9), ("manual", 1), ("manual", 2)])
+
+
 class HelperTests(unittest.TestCase):
     def test_field_paths(self):
         self.assertEqual(field_paths({"a": {"b": 1, "c": [1]}, "d": [{"e": 2}]}), ["a.b", "a.c[]", "d[].e"])
@@ -351,6 +413,8 @@ class RouteTests(unittest.TestCase):
         self.assertTrue(body["verification"]["matches_audit"])
         self.assertEqual(package.status_code, 200)
         self.assertEqual(sha256_json(package.get_json()), body["verification"]["recomputed_bundle_sha256"])
+        self.assertEqual(body["verification"]["status"], "verified")
+        self.assertEqual(body["stages"]["ai_retrieval"]["status"], "disabled")
 
     def test_the_automatic_report_is_captured_too(self):
         reply = json.dumps({"answer": "자동 요약", "assessment": RESULT["assessment"], "actions": []}, ensure_ascii=False)
@@ -370,6 +434,39 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(capture["record"]["analysis_id"], result["analysis_id"])
         self.assertEqual(capture["record"]["model_replies"][0]["content"], reply)
         self.assertEqual(sha256_json(capture["record"]["evidence_package"]), result["hashes"]["bundle_sha256"])
+        self.assertEqual(capture["stages"]["ai_retrieval"]["status"], "not_in_auto_report")
+        # Opened from the report: that analysis's capture is chosen.
+        body = self.client.get(f"/api/alerts/alert-1/flow?analysis={result['analysis_id']}").get_json()
+        self.assertEqual(body["record"]["analysis_id"], result["analysis_id"])
+        self.assertEqual(body["notice"], "")
+        missing = self.client.get("/api/alerts/alert-1/flow?analysis=deadbeef").get_json()
+        self.assertIn("캡처가 없습니다", missing["notice"])
+
+    def test_auto_build_hands_the_dropped_evidence_to_auto_analyze(self):
+        before = bundle()
+
+        def fit(alert_id, package):
+            package["investigation_context"] = package["investigation_context"][:1]
+            package.setdefault("retrieval", {})["context_fit"] = {"dropped_evidence_ids": ["CTX-002", "CTX-003"]}
+
+        reply = json.dumps({"answer": "자동", "assessment": RESULT["assessment"], "actions": []}, ensure_ascii=False)
+
+        class Reply:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"model": "hawki-local", "choices": [{"finish_reason": "stop", "message": {"content": reply}}]}
+
+        with mock.patch.object(app.ALERT_ANALYSIS, "evidence_bundle", return_value=before), \
+                mock.patch.object(app, "fit_bundle_to_context", side_effect=fit), \
+                mock.patch.object(app.requests, "post", return_value=Reply()):
+            package = app.auto_build_bundle({"id": "alert-1"})
+            app.auto_analyze(package, {"id": "alert-1"})
+        capture = self.store.latest("alert-1")
+        self.assertEqual([entry["evidence_id"] for entry in capture["stages"]["evidence"]["dropped"]], ["CTX-002", "CTX-003"])
+        self.assertEqual(capture["stages"]["ai_retrieval"]["before"]["context_count"], 3)
+        self.assertNotIn(id(package), app._auto_fit_notes)
 
     def test_package_download_needs_a_capture(self):
         self.assertEqual(self.client.get("/api/alerts/alert-1/flow/package.json").status_code, 404)

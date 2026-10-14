@@ -25,7 +25,8 @@ from typing import Any
 from .redteam_bridge import sha256_json
 
 FLOW_CAPTURE_SCHEMA = "hawki.flow-capture/v1"
-MAX_SAMPLES_PER_SOURCE = 3
+# Every line of the package is kept; the page shows this many and folds the rest.
+RAW_PREVIEW_LINES = 3
 MAX_FIELD_PATHS = 60
 EVIDENCE_ID = re.compile(r"\b(?:TRIGGER|CTX-\d{3})\b")
 
@@ -137,23 +138,22 @@ def raw_stage(bundle: dict[str, Any]) -> dict[str, Any]:
         })
         server["count"] += 1
         source["count"] += 1
-        if len(source["samples"]) < MAX_SAMPLES_PER_SOURCE or item.get("evidence_id") == "TRIGGER":
-            sample = {
-                "evidence_id": item.get("evidence_id"),
-                "timestamp": item.get("timestamp"),
-                "full_log": item.get("full_log"),
-            }
-            if item.get("evidence_id") == "TRIGGER":
-                source["samples"].insert(0, sample)
-                source["samples"] = source["samples"][:MAX_SAMPLES_PER_SOURCE]
-            else:
-                source["samples"].append(sample)
+        sample = {
+            "evidence_id": item.get("evidence_id"),
+            "timestamp": item.get("timestamp"),
+            "full_log": item.get("full_log"),
+        }
+        if item.get("evidence_id") == "TRIGGER":
+            source["samples"].insert(0, sample)
+        else:
+            source["samples"].append(sample)
     return {
         "servers": [
             {**server, "sources": list(server["sources"].values())}
             for server in sorted(servers.values(), key=lambda value: -value["count"])
         ],
         "line_count": sum(server["count"] for server in servers.values()),
+        "preview_lines": RAW_PREVIEW_LINES,
         "size_chars": sum(len(str(item.get("full_log") or "")) for item in _items(bundle)),
     }
 
@@ -293,11 +293,27 @@ def evidence_stage(bundle: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Why ⑤ looks the way it does. "disabled" and "not_in_auto_report" are written
+# by the app at capture time; the others are the evidence agent's own `stopped`.
+RETRIEVAL_STATUS = {
+    "disabled": "꺼져 있음 (AGENT_TOOL_LOOP_ENABLED=false 또는 AGENT_MAX_TOOL_CALLS=0)",
+    "not_in_auto_report": "자동 보고서는 AI 증거 수집을 하지 않음",
+    "no_room": "처음 패키지가 이미 문맥 한도를 넘어 건너뜀",
+    "context_limit_reverted": "가져온 증거가 문맥 한도를 넘어 되돌림",
+    "error": "도구 실행 중 오류로 중단",
+    "finish": "모델이 증거가 충분하다고 판단해 종료",
+    "no_tool_call": "모델이 도구를 부르지 않음",
+    "max_calls": "호출 횟수 상한에 도달",
+    "unknown": "기록 없음 (이 기능 이전 캡처)",
+}
+
+
 def ai_retrieval_stage(bundle: dict[str, Any], snapshots: dict[str, Any] | None) -> dict[str, Any]:
     trace = _mapping(bundle.get("agent_retrieval"))
     snapshots = snapshots or {}
     if not trace and not snapshots:
         return {"ran": False}
+    status = str(snapshots.get("agent_status") or trace.get("stopped") or "unknown")
     calls = []
     for call in trace.get("calls") or []:
         if not isinstance(call, dict):
@@ -313,6 +329,8 @@ def ai_retrieval_stage(bundle: dict[str, Any], snapshots: dict[str, Any] | None)
         "calls": calls,
         "added_evidence_ids": trace.get("added_evidence_ids") or [],
         "stopped": trace.get("stopped"),
+        "status": status,
+        "status_label": RETRIEVAL_STATUS.get(status, status),
         "before": snapshots.get("initial"),
         "after_agent": snapshots.get("after_agent"),
         "sent_to_model": snapshots.get("sent"),
@@ -399,7 +417,7 @@ def build_flow(
         "raw": raw_stage(bundle),
         "event": event_stage(bundle),
         "alert": alert_stage(bundle),
-        "evidence": evidence_stage(bundle),
+        "evidence": {**evidence_stage(bundle), "dropped": list(_mapping(record).get("dropped_evidence") or [])},
         "ai_retrieval": ai_retrieval_stage(bundle, snapshots),
         "ai_judgment": ai_judgment_stage(bundle, result),
         "response": response_stage(result, queued_actions),
@@ -446,6 +464,7 @@ def capture_record(
     result: dict[str, Any],
     request_text: str,
     model_replies: list[dict[str, Any]] | None,
+    dropped_evidence: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     hashes = _mapping(result.get("hashes"))
     return {
@@ -456,7 +475,35 @@ def capture_record(
         "request_text": request_text,
         "evidence_package": bundle,
         "model_replies": list(model_replies or []),
+        "dropped_evidence": list(dropped_evidence or []),
     }
+
+
+def dropped_by_fit(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:
+    """Context items the fit step removed: in `before`, named in the fit report of `after`.
+
+    They never reached the model, so the capture (the model's view) would lose
+    them entirely; they are kept beside it with what the analyst needs to read them.
+    """
+    fit = _mapping(_mapping(after.get("retrieval")).get("context_fit"))
+    names = {str(value) for value in fit.get("dropped_evidence_ids") or []}
+    kept = {str(_mapping(item).get("evidence_id")) for item in after.get("investigation_context") or []}
+    dropped = []
+    for item in before.get("investigation_context") or []:
+        evidence_id = str(_mapping(item).get("evidence_id"))
+        if evidence_id in names and evidence_id not in kept:
+            rule = _mapping(item.get("rule"))
+            dropped.append({
+                "evidence_id": evidence_id,
+                "timestamp": item.get("timestamp"),
+                "server": _server(item)[0],
+                "location": item.get("location"),
+                "decoder": _mapping(item.get("decoder")).get("name"),
+                "rule": {key: rule.get(key) for key in ("id", "level", "description") if key in rule},
+                "relevance_score": _mapping(item.get("retrieval")).get("relevance_score"),
+                "full_log": item.get("full_log"),
+            })
+    return dropped
 
 
 def verify_capture(doc: dict[str, Any], audit_records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -484,6 +531,12 @@ def verify_capture(doc: dict[str, Any], audit_records: list[dict[str, Any]]) -> 
         "matches_capture": recomputed == record.get("bundle_sha256"),
         "audit_record": audited,
         "matches_audit": bool(audited) and recomputed == audited.get("bundle_sha256"),
+        # No audit record is not the same as a different hash: the log may
+        # have been rotated or replaced since the analysis.
+        "status": ("audit_missing" if not audited else
+                   "verified" if recomputed == record.get("bundle_sha256") == audited.get("bundle_sha256") else
+                   "mismatch"),
+        "demo": bool(_mapping(_mapping(doc.get("stages")).get("ai_judgment")).get("demo")),
         "model_reply_count": len(record.get("model_replies") or []),
     }
 
@@ -503,15 +556,24 @@ class FlowCaptureStore:
             folder = self._dir(str(doc.get("alert_id")))
             folder.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-            path = folder / f"{stamp}.json"
+            # The source is in the name so the LLM 분석 button and the
+            # automatic reports each keep their own `keep` newest captures.
+            source = re.sub(r"[^a-z_]", "", str(_mapping(doc.get("record")).get("source") or "manual"))[:20] or "manual"
+            path = folder / f"{stamp}-{source}.json"
             temporary = path.with_suffix(".tmp")
             temporary.write_text(json.dumps(doc, ensure_ascii=False, default=str), encoding="utf-8")
             temporary.replace(path)
-            for old in sorted(folder.glob("*.json"))[:-self.keep]:
+            same_source = [item for item in folder.glob("*.json") if self._source(item) == source]
+            for old in sorted(same_source)[:-self.keep]:
                 old.unlink(missing_ok=True)
             return path
         except OSError:
             return None
+
+    @staticmethod
+    def _source(path: Path) -> str:
+        # Captures saved before the source was in the name count as manual.
+        return path.stem.split("-", 1)[1] if "-" in path.stem else "manual"
 
     def list(self, alert_id: str) -> list[dict[str, Any]]:
         folder = self._dir(alert_id)
@@ -528,6 +590,12 @@ class FlowCaptureStore:
         captures = self.list(alert_id)
         return captures[0] if captures else None
 
+
+VERIFY_LABELS = {
+    "verified": "검증됨 (캡처·감사 로그 해시 모두 일치)",
+    "mismatch": "불일치 (저장된 패키지가 기록된 해시와 다름)",
+    "audit_missing": "감사 기록 없음 (해시는 캡처와 비교만 함. 감사 로그가 교체·삭제됐을 수 있음)",
+}
 
 MODE_LABELS = {
     "captured": "분석 실행 시점 저장",
@@ -603,16 +671,26 @@ def to_markdown(doc: dict[str, Any]) -> str:
               f"- 차단 판정 {json.dumps(evidence.get('control_summary'), ensure_ascii=False)} · 우선순위 {json.dumps(evidence.get('priority'), ensure_ascii=False)}",
               f"- 출처 연결(lineage) {evidence.get('lineage_edges')}개 · 수집 조건 {json.dumps(evidence.get('retrieval'), ensure_ascii=False, default=str)}",
               ""]
+    dropped = evidence.get("dropped") or []
+    if dropped:
+        lines += [f"### 문맥 한도 때문에 모델에 보내지 않은 증거 {len(dropped)}건", "",
+                  "아래 ①~③ 에는 없는 증거입니다. 고른 증거였지만 문맥 맞추기에서 관련도가 낮은 것부터 빠졌습니다.", ""]
+        for item in dropped:
+            rule = _mapping(item.get("rule"))
+            lines += [f"- `{item.get('evidence_id')}` · {item.get('server')} `{item.get('location')}` · "
+                      f"룰 {rule.get('id') or '—'} · 관련도 {item.get('relevance_score')}", "", _code(item.get("full_log") or ""), ""]
 
     retrieval = _mapping(stages.get("ai_retrieval"))
     lines += ["## ⑤ AI 증거 수집", ""]
+    if retrieval.get("status_label"):
+        lines.append(f"- 상태: {retrieval.get('status_label')}")
     if retrieval.get("ran"):
         for call in retrieval.get("calls") or []:
             lines.append(f"- `{call.get('tool')}` {json.dumps(call.get('arguments'), ensure_ascii=False)} → 추가 {call.get('added_evidence_ids') or []}")
         lines.append(f"- 추가된 증거 {retrieval.get('added_evidence_ids')} · 멈춘 이유 `{retrieval.get('stopped')}`")
         lines.append(f"- 크기 변화: 처음 {retrieval.get('before')} → 수집 후 {retrieval.get('after_agent')} → 모델에 보낸 것 {retrieval.get('sent_to_model')}")
     else:
-        lines.append("실행 기록 없음 (분석을 실행하면 이 단계가 저장됩니다).")
+        lines.append("도구 호출 없음." if retrieval.get("status_label") else "실행 기록 없음 (분석을 실행하면 이 단계가 저장됩니다).")
 
     judgment = _mapping(stages.get("ai_judgment"))
     lines += ["", "## ⑥ AI 판단", ""]
@@ -646,6 +724,8 @@ def to_markdown(doc: dict[str, Any]) -> str:
             f"- 분석 id `{record.get('analysis_id')}` · 경로 `{record.get('source')}`",
             f"- 저장된 증거 패키지를 다시 계산한 해시 `{verification.get('recomputed_bundle_sha256')}`",
             f"- 캡처에 기록된 해시와 일치: {'예' if verification.get('matches_capture') else '아니오'}",
+            f"- 판정: {VERIFY_LABELS.get(str(verification.get('status')), verification.get('status'))}"
+            f"{' · AI 판단은 데모 응답 (모델 미연결)' if verification.get('demo') else ''}",
             f"- 감사 로그 `{audit.get('event_type') or '—'}` ({audit.get('timestamp') or '기록 없음'}) 의 해시와 일치: "
             f"{'예' if verification.get('matches_audit') else '아니오'}",
         ]

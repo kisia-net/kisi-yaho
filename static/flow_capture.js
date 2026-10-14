@@ -56,6 +56,10 @@
     }
 
     function renderRaw(data) {
+        const preview = Number(data.preview_lines) || 3;
+        const line = (sample) => `
+            <p class="flow-sample-head"><code>${escapeHtml(sample.evidence_id)}</code> <span class="muted">${when(sample.timestamp)}</span></p>
+            ${pre(sample.full_log || "")}`;
         return (data.servers || []).map((server) => `
             <article class="flow-server">
                 <h3>${escapeHtml(server.server)} <small class="muted">${escapeHtml(server.ip || "")} · ${number(server.count)}줄</small></h3>
@@ -63,9 +67,9 @@
                     <div class="flow-source">
                         <p><strong>${escapeHtml(source.label)}</strong> <code>${escapeHtml(source.location)}</code>
                            <span class="flow-tag">${escapeHtml(source.format)}</span> <span class="muted">${number(source.count)}줄</span></p>
-                        ${(source.samples || []).map((sample) => `
-                            <p class="flow-sample-head"><code>${escapeHtml(sample.evidence_id)}</code> <span class="muted">${when(sample.timestamp)}</span></p>
-                            ${pre(sample.full_log || "")}`).join("")}
+                        ${(source.samples || []).slice(0, preview).map(line).join("")}
+                        ${(source.samples || []).length > preview ? `<details class="flow-more"><summary>나머지 ${number(source.samples.length - preview)}줄 더 보기</summary>
+                            ${source.samples.slice(preview).map(line).join("")}</details>` : ""}
                     </div>`).join("")}
             </article>`).join("") || `<p class="muted">원본 로그가 없습니다.</p>`;
     }
@@ -116,13 +120,22 @@
                 <tbody>${outcomes.map((item) => `<tr><td><code>${escapeHtml(item.evidence_id)}</code></td><td>${escapeHtml(item.detection)}</td>
                     <td>${escapeHtml(item.control || "—")}</td><td><span class="flow-tag flow-tag-${escapeHtml(String(item.control_status || "").toLowerCase())}">${escapeHtml(item.control_status)}</span></td>
                     <td>${escapeHtml(item.http_status ?? "—")}</td></tr>`).join("")}</tbody>
-            </table></div>` : ""}`;
+            </table></div>` : ""}
+            ${(data.dropped || []).length ? `<div class="flow-dropped">
+                <p><span class="flow-tag flow-tag-warn">모델에 보내지 않은 증거 ${number(data.dropped.length)}건</span>
+                   문맥 한도(AGENT_CONTEXT_MAX_CHARS) 때문에 관련도가 낮은 것부터 빠졌습니다. ①~③ 과 모델 판단에는 들어가지 않았습니다.</p>
+                <details class="flow-more"><summary>빠진 증거와 원본 로그 보기</summary>
+                ${data.dropped.map((item) => `
+                    <p class="flow-sample-head"><code>${escapeHtml(item.evidence_id)}</code> <span class="muted">${escapeHtml(item.server || "")} · ${escapeHtml(item.location || "")} · 룰 ${escapeHtml((item.rule || {}).id || "—")} · 관련도 ${escapeHtml(item.relevance_score ?? "—")}</span></p>
+                    ${pre(item.full_log || "")}`).join("")}
+                </details></div>` : ""}`;
     }
 
     function renderRetrieval(data) {
         if (!data.ran && !data.before) return `<p class="muted">이 캡처에는 AI 증거 수집 기록이 없습니다. 경보 화면에서 "LLM으로 분석"을 실행하면 그 순간이 저장됩니다.</p>`;
         const size = (item) => item ? `CTX ${number(item.context_count)} · ${number(item.size_chars)}자` : "—";
         return `${kv([
+            ["상태", `<strong>${escapeHtml(data.status_label || data.stopped || "—")}</strong>`],
             ["처음 만든 패키지", size(data.before)],
             ["AI 수집 후", size(data.after_agent)],
             ["모델에 보낸 패키지", `${size(data.sent_to_model)} (문맥 한도에 맞춘 뒤)`],
@@ -217,12 +230,18 @@
         packageLink.href = `${base}/package.json?view=${encodeURIComponent(doc.capture_id || "")}`;
         const verify = root.querySelector("[data-flow-verify]");
         const check = doc.verification || {};
-        verify.className = `flow-verify ${check.checked ? (check.matches_capture && check.matches_audit ? "flow-verify-ok" : "flow-verify-bad") : "flow-verify-none"}`;
+        const status = check.checked ? (check.status || (check.matches_capture && check.matches_audit ? "verified" : "mismatch")) : "none";
+        const title = { verified: "검증됨", mismatch: "불일치", audit_missing: "감사 기록 없음", none: "검증 안 됨" }[status];
+        verify.className = `flow-verify ${{ verified: "flow-verify-ok", mismatch: "flow-verify-bad", audit_missing: "flow-verify-warn", none: "flow-verify-none" }[status]}`;
+        const audit = check.audit_record
+            ? `감사 로그(${escapeHtml(check.audit_record.event_type)}, 분석 id <code>${escapeHtml(record.analysis_id || "—")}</code>)와 ${check.matches_audit ? "일치" : "불일치"}`
+            : `감사 로그에서 분석 id <code>${escapeHtml(record.analysis_id || "—")}</code> 기록을 찾지 못함 (로그가 교체·삭제됐을 수 있음)`;
         verify.innerHTML = check.checked
-            ? `<strong>${check.matches_capture && check.matches_audit ? "검증됨" : "불일치"}</strong> · 저장된 증거 패키지를 다시 해시한 값이
-               캡처 기록과 ${check.matches_capture ? "일치" : "불일치"}, 감사 로그(${escapeHtml((check.audit_record || {}).event_type || "기록 없음")}, 분석 id <code>${escapeHtml(record.analysis_id || "—")}</code>)와 ${check.matches_audit ? "일치" : "불일치"}
-               · 모델 응답 원문 ${number(check.model_reply_count)}건 · <code>${escapeHtml(String(check.recomputed_bundle_sha256 || "").slice(0, 16))}…</code>`
-            : `<strong>검증 안 됨</strong> · ${escapeHtml(check.reason || "")}`;
+            ? `<strong>${title}</strong> · 저장된 증거 패키지를 다시 해시한 값이 캡처 기록과 ${check.matches_capture ? "일치" : "불일치"}, ${audit}
+               · 모델 응답 원문 ${number(check.model_reply_count)}건 · <code>${escapeHtml(String(check.recomputed_bundle_sha256 || "").slice(0, 16))}…</code>
+               ${check.demo ? `<br><span class="flow-tag flow-tag-warn">AI 판단은 데모 응답</span> 모델에 연결되지 않아 앱이 만든 응답입니다. 위 검증은 증거 패키지에 대한 것이고, 모델 판단이 있었다는 뜻이 아닙니다.` : ""}`
+            : `<strong>${title}</strong> · ${escapeHtml(check.reason || "")}`;
+        if (doc.notice) verify.innerHTML += `<br><span class="flow-tag flow-tag-warn">${escapeHtml(doc.notice)}</span>`;
         renderSizes(doc);
         (doc.stage_order || []).forEach((item) => {
             const target = stage(item.key);
@@ -242,9 +261,13 @@
         });
     }
 
+    // An automatic report links here with ?analysis=<id>: open that analysis's capture.
+    const analysisParam = new URLSearchParams(window.location.search).get("analysis") || "";
+
     async function load(view = "") {
         try {
-            render(await requestJson(view ? `${base}?view=${encodeURIComponent(view)}` : base));
+            const query = view ? `?view=${encodeURIComponent(view)}` : (analysisParam ? `?analysis=${encodeURIComponent(analysisParam)}` : "");
+            render(await requestJson(`${base}${query}`));
         } catch (error) {
             root.querySelector("[data-flow-meta]").textContent = `흐름을 불러오지 못했습니다 · ${error.message}`;
             root.querySelectorAll("[data-stage-body]").forEach((body) => { body.innerHTML = ""; });

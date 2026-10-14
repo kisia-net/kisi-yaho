@@ -45,7 +45,8 @@ PAYLOAD = {
             "success": {"by_ip": {"buckets": [
                 ip_bucket("52.141.3.247", 2, status_2xx=1, success_rule=1),
                 ip_bucket("198.51.100.9", 1, status_2xx=1),
-            ]}},
+            ]}, "ip_count": {"value": 2}},
+            "ip_count": {"value": 41},
             "statuses": {"buckets": [{"key": "404", "doc_count": 76}, {"key": "200", "doc_count": 1}]},
             "urls": {"buckets": [{"key": "/.env", "doc_count": 32, "sources": {"value": 4}}]},
         },
@@ -94,6 +95,7 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(rows[1]["partial"])
         self.assertEqual(rows[2]["verdict"], "blocked")
         self.assertEqual(self.visuals["block_pass_summary"], {"passed": 2, "blocked": 1, "observed": 0})
+        self.assertEqual(self.visuals["block_pass_totals"], {"shown_ips": 3, "web_ips": 41, "passed_ips": 2, "ip_limit": 10})
 
     def test_verdict_rules(self):
         self.assertEqual(block_pass_verdict({"waf": 3, "status_2xx": 0}), "blocked")

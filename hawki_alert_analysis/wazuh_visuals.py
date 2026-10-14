@@ -87,10 +87,15 @@ def visuals_query(*, timestamp_field: str, since: str, until: str = "now",
                 "filter": web,
                 "aggs": {
                     "by_ip": {"terms": {"field": "data.srcip", "size": ip_limit}, "aggs": per_ip},
+                    # 표는 상위 IP 만 보여 주므로, 전체 IP 수는 따로 셉니다 (근삿값, cardinality).
+                    "ip_count": {"cardinality": {"field": "data.srcip"}},
                     # 건수가 적어 Top 10 에 못 드는 IP 라도 성공 응답이 있으면 빠뜨리지 않습니다.
                     "success": {
                         "filter": success,
-                        "aggs": {"by_ip": {"terms": {"field": "data.srcip", "size": ip_limit}, "aggs": per_ip}},
+                        "aggs": {
+                            "by_ip": {"terms": {"field": "data.srcip", "size": ip_limit}, "aggs": per_ip},
+                            "ip_count": {"cardinality": {"field": "data.srcip"}},
+                        },
                     },
                     "statuses": {"terms": {"field": "data.id", "size": 10}},
                     "urls": {
@@ -205,9 +210,16 @@ def parse_visuals(payload: dict[str, Any], *, ip_limit: int = 10) -> dict[str, A
         "signals": [{"key": key, "label": label} for key, label, _clause in BLOCK_PASS_SIGNALS],
         "activity": activity,
         "block_pass": block_pass,
+        # Among the rows found (top IPs plus every success-signal IP up to the limit).
         "block_pass_summary": {
             verdict: sum(1 for row in rows.values() if row["verdict"] == verdict)
             for verdict in VERDICTS
+        },
+        "block_pass_totals": {
+            "shown_ips": len(block_pass),
+            "web_ips": int((web.get("ip_count") or {}).get("value") or 0),
+            "passed_ips": int(((web.get("success") or {}).get("ip_count") or {}).get("value") or 0),
+            "ip_limit": ip_limit,
         },
         "statuses": statuses,
         "urls": urls,

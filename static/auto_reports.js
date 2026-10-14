@@ -319,6 +319,7 @@
                         <a class="button secondary small" href="/api/auto-reports/${encodeURIComponent(report.id)}/markdown">마크다운 내려받기</a>
                         <button class="button secondary small" type="button" data-print>인쇄 · PDF</button>
                         <a class="button secondary small" href="/alerts/${encodeURIComponent(alert.id || "")}">경보 열기</a>
+                        ${alert.id ? `<a class="button secondary small" href="/alerts/${encodeURIComponent(alert.id)}/flow${ai.analysis_id ? `?analysis=${encodeURIComponent(ai.analysis_id)}` : ""}" title="이 보고서를 만든 분석의 단계별 흐름">데이터 흐름 캡처</a>` : ""}
                     </div>
                 </div>
                 <div class="auto-report-notice">${reviewChip(review.status)} ${aiChip(ai.status, ai.waiting_reason)} <span>AI 초안입니다. 분석가가 검토하기 전에는 확인된 사실로 공유하지 마세요.</span></div>
@@ -414,7 +415,11 @@
                 if (!action) return;
                 queue.disabled = true;
                 try {
-                    const data = await post("/api/actions/queue", { action, source: `auto_report:${current.id}` });
+                    // alert_id ties the action to the alert's data flow capture (⑦).
+                    const alertId = current.alert?.id;
+                    const data = await post("/api/actions/queue", alertId
+                        ? { action, source: `auto_report:${current.id}`, alert_id: alertId }
+                        : { action, source: `auto_report:${current.id}` });
                     queue.outerHTML = `<span class="tag">대기열 등록됨 · ${escapeHtml(data.action?.id || "")}</span>`;
                     notify("승인 대기열에 올렸습니다. 승인자가 결정해야 실행됩니다.");
                 } catch (error) {
