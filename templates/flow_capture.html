@@ -22,13 +22,15 @@
                     <select data-flow-capture aria-label="캡처 선택"></select>
                 </label>
                 <a class="button secondary" data-flow-markdown href="#">결과 자료 (Markdown)</a>
+                <a class="button secondary" data-flow-package href="#" title="모델에 보낸 그대로의 증거 패키지">증거 패키지 원본 (JSON)</a>
                 <a class="button secondary" href="{{ url_for('alert_detail_page', alert_id=alert_id) }}">경보로 돌아가기</a>
             </div>
         </div>
+        <p class="flow-verify" data-flow-verify></p>
         <div class="flow-size-chart" data-flow-sizes></div>
     </section>
 
-    {% for key, label in [('raw', '① 서버별 원본 로그'), ('event', '② 이벤트 (디코딩)'), ('alert', '③ 경보'), ('evidence', '④ 증거 패키지'), ('ai_retrieval', '⑤ AI 증거 수집'), ('ai_judgment', '⑥ AI 판단'), ('response', '⑦ 조치 제안 · 승인 · 추가 수집')] %}
+    {% for key, label in [('raw', '① 서버별 원본 로그'), ('event', '② 이벤트 (디코딩)'), ('alert', '③ 경보'), ('evidence', '④ 증거 패키지'), ('ai_retrieval', '⑤ AI 증거 수집'), ('ai_judgment', '⑥ AI 판단'), ('response', '⑦ 조치 제안 · 승인 상태')] %}
     <section class="panel flow-capture-stage" id="stage-{{ key }}" data-flow-stage="{{ key }}">
         <div class="panel-header">
             <div>

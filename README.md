@@ -55,6 +55,7 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 - 대시보드에 Wazuh 시각화와 같은 집계를 연결 (`/api/dashboard/wazuh-visuals`): 심각도별 추이, 막힘/통과 판정, MITRE, 상태 코드, 요청 URL
 - 경보마다 서버별 원본 → 이벤트 → 경보 → 증거 패키지 → AI 증거 수집 → AI 판단 → 조치를 보는 캡처 화면 (`/alerts/<id>/flow`) 과 결과 자료 내보내기 (`tools/capture_flow.py`)
 - 설명과 시험 환경 예시: [`docs/flow_capture/README.md`](docs/flow_capture/README.md)
+- 캡처에 모델에 보낸 증거 패키지 원본과 모델 응답 원문을 저장하고 감사 로그 해시와 대조 · 자동 보고서도 캡처 · 캡처 이전 분석은 마지막 분석 결과로 채움(검증 안 됨 표시) · ⑦ 은 제안·승인 상태만 (실행 결과 미연동)
 
 ### 2026-08-25 — 멘토링 피드백 반영
 

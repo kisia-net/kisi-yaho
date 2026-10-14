@@ -5678,3 +5678,11 @@ html[data-theme="light"] .src-5 { fill: #e87ba4; background: #e87ba4; }
     .flow-capture-stage { break-inside: avoid; }
     .flow-pre { max-height: none; }
 }
+.flow-verify { margin: 0 15px 10px; padding: 8px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; }
+.flow-verify-ok { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--text); }
+.flow-verify-ok strong { color: var(--success); }
+.flow-verify-bad { background: var(--sev-critical-bg, #fee2e2); }
+.flow-verify-bad strong { color: var(--sev-critical, #b91c1c); }
+.flow-verify-none { background: var(--panel-2); color: var(--muted); }
+.flow-reply { margin-top: 6px; }
+.flow-reply summary { cursor: pointer; font-size: 12.5px; }

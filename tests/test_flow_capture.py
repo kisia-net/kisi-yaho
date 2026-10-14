@@ -25,10 +25,13 @@ from hawki_alert_analysis.control_outcomes import derive_control_outcome  # noqa
 from hawki_alert_analysis.flow_capture import (  # noqa: E402
     FlowCaptureStore,
     build_flow,
+    capture_record,
     field_paths,
     raw_format,
     to_markdown,
+    verify_capture,
 )
+from hawki_alert_analysis.redteam_bridge import sha256_json  # noqa: E402
 
 ACCESS = ('52.141.3.247 - - [13/Oct/2026:08:17:04 +0900] "GET /portal/index.php?page=....//etc/passwd HTTP/1.1" '
           '200 2845 "-" "Mozilla/5.0"')
@@ -170,6 +173,46 @@ class StageTests(unittest.TestCase):
         self.assertIn("증거에 없는 id", text)
 
 
+class RecordTests(unittest.TestCase):
+    def capture(self, package):
+        result = {**RESULT, "hashes": {"bundle_sha256": sha256_json(package), "prompt_sha256": "p" * 64}}
+        record = capture_record(source="manual", bundle=package, result=result, request_text="분석해 줘",
+                                model_replies=[{"stage": "alert_summary:answer", "chars": 3, "content": "{}"}])
+        # Through JSON, as the store keeps it.
+        return json.loads(json.dumps(build_flow("alert-1", package, result=result, mode="captured", record=record),
+                                     ensure_ascii=False, default=str))
+
+    def test_the_saved_package_rehashes_to_the_audited_hash(self):
+        package = bundle()
+        doc = self.capture(package)
+        audit = [{"event_type": "alert_analysis_completed", "timestamp": "t",
+                  "detail": {"analysis_id": "an-1", "bundle_sha256": sha256_json(package)}}]
+        check = verify_capture(doc, audit)
+        self.assertTrue(check["matches_capture"])
+        self.assertTrue(check["matches_audit"])
+        self.assertEqual(check["model_reply_count"], 1)
+
+    def test_a_changed_package_or_missing_audit_does_not_verify(self):
+        doc = self.capture(bundle())
+        doc["record"]["evidence_package"]["priority"]["score"] = 99
+        check = verify_capture(doc, [])
+        self.assertFalse(check["matches_capture"])
+        self.assertIsNone(check["audit_record"])
+        self.assertFalse(check["matches_audit"])
+
+    def test_without_a_package_nothing_is_claimed(self):
+        doc = build_flow("alert-1", bundle())
+        self.assertFalse(verify_capture(doc, [])["checked"])
+
+    def test_markdown_states_the_check_and_the_reply(self):
+        doc = self.capture(bundle())
+        doc["verification"] = verify_capture(doc, [])
+        text = to_markdown(doc)
+        self.assertIn("모델 응답 원문", text)
+        self.assertIn("감사 로그", text)
+        self.assertIn("아직 이 흐름에 연결되지 않았습니다", text)
+
+
 class HelperTests(unittest.TestCase):
     def test_field_paths(self):
         self.assertEqual(field_paths({"a": {"b": 1, "c": [1]}, "d": [{"e": 2}]}), ["a.b", "a.c[]", "d[].e"])
@@ -261,6 +304,75 @@ class RouteTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 201, response.get_data(as_text=True))
         self.assertEqual(response.get_json()["action"]["alert_id"], "alert-1")
+
+    def test_without_a_capture_the_last_saved_analysis_fills_the_ai_stages(self):
+        root = Path(tempfile.mkdtemp())
+        with mock.patch.object(app, "LAST_ANALYSIS_ROOT", root):
+            app.save_last_analysis("alert-1", {**RESULT, "agent_retrieval": {"calls": [], "stopped": "finish"},
+                                               "hashes": {"bundle_sha256": "b" * 64}})
+            body = self.client.get("/api/alerts/alert-1/flow").get_json()
+            live = self.client.get("/api/alerts/alert-1/flow?view=live").get_json()
+        self.assertEqual(body["mode"], "last_analysis")
+        self.assertEqual(body["stages"]["ai_judgment"]["model"], "hawki-local")
+        self.assertFalse(body["verification"]["checked"])
+        self.assertIn("다를 수 있음", body["basis"])
+        self.assertEqual(live["mode"], "live")
+        self.assertFalse(live["stages"]["ai_judgment"]["ran"])
+
+    def test_analysis_captures_the_package_the_reply_and_matches_the_audit_log(self):
+        reply = json.dumps({"answer": "요약", "assessment": RESULT["assessment"], "actions": []}, ensure_ascii=False)
+
+        class Reply:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"model": "hawki-local", "choices": [{"finish_reason": "stop", "message": {"content": reply}}]}
+
+        audit = Path(tempfile.mkdtemp()) / "audit.jsonl"
+        with self.client.session_transaction() as session:
+            session["_csrf_token"] = "test-token"
+        with mock.patch.object(app.requests, "post", return_value=Reply()), \
+                mock.patch.object(app, "AUDIT_LOG_PATH", audit), \
+                mock.patch.dict(app.CONFIG, {"agent_tool_loop_enabled": False, "redteam_auto_eval_enabled": False}):
+            response = self.client.post("/api/alerts/alert-1/analyze", json={},
+                                        headers={"X-CSRF-Token": "test-token"})
+            self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+            self.assertTrue(response.get_json()["flow_capture"]["saved"])
+            self.assertNotIn("model_replies", response.get_json(), "reply text stays out of the result")
+            body = self.client.get("/api/alerts/alert-1/flow").get_json()
+            package = self.client.get("/api/alerts/alert-1/flow/package.json")
+        self.assertEqual(body["mode"], "captured")
+        self.assertEqual(body["record"]["source"], "manual")
+        self.assertNotIn("evidence_package", body["record"], "the package is a separate download")
+        self.assertTrue(body["record"]["has_evidence_package"])
+        self.assertEqual(body["record"]["model_replies"][0]["content"], reply)
+        self.assertTrue(body["verification"]["matches_capture"])
+        self.assertTrue(body["verification"]["matches_audit"])
+        self.assertEqual(package.status_code, 200)
+        self.assertEqual(sha256_json(package.get_json()), body["verification"]["recomputed_bundle_sha256"])
+
+    def test_the_automatic_report_is_captured_too(self):
+        reply = json.dumps({"answer": "자동 요약", "assessment": RESULT["assessment"], "actions": []}, ensure_ascii=False)
+
+        class Reply:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"model": "hawki-local", "choices": [{"finish_reason": "stop", "message": {"content": reply}}]}
+
+        package = bundle()
+        with mock.patch.object(app.requests, "post", return_value=Reply()):
+            result = app.auto_analyze(package, {"id": "alert-1"})
+        capture = self.store.latest("alert-1")
+        self.assertEqual(capture["record"]["source"], "auto_report")
+        self.assertEqual(capture["record"]["analysis_id"], result["analysis_id"])
+        self.assertEqual(capture["record"]["model_replies"][0]["content"], reply)
+        self.assertEqual(sha256_json(capture["record"]["evidence_package"]), result["hashes"]["bundle_sha256"])
+
+    def test_package_download_needs_a_capture(self):
+        self.assertEqual(self.client.get("/api/alerts/alert-1/flow/package.json").status_code, 404)
 
     def test_the_page_renders(self):
         response = self.client.get("/alerts/alert-1/flow")

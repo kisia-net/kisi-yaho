@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import contextlib
+import contextvars
 import copy
 import json
 import os
@@ -96,7 +97,14 @@ from hawki_alert_analysis.auto_report import (
     rescored_priority,
 )
 from hawki_alert_analysis.explain import build_explanation
-from hawki_alert_analysis.flow_capture import FlowCaptureStore, build_flow, snapshot as flow_snapshot, to_markdown as flow_markdown
+from hawki_alert_analysis.flow_capture import (
+    FlowCaptureStore,
+    build_flow,
+    capture_record,
+    snapshot as flow_snapshot,
+    to_markdown as flow_markdown,
+    verify_capture,
+)
 from hawki_alert_analysis.live_bundle import fit_live_bundle
 from hawki_alert_analysis.sensitive import SENSITIVE_CATEGORIES, category_for_query
 from hawki_alert_analysis.feedback import ANALYST_VERDICTS, SETTLED_VERDICTS, FeedbackStore, context_block, identity as feedback_identity
@@ -332,6 +340,40 @@ FLOW_CAPTURE_STORE = FlowCaptureStore(
     Path(os.getenv("FLOW_CAPTURE_ROOT", str(DATA_DIR / "flow_captures"))),
     keep=int(os.getenv("FLOW_CAPTURE_KEEP", "5") or 5),
 )
+LIVE_BUNDLE_SCHEMAS_FOR_FLOW = {"hawki.wazuh.live-evidence/v1", "hawki.wazuh.live-evidence/v2"}
+FLOW_REPLY_MAX_CHARS = 60000
+# The model's reply text, collected only while an analysis that is being
+# captured runs. A context variable rather than a result field, so the text
+# never reaches the screen, the saved analysis or the red team payload.
+_llm_reply_log: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
+    "hawki_llm_reply_log", default=None,
+)
+
+
+def note_llm_reply(stage: str, content: str, diagnostics: dict[str, Any] | None = None) -> None:
+    log = _llm_reply_log.get()
+    if log is None:
+        return
+    text = str(content or "")
+    log.append({
+        "stage": stage,
+        "chars": len(text),
+        "truncated": len(text) > FLOW_REPLY_MAX_CHARS,
+        "content": text[:FLOW_REPLY_MAX_CHARS],
+        "finish_reason": (diagnostics or {}).get("finish_reason"),
+    })
+
+
+@contextlib.contextmanager
+def collecting_llm_replies():
+    replies: list[dict[str, Any]] = []
+    token = _llm_reply_log.set(replies)
+    try:
+        yield replies
+    finally:
+        _llm_reply_log.reset(token)
+
+
 FEEDBACK_STORE = FeedbackStore(Path(os.getenv("ANALYST_FEEDBACK_PATH", str(DATA_DIR / "analyst_feedback.jsonl"))))
 
 FIXTURE_EMBEDDED_ROOT = BASE_DIR / "hawki_alert_analysis" / "fixtures"
@@ -2563,36 +2605,73 @@ def alert_queued_actions(alert_id: str) -> list[dict[str, Any]]:
     return list(latest.values())
 
 
-def alert_flow_document(alert_id: str, view: str = "") -> dict[str, Any]:
-    """The latest capture taken when the alert was analysed, or a fresh one.
+def read_last_analysis(alert_id: str) -> dict[str, Any] | None:
+    try:
+        saved = json.loads(last_analysis_path(alert_id).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return saved if isinstance(saved, dict) and isinstance(saved.get("result"), dict) else None
 
-    A capture holds the evidence exactly as the model saw it (after the
-    evidence agent and the context fit). Without one, or with view=live, the
-    first four stages are rebuilt now; they come from Wazuh documents and the
-    same deterministic rules, so they match what an analysis would start from.
+
+def alert_flow_document(alert_id: str, view: str = "") -> dict[str, Any]:
+    """The flow of one alert, from the best record there is.
+
+    1. A capture taken when the alert was analysed (LLM 분석 or the automatic
+       report): the evidence exactly as the model saw it, its reply text, and
+       a check of both against the audit log.
+    2. Otherwise the first four stages rebuilt now from Wazuh documents with
+       the same deterministic rules, and, when an analysis ran before captures
+       existed, ⑤ ⑥ from the last saved analysis result (data/alert_analyses).
+       The page says that these were not necessarily made from this package.
+    view=live skips both records: stages ①~④ only.
     """
     captures = FLOW_CAPTURE_STORE.list(alert_id)
     chosen = next((item for item in captures if item.get("capture_id") == view), None)
-    if chosen is None and view != "live" and captures:
+    if chosen is None and view not in {"live", "last"} and captures:
         chosen = captures[0]
+    last = read_last_analysis(alert_id) if view != "live" else None
     if chosen is None:
         bundle = ALERT_ANALYSIS.evidence_bundle(alert_id, max_related=MAX_RELATED_EVENTS_PER_CASE)
-        if str(bundle.get("schema") or "") not in {"hawki.wazuh.live-evidence/v1", "hawki.wazuh.live-evidence/v2"}:
+        if str(bundle.get("schema") or "") not in LIVE_BUNDLE_SCHEMAS_FOR_FLOW:
             raise ValueError("The data flow is available for live Wazuh alerts only.")
-        doc = build_flow(alert_id, bundle, queued_actions=alert_queued_actions(alert_id), mode="live")
+        if last and view != "live":
+            result = last["result"]
+            if isinstance(result.get("agent_retrieval"), dict):
+                bundle = {**bundle, "agent_retrieval": result["agent_retrieval"]}
+            doc = build_flow(alert_id, bundle, result=result, queued_actions=alert_queued_actions(alert_id),
+                             mode="last_analysis",
+                             record={"source": "last_analysis", "analysis_id": result.get("analysis_id"),
+                                     "saved_at": last.get("saved_at"),
+                                     "bundle_sha256": (result.get("hashes") or {}).get("bundle_sha256")})
+        else:
+            doc = build_flow(alert_id, bundle, queued_actions=alert_queued_actions(alert_id), mode="live")
+        doc["verification"] = {"checked": False, "reason": (
+            "분석 실행 시점의 캡처가 없습니다. ①~④ 는 지금 다시 만든 것이라 당시 모델에 보낸 증거와 같다고 증명할 수 없습니다."
+            if doc["mode"] == "last_analysis" else "AI 단계가 없는 흐름이라 대조할 분석 기록이 없습니다.")}
     else:
         doc = {key: value for key, value in chosen.items() if key != "capture_id"}
         doc["capture_id"] = chosen.get("capture_id")
+        doc["verification"] = verify_capture(doc, [
+            record for record in read_jsonl(AUDIT_LOG_PATH)
+            if record.get("event_type") in {"alert_analysis_completed", "auto_report_analyzed"}
+            or (record.get("detail") or {}).get("bundle_sha256")
+        ])
         # Approval decisions happen after the analysis; read them now.
         response = doc.setdefault("stages", {}).setdefault("response", {})
         response["queued"] = build_flow(
             alert_id, {}, queued_actions=alert_queued_actions(alert_id))["stages"]["response"]["queued"]
         doc.setdefault("counts", {})["response"] = len(response.get("proposed") or []) + len(response["queued"])
+    record = doc.get("record") if isinstance(doc.get("record"), dict) else {}
+    # The package itself is large; the page offers it as a separate download.
+    doc["record"] = {key: value for key, value in record.items() if key != "evidence_package"}
+    doc["record"]["has_evidence_package"] = isinstance(record.get("evidence_package"), dict)
     doc["captures"] = [
         {"capture_id": item.get("capture_id"), "captured_at": item.get("captured_at"),
+         "source": (item.get("record") or {}).get("source") or "manual",
          "model": ((item.get("stages") or {}).get("ai_judgment") or {}).get("model")}
         for item in captures
     ]
+    doc["last_analysis_available"] = bool(last)
     return doc
 
 
@@ -2631,6 +2710,24 @@ def api_alert_flow_markdown(alert_id: str):
         flow_markdown(doc),
         mimetype="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="flow-{safe}.md"'},
+    )
+
+
+@app.get("/api/alerts/<alert_id>/flow/package.json")
+@role_required("analyst")
+def api_alert_flow_package(alert_id: str):
+    """The evidence package exactly as a captured analysis sent it to the model."""
+    view = str(request.args.get("view") or "")[:64]
+    captures = FLOW_CAPTURE_STORE.list(alert_id)
+    chosen = next((item for item in captures if item.get("capture_id") == view), captures[0] if captures else None)
+    package = ((chosen or {}).get("record") or {}).get("evidence_package")
+    if not isinstance(package, dict):
+        return jsonify({"error": "No captured evidence package for this alert."}), 404
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", alert_id)[:60]
+    return Response(
+        json.dumps(package, ensure_ascii=False, indent=2, default=str),
+        mimetype="application/json",
+        headers={"Content-Disposition": f'attachment; filename="evidence-{safe}-{chosen.get("capture_id")}.json"'},
     )
 
 
@@ -3114,13 +3211,15 @@ def api_analyze_alert(alert_id: str):
         },
     )
 
+    model_replies: list[dict[str, Any]] = []
     try:
-        result = call_llm(
-            "alert_summary",
-            request_text,
-            [],
-            context,
-        )
+        with collecting_llm_replies() as model_replies:
+            result = call_llm(
+                "alert_summary",
+                request_text,
+                [],
+                context,
+            )
     except requests.RequestException as exc:
         if not CONFIG["demo_mode"]:
             return jsonify(
@@ -3226,6 +3325,8 @@ def api_analyze_alert(alert_id: str):
         try:
             saved = FLOW_CAPTURE_STORE.save(build_flow(
                 alert_id, bundle, result=result, snapshots=flow_sizes, mode="captured",
+                record=capture_record(source="manual", bundle=bundle, result=result,
+                                      request_text=request_text, model_replies=model_replies),
             ))
         except Exception:  # noqa: BLE001
             saved = None
@@ -4335,6 +4436,7 @@ def assessment_repair_request(
     response.raise_for_status()
     body = response.json()
     content, diagnostics = extract_llm_content(body)
+    note_llm_reply("alert_summary:repair", content, diagnostics)
     return parse_structured_answer(content), diagnostics
 
 
@@ -5863,6 +5965,7 @@ def call_llm(
             "budget_retry": False,
         }
 
+    note_llm_reply(f"{mode}:answer", content, diagnostics)
     result = parse_structured_answer(content)
     repair_attempted = False
     repair_diagnostics: dict[str, Any] = {}
@@ -8462,7 +8565,8 @@ def auto_analyze(bundle: dict[str, Any], alert: dict[str, Any]) -> dict[str, Any
     context = {"alert_id": str(alert.get("id") or ""), "alert_case": bundle}
     request_text = ALERT_ANALYSIS.default_analysis_request()
     try:
-        result = call_llm("alert_summary", request_text, [], context)
+        with collecting_llm_replies() as model_replies:
+            result = call_llm("alert_summary", request_text, [], context)
     except requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else 0
         if status >= 500:
@@ -8478,6 +8582,17 @@ def auto_analyze(bundle: dict[str, Any], alert: dict[str, Any]) -> dict[str, Any
     result["hashes"] = {"prompt_sha256": prompt_sha256, "bundle_sha256": bundle_sha256}
     result["request_text"] = request_text
     result["explanation"] = build_explanation(result, bundle)
+    if FLOW_CAPTURE_ENABLED and str(bundle.get("schema") or "") in LIVE_BUNDLE_SCHEMAS_FOR_FLOW:
+        # Same capture as the LLM 분석 button, marked as the automatic worker's.
+        try:
+            FLOW_CAPTURE_STORE.save(build_flow(
+                str(alert.get("id") or ""), bundle, result=result,
+                snapshots={"sent": flow_snapshot(bundle)}, mode="captured",
+                record=capture_record(source="auto_report", bundle=bundle, result=result,
+                                      request_text=request_text, model_replies=model_replies),
+            ))
+        except Exception:  # noqa: BLE001 - the report must not fail over its capture
+            pass
     return result
 
 

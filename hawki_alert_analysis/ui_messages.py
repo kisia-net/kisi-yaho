@@ -25,6 +25,7 @@ ERROR_MESSAGES_KO: dict[str, str] = {
     "Action not found.": "조치를 찾을 수 없습니다.",
     "Active rules must be disabled before deletion.": "적용 중인 룰은 비활성화한 뒤 삭제할 수 있습니다.",
     "Alert not found.": "경보를 찾을 수 없습니다.",
+    "No captured evidence package for this alert.": "이 경보에는 저장된 증거 패키지 원본이 없습니다. 경보 화면에서 LLM 분석을 실행하면 저장됩니다.",
     "The data flow is available for live Wazuh alerts only.": "데이터 흐름 캡처는 실제 Wazuh 경보에서만 볼 수 있습니다.",
     "Authentication required.": "로그인이 필요합니다.",
     "Chat session ID is invalid.": "대화 세션 ID가 올바르지 않습니다.",

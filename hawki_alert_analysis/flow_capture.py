@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .redteam_bridge import sha256_json
+
 FLOW_CAPTURE_SCHEMA = "hawki.flow-capture/v1"
 MAX_SAMPLES_PER_SOURCE = 3
 MAX_FIELD_PATHS = 60
@@ -49,7 +51,7 @@ STAGES = (
     ("evidence", "④ 증거 패키지", "HAW-KI · 요청 때마다 같은 규칙으로 생성 (저장 안 함)"),
     ("ai_retrieval", "⑤ AI 증거 수집", "HAW-KI · 모델이 읽기 전용 도구로 증거를 더 가져옴"),
     ("ai_judgment", "⑥ AI 판단", "HAW-KI · 모델 응답을 검증된 assessment 로 정리"),
-    ("response", "⑦ 조치 제안 · 승인 · 추가 수집", "HAW-KI 승인 대기열 → Velociraptor / Suricata 게이트웨이"),
+    ("response", "⑦ 조치 제안 · 승인 상태", "HAW-KI 승인 대기열 · 실행 결과(수집·룰)는 아직 이 흐름에 연결되지 않음"),
 )
 
 
@@ -383,10 +385,16 @@ def build_flow(
     queued_actions: list[dict[str, Any]] | None = None,
     captured_at: str | None = None,
     mode: str = "live",
+    record: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """mode "captured": the bundle is the one sent to the model (after the
     evidence agent and the context fit). mode "live": rebuilt now, every
-    selected context event, no AI stages."""
+    selected context event, no AI stages. mode "last_analysis": rebuilt now,
+    with ⑤ ⑥ taken from the last saved analysis result.
+
+    `record` keeps what makes a capture checkable later: the whole evidence
+    package sent to the model, the model's reply text, the analysis id and
+    the hashes the audit log recorded for that analysis."""
     stages = {
         "raw": raw_stage(bundle),
         "event": event_stage(bundle),
@@ -403,7 +411,8 @@ def build_flow(
         "captured_at": captured_at or datetime.now(timezone.utc).isoformat(),
         "stage_order": [{"key": key, "label": label, "where": where} for key, label, where in STAGES],
         "stages": stages,
-        "basis": "모델에 보낸 증거 기준" if mode == "captured" else "지금 다시 고른 증거 전체 기준",
+        "basis": BASIS.get(mode, BASIS["live"]),
+        "record": record or {},
         "counts": {
             "raw": stages["raw"]["line_count"],
             "event": stages["event"]["event_count"],
@@ -420,6 +429,62 @@ def build_flow(
             "evidence": stages["evidence"]["size_chars"],
             "ai_judgment": stages["ai_judgment"].get("size_chars"),
         },
+    }
+
+
+BASIS = {
+    "captured": "모델에 보낸 증거 기준 (분석 실행 시점 저장)",
+    "live": "지금 다시 고른 증거 전체 기준 (AI 단계 없음)",
+    "last_analysis": "①~④ 는 지금 다시 만든 것 · ⑤ ⑥ 은 마지막 분석 결과 (당시 모델에 보낸 증거와 다를 수 있음)",
+}
+
+
+def capture_record(
+    *,
+    source: str,
+    bundle: dict[str, Any],
+    result: dict[str, Any],
+    request_text: str,
+    model_replies: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    hashes = _mapping(result.get("hashes"))
+    return {
+        "source": source,
+        "analysis_id": result.get("analysis_id"),
+        "bundle_sha256": hashes.get("bundle_sha256"),
+        "prompt_sha256": hashes.get("prompt_sha256"),
+        "request_text": request_text,
+        "evidence_package": bundle,
+        "model_replies": list(model_replies or []),
+    }
+
+
+def verify_capture(doc: dict[str, Any], audit_records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Is this the package the model was given, by the audit log's own record?
+
+    1. The saved package is hashed the way the analysis hashed it.
+    2. That hash is compared with the one stored in the capture and with the
+       one the audit log wrote for the same analysis id.
+    """
+    record = _mapping(doc.get("record"))
+    package = record.get("evidence_package")
+    if not isinstance(package, dict):
+        return {"checked": False, "reason": "이 캡처에는 증거 패키지 원본이 없습니다 (이전 형식이거나 마지막 분석 결과에서 만든 흐름)."}
+    recomputed = sha256_json(package)
+    analysis_id = str(record.get("analysis_id") or "")
+    audited = None
+    for entry in audit_records:
+        detail = _mapping(entry.get("detail"))
+        if analysis_id and str(detail.get("analysis_id") or "") == analysis_id and detail.get("bundle_sha256"):
+            audited = {"event_type": entry.get("event_type"), "timestamp": entry.get("timestamp"),
+                       "bundle_sha256": detail.get("bundle_sha256"), "prompt_sha256": detail.get("prompt_sha256")}
+    return {
+        "checked": True,
+        "recomputed_bundle_sha256": recomputed,
+        "matches_capture": recomputed == record.get("bundle_sha256"),
+        "audit_record": audited,
+        "matches_audit": bool(audited) and recomputed == audited.get("bundle_sha256"),
+        "model_reply_count": len(record.get("model_replies") or []),
     }
 
 
@@ -464,6 +529,13 @@ class FlowCaptureStore:
         return captures[0] if captures else None
 
 
+MODE_LABELS = {
+    "captured": "분석 실행 시점 저장",
+    "live": "지금 다시 생성 (AI 단계 없음)",
+    "last_analysis": "지금 다시 생성 + 마지막 분석 결과",
+}
+
+
 def briefing(answer: Any) -> str:
     """The model's own briefing: the app appends its rendered judgement after a rule."""
     return re.split(r"\n\s*---", str(answer or ""))[0].strip()[:600]
@@ -482,7 +554,7 @@ def to_markdown(doc: dict[str, Any]) -> str:
         f"# 데이터 흐름 캡처 · 경보 {doc.get('alert_id')}",
         "",
         f"- 캡처 시각: {doc.get('captured_at')}",
-        f"- 방식: {'분석 실행 시점 저장' if doc.get('mode') == 'captured' else '지금 다시 생성 (AI 단계 제외)'}",
+        f"- 방식: {MODE_LABELS.get(str(doc.get('mode')), str(doc.get('mode')))}",
         f"- 기준: {doc.get('basis') or '—'}",
         "",
         "| 단계 | 저장 위치 | 건수 | 크기(문자) |",
@@ -557,8 +629,32 @@ def to_markdown(doc: dict[str, Any]) -> str:
     else:
         lines.append("실행 기록 없음.")
 
+    record = _mapping(doc.get("record"))
+    verification = _mapping(doc.get("verification"))
+    lines += ["", "### 모델 응답 원문", ""]
+    replies = record.get("model_replies") or []
+    if replies:
+        for reply in replies:
+            lines += [f"- `{reply.get('stage')}` · {reply.get('chars')}자{' (잘림)' if reply.get('truncated') else ''}", "",
+                      _code(reply.get("content") or ""), ""]
+    else:
+        lines.append("저장된 원문 없음.")
+    lines += ["", "### 검증 (감사 로그 대조)", ""]
+    if verification.get("checked"):
+        audit = _mapping(verification.get("audit_record"))
+        lines += [
+            f"- 분석 id `{record.get('analysis_id')}` · 경로 `{record.get('source')}`",
+            f"- 저장된 증거 패키지를 다시 계산한 해시 `{verification.get('recomputed_bundle_sha256')}`",
+            f"- 캡처에 기록된 해시와 일치: {'예' if verification.get('matches_capture') else '아니오'}",
+            f"- 감사 로그 `{audit.get('event_type') or '—'}` ({audit.get('timestamp') or '기록 없음'}) 의 해시와 일치: "
+            f"{'예' if verification.get('matches_audit') else '아니오'}",
+        ]
+    else:
+        lines.append(str(verification.get("reason") or "검증하지 않음."))
+
     response = _mapping(stages.get("response"))
-    lines += ["", "## ⑦ 조치 제안 · 승인 · 추가 수집", ""]
+    lines += ["", "## ⑦ 조치 제안 · 승인 상태", "",
+              "실행 결과(Velociraptor 수집, Suricata 룰)는 아직 이 흐름에 연결되지 않았습니다. 제안과 승인 상태만 보여 줍니다.", ""]
     for action in response.get("proposed") or []:
         lines.append(f"- 제안: `{action.get('type')}` {action.get('title') or ''} → {action.get('target') or ''}")
     for record in response.get("queued") or []:

@@ -137,11 +137,26 @@
             </table></div>` : ""}`;
     }
 
-    function renderJudgment(data) {
+    function renderReplies(doc) {
+        const replies = (doc.record || {}).model_replies || [];
+        if (!replies.length) {
+            return doc.mode === "captured"
+                ? `<p class="muted">이 캡처에는 모델 응답 원문이 없습니다 (원문 저장 이전 캡처이거나 데모 응답).</p>`
+                : "";
+        }
+        return `<p class="muted">모델 응답 원문 · 앱이 정리하기 전 그대로</p>${replies.map((reply) => `
+            <details class="flow-reply"><summary><code>${escapeHtml(reply.stage)}</code> · ${number(reply.chars)}자${reply.truncated ? " (잘림)" : ""}${reply.finish_reason ? ` · ${escapeHtml(reply.finish_reason)}` : ""}</summary>
+            ${pre(reply.content || "")}</details>`).join("")}`;
+    }
+
+    function renderJudgment(data, doc) {
         if (!data.ran) return `<p class="muted">이 캡처에는 AI 판단이 없습니다. 경보 화면에서 "LLM으로 분석"을 실행하면 그 순간이 저장됩니다.</p>`;
         const assessment = data.assessment || {};
         const list = (values) => (values || []).length ? `<ul>${values.map((value) => `<li>${escapeHtml(typeof value === "string" ? value : JSON.stringify(value))}</li>`).join("")}</ul>` : "—";
-        return `${kv([
+        const lastOnly = doc.mode === "last_analysis"
+            ? `<p class="flow-tag flow-tag-warn">마지막 분석 결과에서 가져왔습니다. 인용 확인은 지금 다시 만든 증거 기준이라 당시와 다를 수 있습니다.</p>`
+            : "";
+        return `${lastOnly}${kv([
             ["모델", `<code>${escapeHtml(data.model)}</code>${data.demo ? " · 데모 응답" : ""}`],
             ["분석 id", `<code>${escapeHtml(data.analysis_id || "—")}</code>`],
             // The app appends its rendered judgement to `answer` after a rule;
@@ -158,20 +173,21 @@
             <p class="muted">AI 가 인용한 증거와 그 원본 로그 (① 단계로 거슬러 올라감)</p>
             ${(data.citations || []).map((item) => `
                 <p class="flow-sample-head"><code>${escapeHtml(item.evidence_id)}</code> ${item.exists ? `<span class="muted">${escapeHtml(item.server || "")}</span>` : `<span class="flow-tag flow-tag-warn">증거에 없는 id</span>`}</p>
-                ${item.full_log ? pre(item.full_log) : ""}`).join("") || `<p class="muted">인용 없음</p>`}`;
+                ${item.full_log ? pre(item.full_log) : ""}`).join("") || `<p class="muted">인용 없음</p>`}
+            ${renderReplies(doc)}`;
     }
 
     function renderResponse(data) {
         const proposed = data.proposed || [];
         const queued = data.queued || [];
-        if (!proposed.length && !queued.length) return `<p class="muted">제안되거나 승인 요청된 조치가 없습니다.</p>`;
+        if (!proposed.length && !queued.length) return `<p class="muted">제안되거나 승인 요청된 조치가 없습니다. 실행 결과는 아직 이 흐름에 연결되지 않았습니다.</p>`;
         return `${proposed.length ? `<p class="muted">AI 가 제안한 조치 (승인 전)</p><ul>${proposed.map((item) => `<li><code>${escapeHtml(item.type)}</code> ${escapeHtml(item.title || "")} → ${escapeHtml(item.target || "")} <span class="muted">${escapeHtml(item.reason || "")}</span></li>`).join("")}</ul>` : ""}
             ${queued.length ? `<div class="data-table"><table class="report-table">
                 <thead><tr><th>승인 대기열</th><th>유형</th><th>상태</th><th>요청 시각</th></tr></thead>
                 <tbody>${queued.map((item) => `<tr><td><a href="/actions">${escapeHtml(item.id)}</a></td><td><code>${escapeHtml(item.type)}</code></td>
                     <td>${escapeHtml(item.status)}</td><td>${when(item.created_at)}</td></tr>`).join("")}</tbody>
             </table></div>` : ""}
-            <p class="muted">승인된 수집(Velociraptor)과 새 룰(Suricata)이 만든 로그·경보는 다시 ① 단계로 들어옵니다.</p>`;
+            <p class="muted">제안과 승인 상태만 보여 줍니다. 승인 뒤 실행 결과(Velociraptor 수집 결과, Suricata 룰이 만든 경보)는 아직 이 흐름에 연결되지 않았습니다.</p>`;
     }
 
     const RENDERERS = {
@@ -181,16 +197,32 @@
 
     function render(doc) {
         const meta = root.querySelector("[data-flow-meta]");
-        meta.textContent = doc.mode === "captured"
-            ? `분석 실행 시점에 저장된 캡처 · ${when(doc.captured_at)}`
-            : `지금 Wazuh 문서로 다시 만든 흐름 · ${when(doc.captured_at)} (AI 단계는 분석을 실행하면 저장됩니다)`;
+        const source = { manual: "LLM 분석 버튼", auto_report: "자동 보고서", last_analysis: "마지막 분석 결과" };
+        const record = doc.record || {};
+        meta.textContent = {
+            captured: `분석 실행 시점에 저장된 캡처 · ${source[record.source] || record.source || ""} · ${when(doc.captured_at)}`,
+            last_analysis: `①~④ 는 지금 다시 만든 흐름, ⑤ ⑥ 은 마지막 분석 결과 (${when(record.saved_at)}) · 실행 시점 캡처 없음`,
+        }[doc.mode] || `지금 Wazuh 문서로 다시 만든 흐름 · ${when(doc.captured_at)} (AI 단계는 분석을 실행하면 저장됩니다)`;
         const select = root.querySelector("[data-flow-capture]");
         const options = [`<option value="live">지금 다시 만들기 (AI 단계 제외)</option>`]
-            .concat((doc.captures || []).map((item) => `<option value="${escapeHtml(item.capture_id)}">${when(item.captured_at)} · ${escapeHtml(item.model || "")}</option>`));
+            .concat(doc.last_analysis_available ? [`<option value="last">마지막 분석 결과로 채우기 (실행 시점 캡처 아님)</option>`] : [])
+            .concat((doc.captures || []).map((item) => `<option value="${escapeHtml(item.capture_id)}">${when(item.captured_at)} · ${escapeHtml(source[item.source] || item.source || "")} · ${escapeHtml(item.model || "")}</option>`));
         select.innerHTML = options.join("");
-        select.value = doc.mode === "captured" ? doc.capture_id : "live";
-        const view = doc.mode === "captured" ? doc.capture_id : "live";
+        const view = doc.mode === "captured" ? doc.capture_id : (doc.mode === "last_analysis" ? "last" : "live");
+        select.value = view;
         root.querySelector("[data-flow-markdown]").href = `${base}.md?view=${encodeURIComponent(view)}`;
+        const packageLink = root.querySelector("[data-flow-package]");
+        // .button sets display, which would override the hidden attribute.
+        packageLink.style.display = record.has_evidence_package ? "" : "none";
+        packageLink.href = `${base}/package.json?view=${encodeURIComponent(doc.capture_id || "")}`;
+        const verify = root.querySelector("[data-flow-verify]");
+        const check = doc.verification || {};
+        verify.className = `flow-verify ${check.checked ? (check.matches_capture && check.matches_audit ? "flow-verify-ok" : "flow-verify-bad") : "flow-verify-none"}`;
+        verify.innerHTML = check.checked
+            ? `<strong>${check.matches_capture && check.matches_audit ? "검증됨" : "불일치"}</strong> · 저장된 증거 패키지를 다시 해시한 값이
+               캡처 기록과 ${check.matches_capture ? "일치" : "불일치"}, 감사 로그(${escapeHtml((check.audit_record || {}).event_type || "기록 없음")}, 분석 id <code>${escapeHtml(record.analysis_id || "—")}</code>)와 ${check.matches_audit ? "일치" : "불일치"}
+               · 모델 응답 원문 ${number(check.model_reply_count)}건 · <code>${escapeHtml(String(check.recomputed_bundle_sha256 || "").slice(0, 16))}…</code>`
+            : `<strong>검증 안 됨</strong> · ${escapeHtml(check.reason || "")}`;
         renderSizes(doc);
         (doc.stage_order || []).forEach((item) => {
             const target = stage(item.key);
@@ -203,7 +235,7 @@
             if (size !== undefined && size !== null) parts.push(`${number(size)}자`);
             if (target.size) target.size.textContent = parts.join(" · ");
             try {
-                target.body.innerHTML = RENDERERS[item.key]((doc.stages || {})[item.key] || {});
+                target.body.innerHTML = RENDERERS[item.key]((doc.stages || {})[item.key] || {}, doc);
             } catch (error) {
                 target.body.innerHTML = `<p class="muted">이 단계를 그리지 못했습니다 · ${escapeHtml(error.message)}</p>`;
             }

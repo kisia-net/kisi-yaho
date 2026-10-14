@@ -908,6 +908,10 @@ class AutoReporter:
             "analysis_id": result.get("analysis_id"),
             "model": result.get("model"),
             "served_model": (result.get("generation") or {}).get("served_model"),
+            # The same fingerprints the LLM 분석 button audits, so a data flow
+            # capture of this report can be checked against them.
+            "prompt_sha256": (result.get("hashes") or {}).get("prompt_sha256"),
+            "bundle_sha256": (result.get("hashes") or {}).get("bundle_sha256"),
             "redteam": redteam,
         })
         return "completed"
