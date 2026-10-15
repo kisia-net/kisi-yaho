@@ -41,12 +41,62 @@
         return data;
     }
     const post = (url, body = {}) => api(url, {method: "POST", body: JSON.stringify(body)});
+    const collectionPanel = window.HawkiCollectionPanel({root, api, post,
+        currentSession: () => ui.current?.id, changed: refreshInvestigation,
+        ask: text => {
+            if ($("aw-input").value.trim()) { notice("작성 중인 메시지를 먼저 보내거나 지워주세요."); return; }
+            $("aw-input").value = text; rememberDraft(); $("aw-input").focus();
+        }});
+    function evidenceMap() {
+        const s = ui.current;
+        return new Map([...(s?.evidence || []), ...(s?.lastResult?.tool_trace || [])]
+            .filter(record => /^E-[a-f0-9]{32}$/.test(record?.ref || ""))
+            .map(record => [record.ref, record]));
+    }
+    const evidencePanel = window.HawkiEvidencePanel({root, api, currentSession: () => ui.current, notice});
+    function showEvidence(ref) { evidencePanel.open(ref); }
+    function evidenceButton(ref) {
+        const button = make("button", ref, "aw-citation");
+        button.type = "button"; button.title = `근거 보기: ${ref}`;
+        button.addEventListener("click", () => showEvidence(ref));
+        return button;
+    }
+    function linkEvidence(body) {
+        const known = evidenceMap(), walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            if (!node.parentElement.closest("a, pre, button, summary") && /E-[a-f0-9]{32}/.test(node.textContent)) nodes.push(node);
+        }
+        for (const node of nodes) {
+            const text = node.textContent, fragment = document.createDocumentFragment();
+            let last = 0;
+            for (const match of text.matchAll(/E-[a-f0-9]{32}(?![a-f0-9])/g)) {
+                // Resolve older citations through the owned evidence archive on demand.
+                fragment.append(document.createTextNode(text.slice(last, match.index)), evidenceButton(match[0]));
+                last = match.index + match[0].length;
+            }
+            if (last) { fragment.append(document.createTextNode(text.slice(last))); node.replaceWith(fragment); }
+        }
+    }
+    async function refreshInvestigation() {
+        evidencePanel.invalidate();
+        const s = ui.current;
+        if (!s?.saved) return;
+        try {
+            const data = await api(`/api/agent/workspace/sessions/${encodeURIComponent(s.id)}`);
+            if (ui.current !== s) return;
+            mergeSession(s, data); renderAll();
+        } catch (error) { if (ui.current === s) notice(error.message); }
+    }
+
     function markdown(text) {
         const body = make("div", undefined, "aw-message-body");
         if (window.marked?.parse && window.DOMPurify?.sanitize) {
-            body.innerHTML = window.DOMPurify.sanitize(window.marked.parse(String(text)), {
-                USE_PROFILES: {html: true}, FORBID_TAGS: ["style", "form", "input", "button", "textarea", "select", "iframe", "img"],
-                FORBID_ATTR: ["style", "id", "name"],
+            body.innerHTML = window.DOMPurify.sanitize(window.marked.parse(String(text), {gfm: true, breaks: true, async: false}), {
+                ALLOWED_TAGS: ["p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "del", "s", "blockquote", "ul", "ol", "li", "pre", "code", "table", "thead", "tbody", "tr", "th", "td", "a"],
+                ALLOWED_ATTR: ["href", "title", "start", "colspan", "rowspan"],
+                ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: false,
             });
             body.querySelectorAll("a").forEach(a => {
                 const href = a.getAttribute("href") || "";
@@ -58,6 +108,7 @@
                 table.replaceWith(wrap); wrap.append(table);
             });
         } else { body.textContent = text; body.classList.add("aw-plain"); }
+        linkEvidence(body);
         return body;
     }
     function scopeText(scope) {
@@ -99,22 +150,7 @@
         $("aw-state").textContent = busy(s) ? "진행 중" : s.mode !== "conversation" ? "이전 대화" : s.saved ? "저장됨" : "준비";
         $("aw-send").disabled = busy(s);
     }
-    function renderEvidence() {
-        const s = ui.current, target = $("aw-evidence-list"); target.replaceChildren();
-        const map = new Map();
-        for (const record of [...(s.evidence || []), ...(s.lastResult?.tool_trace || [])]) if (record?.ref) map.set(record.ref, record);
-        $("aw-evidence-count").textContent = map.size;
-        if (!map.size) { target.append(make("p", "조회된 증거가 없습니다.", "aw-empty")); return; }
-        for (const record of [...map.values()].reverse()) {
-            const result = record.result || {}, card = make("details", undefined, "aw-evidence-card");
-            card.append(make("summary", record.ref));
-            card.append(make("p", `${record.tool || ""} · ${result.status || "unknown"}`));
-            if (Number.isFinite(result.total_matches)) card.append(make("p", `${result.total_matches.toLocaleString()}건 · ${result.returned === undefined ? "집계" : result.returned + "건 반환"}`));
-            if (result.scope) card.append(make("p", [result.scope.host, result.scope.start, result.scope.end].filter(Boolean).join(" · ")));
-            if (result.coverage) card.append(make("p", result.coverage));
-            const pre = make("pre", JSON.stringify(record, null, 2)); card.append(pre); target.append(card);
-        }
-    }
+    function renderEvidence() { evidencePanel.sync(); }
     function renderSessions() {
         const list = $("aw-sessions"), query = $("aw-search").value.toLocaleLowerCase(); list.replaceChildren();
         for (const s of ui.sessions.filter(x => (x.title || "").toLocaleLowerCase().includes(query))) {
@@ -150,7 +186,98 @@
             }); target.append(button);
         }
     }
-    function renderAll() { renderMessages(); renderEvidence(); renderSessions(); }
+    let proposalSequence = 0, proposalOffset = 0;
+    async function renderProposals(offset = proposalOffset) {
+        const target = $("aw-proposal-list"), s = ui.current, sequence = ++proposalSequence;
+        const opened = new Set([...target.querySelectorAll("details[open][data-proposal]")].map(el => el.dataset.proposal));
+        if (!s?.saved || s.mode !== "conversation") { target.replaceChildren(); target.dataset.session = ""; return; }
+        if (target.dataset.session !== s.id) target.replaceChildren();
+        target.dataset.session = s.id;
+        const endpoint = `/api/agent/workspace/sessions/${encodeURIComponent(s.id)}/collection-proposals`;
+        const labels = {proposed:"제안 · 미제출", draft:"검토 중 · 미제출", pending_approval:"승인 대기",
+            queued:"실행 대기", active:"수집 진행", finished:"수집 처리 종료", failed:"실패",
+            rejected:"반려", cancelled:"취소", expired:"검토 만료", submission_unknown:"접수 확인 필요"};
+        try {
+            const data = await api(`${endpoint}?offset=${offset}`);
+            if (sequence !== proposalSequence || ui.current !== s) return;
+            proposalOffset = offset; target.replaceChildren();
+            if (!data.items?.length) return;
+            target.append(make("h2", "수집 제안"));
+            target.append(make("p", `상태 조회: ${new Date().toLocaleString()}`, "aw-checked-at"));
+            for (const p of data.items) {
+                const card = make("details", undefined, "aw-evidence-card");
+                card.dataset.proposal = p.id; card.open = opened.has(p.id);
+                card.append(make("summary", `${p.operation} · ${labels[p.status] || p.status}`));
+                card.append(make("p", p.id));
+                card.append(make("p", p.rationale));
+                card.append(make("p", p.client_ids.join(", ")));
+                card.append(make("pre", JSON.stringify({parameters:p.params, artifacts:p.artifacts}, null, 2)));
+                const refs = make("p", "근거: ");
+                for (const ref of p.evidence_refs) {
+                    refs.append(evidenceMap().has(ref) ? evidenceButton(ref) : make("span", ref), document.createTextNode(" "));
+                }
+                card.append(refs);
+                const proof = make("button", "근거 보기"); proof.type = "button";
+                proof.addEventListener("click", async () => {
+                    proof.disabled = true;
+                    try {
+                        const detail = await api(`${endpoint}/${encodeURIComponent(p.id)}`);
+                        if (ui.current === s && card.isConnected) card.append(make("pre", JSON.stringify(detail.evidence, null, 2)));
+                    } catch (error) { if (ui.current === s) notice(error.message); proof.disabled = false; }
+                });
+                card.append(proof);
+                const review = make("button", p.job_id && p.status !== "draft" ? "작업 보기" : "수집 검토");
+                review.type = "button"; review.disabled = p.status === "expired";
+                review.addEventListener("click", async () => {
+                    review.disabled = true;
+                    try {
+                        const result = await post(`${endpoint}/${encodeURIComponent(p.id)}/review`, {});
+                        if (!/^\/response\?hawki_review=VR-[A-F0-9]{16}$/.test(result.review_url)) throw new Error("검토 경로를 확인할 수 없습니다.");
+                        if (ui.current === s) {
+                            updateLocation(s.id);
+                            const reviewURL = new URL(result.review_url, location.origin);
+                            await collectionPanel.open({jobId:reviewURL.searchParams.get("hawki_review"),sessionId:s.id,proposalId:p.id});
+                            review.disabled = false;
+                        }
+                    } catch (error) { if (ui.current === s) notice(error.message); review.disabled = false; }
+                });
+                card.append(review);
+                if (p.job_id) card.append(make("p", p.job_id));
+                const policy = p.approval_required === true ? "별도 승인 필요" :
+                    p.approval_required === false ? "별도 승인 불필요" : "승인 요건은 검토 시 확인";
+                card.append(make("small", policy));
+                if (["proposed", "draft"].includes(p.status)) card.append(make("small", "수집 검토 후 직접 제출해야 시작됩니다. 읽기 전용 수집도 대상 시스템 자원을 사용합니다."));
+                for (const flow of p.flows || []) {
+                    const detail = make("div", undefined, "aw-flow");
+                    detail.append(make("code", flow.flow_id), make("small", flow.client_id),
+                        make("small", `${flow.artifact || ""} · ${flow.state || "상태 미확인"}`));
+                    card.append(detail);
+                }
+                if (p.flows?.length) {
+                    const follow = make("button", "수집 결과 질문"); follow.type = "button";
+                    follow.addEventListener("click", () => {
+                        if ($("aw-input").value.trim()) { notice("작성 중인 메시지를 먼저 보내거나 지워주세요."); return; }
+                        $("aw-input").value = `제안 ${p.id}, 작업 ${p.job_id}에 연결된 수집 결과를 읽기 전용 도구로 확인해 주세요. 수집 시각, 상태, 반환 범위와 한계를 구분하고 증거 ID를 인용해 주세요. 새 수집을 제안하거나 실행하지 마세요.`;
+                        rememberDraft(); $("aw-input").focus();
+                    });
+                    card.append(follow);
+                }
+                target.append(card);
+            }
+            if (offset) {
+                const back=make("button","최근 제안"); back.type="button";
+                back.addEventListener("click",()=>renderProposals(0)); target.append(back);
+            }
+            if (data.has_more) {
+                const more=make("button","이전 제안"); more.type="button";
+                more.addEventListener("click",()=>renderProposals(data.next_offset)); target.append(more);
+            }
+        } catch (error) {
+            if (sequence===proposalSequence && ui.current===s) target.append(make("p", error.message));
+        }
+    }
+
+    function renderAll() { collectionPanel.sync(); renderMessages(); renderEvidence(); renderSessions(); renderProposals(); }
     function rememberDraft() { if (ui.current) ui.current.draft = $("aw-input").value; }
     function updateLocation(id) {
         const url = new URL(location.href); url.search = "";
@@ -158,7 +285,7 @@
         history.replaceState(null, "", url);
     }
     function newChat() {
-        rememberDraft(); ui.selection++; ui.current = fresh();
+        rememberDraft(); ui.selection++; proposalOffset = 0; ui.current = fresh();
         $("aw-input").value = ""; notice(""); updateLocation(null);
         renderAll(); renderScope(); $("aw-input").focus();
     }
@@ -170,11 +297,11 @@
         return target;
     }
     async function select(id) {
-        rememberDraft(); const turn = ++ui.selection;
+        collectionPanel.close(false); rememberDraft(); const turn = ++ui.selection;
         const data = await api(`/api/agent/workspace/sessions/${encodeURIComponent(id)}`);
         if (turn !== ui.selection) return;
         const target = ui.sessions.find(x => x.id === id) || {};
-        ui.current = mergeSession(target, data); updateLocation(id);
+        proposalOffset = 0; ui.current = mergeSession(target, data); updateLocation(id);
         $("aw-input").value = ui.current.draft; notice(""); renderAll(); renderScope();
         if (data.pending_request && !busy(ui.current)) notice("이전 요청이 완료되지 않았습니다.", () => submit(data.pending_request));
     }
@@ -304,6 +431,9 @@
         const auth = await api("/api/auth/me"); ui.csrf = auth.csrf_token; chrome(auth.user);
         ui.current = fresh(); renderAll();
         $("aw-new").addEventListener("click", newChat);
+        $("aw-refresh").addEventListener("click", refreshInvestigation);
+        window.addEventListener("pageshow", event => { if (event.persisted) refreshInvestigation(); });
+        document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshInvestigation(); });
         $("aw-search").addEventListener("input", renderSessions);
         $("aw-input").addEventListener("input", rememberDraft);
         $("aw-form").addEventListener("submit", event => { event.preventDefault(); submit(); });

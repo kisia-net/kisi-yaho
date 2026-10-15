@@ -48,6 +48,11 @@ def install(app, *, config, db_get, session_payload, role_required,
     from hawki_workspace_hermes import settings as hermes_settings, readiness as hermes_ready
     from hawki_workspace_hermes import start as hermes_start, reconcile as hermes_reconcile
 
+    from hawki_collection_review_v1 import install as install_collection_review
+    install_collection_review(app, db_get, role_required, audit)
+    from hawki_workspace_evidence_v1 import install as install_evidence_archive
+    install_evidence_archive(app, db_get, role_required)
+
     def owned(session_id):
         row = db_get().execute(
             "SELECT * FROM chat_sessions WHERE id = ? AND user_id = ?",

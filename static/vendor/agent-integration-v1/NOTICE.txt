@@ -1,0 +1,6 @@
+Bundled only for the agent investigation interface.
+Marked 18.0.14: https://github.com/markedjs/marked/releases/tag/v18.0.14
+Browser distribution: https://cdn.jsdelivr.net/npm/marked@18.0.14/lib/marked.umd.js
+DOMPurify 3.4.16: https://github.com/cure53/DOMPurify/releases/tag/3.4.16
+Browser distribution: https://raw.githubusercontent.com/cure53/DOMPurify/3.4.16/dist/purify.min.js
+License files are included in this directory. Production assets are served locally.

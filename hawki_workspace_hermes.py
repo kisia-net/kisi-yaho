@@ -104,6 +104,8 @@ def reconcile(db, owner, session, config, audit):
         state['hermes_messages'] = history_window([*previous,
             {'role': 'user', 'content': job['message']},
             {'role': 'assistant', 'content': result['answer']}], 60000)
+    from hawki_collection_review_v1 import reconcile_proposals
+    reconcile_proposals(owner, session, job['request_id'], result)
     result.update(request_context=job['scope'], request_id=job['request_id'], model=job['model'])
     state.pop('hermes_job', None)
     state.pop('workspace_pending', None)
@@ -147,6 +149,10 @@ def start(db, owner, session, request_id, message, scope, model, identity,
         'request_id': request_id, 'message': message, 'scope': scope,
         'model': model, 'language': language, 'memory': investigation_memory(state),
         'history': history_window(state.get('hermes_messages', state.get('history', [])), 60000)}
+    from hawki_collection_review_v1 import response_context
+    job['memory']['collection_proposals_version'] = 1
+    response_budget = max(500, 9400 - len(json.dumps([job['scope'], job['memory']], ensure_ascii=False).encode()))
+    job['memory']['responses'] = response_context(db, owner, session, budget=response_budget)
     state['workspace_pending'] = {'session_id': session, 'request_id': request_id,
                                   'message': message, 'context': scope, 'model': model}
     state['workspace_pending_revision'] = claim['revision']

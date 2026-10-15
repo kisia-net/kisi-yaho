@@ -282,12 +282,15 @@ async function prepare(event) {
     for(const f of op.fields){const el=$("vr-field-"+f.name);params[f.name]=f.kind==="boolean"?el.checked:f.kind==="integer"?Number(el.value):f.kind==="datetime"&&el.value?new Date(el.value).toISOString():el.value;}
     const client_ids=[...$("vr-targets").querySelectorAll("input:checked")].map(x=>x.value);
     const result=await post("/preview",{operation:op.id,params,client_ids,incident:$("vr-incident").value,idempotency_key:state.composeKey,hunt:state.composeHunt});
+    showProposalReview(result);
+  }catch(e){$("vr-compose-error").textContent=e.message;}finally{state.busy=false;submit.disabled=false;}
+}
+function showProposalReview(result) {
     state.review=result;
     const m=result.manifest;
     $("vr-review-content").innerHTML=keyValues([["수집 항목",m.label],["대상",m.targets.map(c=>`${c.hostname} · ${c.client_id}`).join("\n")],["사건",m.incident],["수집 수",m.client_ids.length*Object.keys(m.spec).length],["시간 제한",`${m.limits.timeout}초 / 수집`],["파일 전송 상한",`${bytes(m.limits.max_bytes)} / 수집`],["승인",m.approval_required?"승인 필요":"분석가 실행"],["방식",m.hunt?"선택한 호스트에 헌트 실행":"호스트 수집"]])+`<pre>${esc(JSON.stringify(m.params,null,2))}</pre><details><summary>수집 아티팩트</summary><pre>${esc(Object.keys(m.spec).join("\n"))}</pre></details>`;
     $("vr-submit").textContent=m.approval_required?"승인 요청":"수집 시작";
     $("vr-review-error").textContent="";$("vr-compose").close();$("vr-review").showModal();
-  }catch(e){$("vr-compose-error").textContent=e.message;}finally{state.busy=false;submit.disabled=false;}
 }
 async function submitReview() {
   if(!state.review || state.busy)return;state.busy=true;$("vr-submit").disabled=true;
@@ -371,6 +374,25 @@ document.querySelector(".topbar-actions")?.append(account);
 renderTabs();
 await serviceHealth();
 try {await loadCatalog();await loadClients();if(!state.client)await loadTab();}catch(e){error(e.message);$("vr-content").innerHTML=empty("연결을 확인한 뒤 새로고침하세요.");}
+// Return destinations are constructed locally from bounded identifiers, never a supplied URL.
+const agentParams = new URL(location.href).searchParams;
+const agentSession = agentParams.get("agent_session");
+const agentProposal = agentParams.get("agent_proposal");
+if (/^[A-Za-z0-9_-]{1,128}$/.test(agentSession || "") && /^WP-[a-f0-9]{24}$/.test(agentProposal || "")) {
+  const back = document.createElement("a"); back.className="vr-button"; back.textContent="조사 대화로 돌아가기";
+  back.href="/agent?"+new URLSearchParams({session:agentSession});
+  back.title=agentProposal; document.querySelector(".topbar-actions")?.prepend(back);
+}
+// An owned proposal handoff only opens an existing native review draft.
+const proposalReview = new URL(location.href).searchParams.get("hawki_review");
+if (proposalReview) {
+  try {
+    if (!/^VR-[A-F0-9]{16}$/.test(proposalReview)) throw new Error("잘못된 검토 식별자입니다.");
+    const reviewed = await request("/jobs/" + encodeURIComponent(proposalReview));
+    if (reviewed.state === "draft") showProposalReview(reviewed);
+    else await jobDetail(reviewed.id);
+  } catch (e) { error(e.message); }
+}
 // Poll only request status. Refreshing never creates endpoint work and does not
 // reset result pagination, directory position, or a user's open review dialog.
 setInterval(async()=>{
