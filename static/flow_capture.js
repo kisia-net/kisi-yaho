@@ -111,7 +111,7 @@
             ["차단 판정", escapeHtml(Object.entries(data.control_summary || {}).map(([key, value]) => `${key} ${value}`).join(" · ") || "—")],
             ["우선순위", escapeHtml(Object.entries(data.priority || {}).map(([key, value]) => `${key} ${value}`).join(" · ") || "—")],
             ["자산", escapeHtml((data.assets || []).map((item) => `${item.hostname || item.id} (${item.criticality || "?"} · ${item.exposure || "?"})`).join(", ") || "매칭 없음")],
-            ["위협 인텔리전스", escapeHtml((data.threat_intelligence || []).map((item) => `${item.value} (${item.source || ""})`).join(", ") || "매칭 없음")],
+            ["위협 인텔리전스", escapeHtml((data.threat_intelligence || []).map((item) => `${item.value} (${[item.feed, item.verdict].filter(Boolean).join(" · ") || "출처 정보 없음"})`).join(", ") || "매칭 없음")],
             ["수집 조건", `<code>${escapeHtml(JSON.stringify(data.retrieval || {}))}</code>`],
             ["출처 연결 (lineage)", `${number(data.lineage_edges)}개`],
         ])}

@@ -279,7 +279,7 @@ def evidence_stage(bundle: dict[str, Any]) -> dict[str, Any]:
             for match in assets.get("matches") or [] if isinstance(match, dict)
         ],
         "threat_intelligence": [
-            {key: match.get(key) for key in ("value", "type", "source", "confidence", "match")}
+            {key: match.get(key) for key in ("value", "type", "feed", "verdict", "confidence", "match")}
             for match in intel.get("matches") or [] if isinstance(match, dict)
         ],
         "retrieval": {

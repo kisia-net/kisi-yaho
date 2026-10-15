@@ -82,7 +82,8 @@ def bundle():
         "lineage": {"edges": [{}, {}]},
         "priority": {"band": "P2", "score": 57},
         "assets": {"matches": [{"id": "asset-web", "hostname": "web-01", "criticality": "high"}]},
-        "threat_intelligence": {"matches": []},
+        "threat_intelligence": {"matches": [{"value": "52.141.3.247", "type": "ipv4-addr", "feed": "blocklist.de",
+                                             "verdict": "suspicious", "confidence": 50}]},
         "retrieval": {"profile": {"name": "web_attack"}, "candidate_count": 28, "selected_count": 3},
         "evidence_handling": ["..."],
         "agent_retrieval": {
@@ -141,6 +142,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual(evidence["control_summary"].get("BLOCKED"), 1)
         self.assertEqual(evidence["control_summary"].get("NOT_BLOCKED"), 1)
         self.assertNotIn("evidence_handling", evidence["blocks"])
+        self.assertEqual(evidence["threat_intelligence"][0]["feed"], "blocklist.de")
 
     def test_ai_stages(self):
         retrieval = self.stages["ai_retrieval"]
