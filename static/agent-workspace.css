@@ -82,3 +82,19 @@
 @media(max-width:1400px) { #agent-workspace { grid-template-columns:165px minmax(280px,1fr) 235px; gap:10px; } #agent-workspace.aw-evidence-hidden { grid-template-columns:165px minmax(280px,1fr); } }
 @media(max-width:1100px) { #agent-workspace, #agent-workspace.aw-evidence-hidden { grid-template-columns:150px minmax(280px,1fr); } #agent-workspace .aw-evidence { grid-column:1/-1; max-height:360px; } #agent-workspace { height:auto; } #agent-workspace .aw-chat, #agent-workspace .aw-history { height:70dvh; min-height:500px; } }
 @media(max-width:700px) { #agent-workspace, #agent-workspace.aw-evidence-hidden { display:flex; flex-direction:column; } #agent-workspace .aw-history { height:auto; min-height:0; max-height:210px; } #agent-workspace .aw-history footer, #agent-workspace .aw-search { display:none; } #agent-workspace .aw-chat { min-height:550px; } #agent-workspace .aw-message-user .aw-message-body { max-width:100%; } }
+
+/* Collection review cards */
+#agent-workspace .aw-proposal-list { max-height:50%; overflow:auto; flex-shrink:0; padding:0 12px; }
+#agent-workspace .aw-proposal-list:empty { display:none; }
+#agent-workspace .aw-proposal-list h2 { margin:12px 0; }
+#agent-workspace .aw-proposal-list small { display:block; margin-top:8px; }
+
+/* Evidence takes the upper region; proposals stay below with their own scroll. */
+#agent-workspace .aw-evidence-section { display:flex; flex-direction:column; flex:1 1 60%; min-height:120px; overflow:hidden; }
+#agent-workspace .aw-evidence-section > h2 { padding:12px 12px 0; flex:none; }
+#agent-workspace .aw-evidence-list { overscroll-behavior:contain; }
+#agent-workspace .aw-proposal-list { flex:0 1 35%; max-height:35%; min-height:0; border-top:1px solid var(--line); padding:0 12px; overscroll-behavior:contain; }
+#agent-workspace .aw-evidence-status { color:var(--text); font-size:12px; }
+#agent-workspace .aw-evidence-coverage { color:var(--muted); font-size:11px; line-height:1.5; }
+#agent-workspace .aw-evidence > .aw-heading, #agent-workspace .aw-response-links { flex-shrink:0; }
+@media(max-width:1100px) { #agent-workspace .aw-evidence { height:640px; max-height:75dvh; } }

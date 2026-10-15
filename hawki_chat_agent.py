@@ -43,6 +43,8 @@ def _search(config, repository, plan):
         raise ValueError("Search filter too long")
 
     scope = {
+        "text_filter_semantics": "Phrase match over full_log, rule.description, location and data.url; not an exact source-IP filter",
+        "timestamp_field": repository.timestamp_field,
         "index": index,
         "host": host or "all",
         "start": start.isoformat(),
@@ -130,6 +132,29 @@ def _search(config, repository, plan):
                 }
             }
         }
+    if plan.get("_summary"):
+        # Filter aggregations work without assuming data.* fields support terms aggregation.
+        body["aggs"]["recorded_time_min"] = {"min": {"field": repository.timestamp_field}}
+        body["aggs"]["recorded_time_max"] = {"max": {"field": repository.timestamp_field}}
+        status_filters = {
+            str(group) + "xx": {"terms": {"data.id": [str(code) for code in range(group * 100, (group + 1) * 100)]}}
+            for group in range(1, 6)
+        }
+        status_filters.update({
+            "403": {"term": {"data.id": "403"}},
+            "404": {"term": {"data.id": "404"}},
+            "missing": {"bool": {"must_not": [{"exists": {"field": "data.id"}}]}},
+        })
+        body["aggs"]["http_access"] = {
+            "filter": {"term": {"decoder.name": "web-accesslog"}},
+            "aggs": {
+                "response_codes": {"filters": {"filters": status_filters}},
+                "methods": {"filters": {"filters": {
+                    method: {"term": {"data.protocol": method}}
+                    for method in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
+                }}},
+            },
+        }
     try:
         payload = repository.client.search(index, body)
     except Exception as exc:
@@ -164,6 +189,7 @@ def _search(config, repository, plan):
             "scope": scope,
             "total_matches": count,
             "total_relation": relation,
+            "count_unit": "indexed_documents_not_unique_requests",
             "aggregations": _summary_evidence(payload, start, end),
             "coverage": (
                 "Full-query aggregates. Terms show top buckets with error "
@@ -209,6 +235,8 @@ def _search(config, repository, plan):
         "total_matches": count,
         "total_relation": relation,
         "returned": len(events),
+        "count_unit": "indexed_documents_not_unique_requests",
+        "coverage": "Returned sample only; omitted records may differ. HTTP responses do not establish WAF enforcement or compromise status.",
         "selection": "newest 40 matching documents, bounded by context size",
         "content_truncated": shortened,
         "events": events,
@@ -772,6 +800,18 @@ def _summary_evidence(payload, start, end):
     )[:3]
 
     aggregations["interpretation"] = {
+        "http_access": (
+            "Response/method counts cover only matching documents decoded as web-accesslog. "
+            "403 and 404 are subsets of 4xx: do not add them to class totals. "
+            "Compare http_access.doc_count with total_matches; other decoders are outside this HTTP breakdown. "
+            "Unlisted/missing codes or methods may remain. Partial searches and truncated output limit conclusions. "
+            "404 does not establish WAF blocking, missing physical files, failed execution or absence of compromise. "
+            "2xx does not establish exploitation. Counts are documents, not unique requests or paths."
+        ),
+        "recorded_time": (
+            "Min/max describe the configured query timestamp field across matching indexed documents, "
+            "not necessarily raw request time or the complete incident. Hour buckets are not attack duration."
+        ),
         "rule_descriptions": (
             "One indexed example per rule ID; not a verified rule catalogue"
         ),
@@ -1024,6 +1064,11 @@ def investigation_finish(
 
     db.execute("BEGIN IMMEDIATE")
     try:
+        from hawki_collection_review_v1 import persist as persist_collection_proposals
+        persist_collection_proposals(db, user_id, session_id, request_id, result)
+        from hawki_workspace_evidence_v1 import tables as evidence_tables, persist as archive_evidence
+        evidence_tables(db)
+        archive_evidence(db, user_id, session_id, evidence)
         cursor = db.execute("""
             UPDATE chat_investigations
             SET state_json = ?, revision = revision + 1,

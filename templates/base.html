@@ -9,7 +9,11 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='fonts/pretendard-1.3.9/pretendard.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=asset_version) }}">
 {% if workspace_v1|default(false) %}
-<link rel="stylesheet" href="{{ url_for('static', filename='agent-workspace.css', v=asset_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='agent-workspace.css', v='evidence-panel-v1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='agent-collection-panel-v2.css', v='agent-quality-v2') }}">
+{% endif %}
+{% if active_page == 'agent' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='agent-integration-v1.css', v='agent-integration-v1') }}">
 {% endif %}
 <!-- HAWKI VR ASSETS -->
 {% if active_page in ['hunts', 'response'] %}
@@ -103,6 +107,12 @@
             </div>
         </header>
         <div class="workspace-content">
+            {% if active_page == 'agent' %}
+            <nav class="agent-view-nav" aria-label="분석 방식">
+                <a href="/agent" {% if workspace_v1|default(false) %}aria-current="page"{% endif %}>조사 대화</a>
+                <a href="/agent?view=classic" {% if not workspace_v1|default(false) %}aria-current="page"{% endif %}>작업별 분석</a>
+            </nav>
+            {% endif %}
             {% block content %}{% endblock %}
         </div>
     </main>
@@ -111,13 +121,20 @@
 <!-- Markdown, sanitization, and syntax highlighting, served from this origin.
      Install with: python tools/vendor_assets.py
      Absent, rendering falls back to escaped plain text. -->
+{% if workspace_v1|default(false) %}
+<script src="{{ url_for('static', filename='vendor/agent-integration-v1/marked.umd.js', v='agent-integration-v1') }}"></script>
+<script src="{{ url_for('static', filename='vendor/agent-integration-v1/purify.min.js', v='agent-integration-v1') }}"></script>
+{% else %}
 {% for script in vendor_scripts %}
 <script src="{{ url_for('static', filename='vendor/' + script, v=asset_version) }}"></script>
 {% endfor %}
+{% endif %}
 {% if workspace_v1|default(false) %}
-<script src="{{ url_for('static', filename='agent-workspace.js', v=asset_version) }}"></script>
+<script src="{{ url_for('static', filename='agent-collection-panel-v2.js', v='agent-quality-v2') }}"></script>
+<script src="{{ url_for('static', filename='agent-evidence-panel-v1.js', v='evidence-panel-v1') }}"></script>
+<script src="{{ url_for('static', filename='agent-workspace.js', v='evidence-panel-v1') }}"></script>
 {% elif active_page in ['hunts', 'response'] %}
-<script type="module" src="{{ url_for('static', filename='vr-workspace.js', v=asset_version) }}"></script>
+<script type="module" src="{{ url_for('static', filename='vr-workspace.js', v='agent-integration-v1') }}"></script>
 {% else %}
 <script src="{{ url_for('static', filename='app.js', v=asset_version) }}"></script>
 {% endif %}

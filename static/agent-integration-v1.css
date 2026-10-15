@@ -1,0 +1,15 @@
+/* Agent navigation and evidence controls use the application's existing theme. */
+.agent-view-nav { display:flex; gap:6px; align-items:center; margin:0 0 12px; }
+.agent-view-nav a { padding:7px 12px; border:1px solid var(--line); border-radius:8px; color:var(--muted); background:var(--panel); font-size:12px; text-decoration:none; }
+.agent-view-nav a[aria-current="page"] { color:var(--text); border-color:var(--blue); background:var(--accent-soft); }
+.agent-view-nav a:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
+#agent-workspace { height:calc(100dvh - 190px); }
+#agent-workspace .aw-evidence-controls { display:flex; align-items:center; gap:6px; }
+#agent-workspace button.aw-citation { display:inline; padding:1px 4px; border:0; border-radius:4px; background:var(--accent-soft); color:var(--blue); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:10px; line-height:1.7; white-space:normal; overflow-wrap:anywhere; vertical-align:baseline; }
+#agent-workspace .aw-evidence-card summary:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
+#agent-workspace .aw-proposal-list button { margin:8px 4px 0 0; }
+#agent-workspace .aw-proposal-list .aw-flow { padding-top:8px; margin-top:8px; border-top:1px solid var(--line); overflow-wrap:anywhere; }
+#agent-workspace .aw-proposal-list .aw-flow code { display:block; }
+#agent-workspace .aw-proposal-list .aw-flow small { margin-top:3px; }
+#agent-workspace .aw-checked-at { font-size:10px; color:var(--subtle); margin:8px 0; }
+@media(max-width:1100px) { #agent-workspace { height:auto; } }

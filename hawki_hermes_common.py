@@ -7,9 +7,7 @@ import re
 import urllib.error
 import urllib.request
 
-TOOLS = {'environment', 'get_alert', 'list_assets', 'lookup_indicator',
-         'search_logs', 'summarize_logs', 'list_velociraptor_clients',
-         'list_velociraptor_flows'}
+TOOLS = {'response_capabilities', 'list_velociraptor_flows', 'read_collection_results', 'get_collection_flow', 'lookup_indicator', 'get_alert', 'summarize_logs', 'search_logs', 'list_assets', 'propose_collection', 'environment', 'list_velociraptor_clients'}
 ID = re.compile(r'[A-Za-z0-9_.:-]{8,128}\Z')
 
 
