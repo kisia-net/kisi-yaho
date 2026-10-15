@@ -1174,6 +1174,11 @@ class WazuhEventRepository:
             "profile": profile.to_dict(),
             "archive_index": self.archive_index,
             "candidate_count": len(hits),
+            "candidate_count_basis": "Retained candidates after existing ID deduplication; bounded, not a full-query total",
+            "candidate_raw_count": len(before_hits) + len(after_hits) + len(cross_hits),
+            "candidate_duplicates_removed": len(before_hits) + len(after_hits) + len(cross_hits) - len(hits),
+            "candidate_breakdown_basis": "Raw per-query returned counts before deduplication; inclusive before/after queries can overlap at trigger time",
+
             "candidate_breakdown": {
                 "same_agent_before": len(before_hits),
                 "same_agent_after": len(after_hits),

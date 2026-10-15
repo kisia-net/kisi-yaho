@@ -1246,9 +1246,16 @@ def dashboard_page():
 
 
 @app.get("/agent")
+@app.get("/agent/")
 @role_required("analyst")
 def agent_page():
-    return render_template("agent.html", **template_context("agent"))
+    # Existing mode-specific links keep their original handlers and model routing.
+    classic = request.args.get("view") == "classic" or request.args.get("mode") in {
+        "conversation", "alert_summary", "log_search", "file_hunt",
+        "velociraptor_response", "suricata_rule", "incident_report",
+    }
+    return render_template("agent.html" if classic else "agent_workspace.html",
+                           workspace_v1=not classic, **template_context("agent"))
 
 
 @app.get("/alerts")

@@ -14,6 +14,9 @@ COPY hawki_chat_agent.py .
 COPY hawki_agent_workspace.py .
 COPY hawki_workspace_hermes.py .
 COPY hawki_hermes_common.py .
+COPY hawki_collection_contract_v1.py .
+COPY hawki_collection_review_v1.py .
+COPY hawki_workspace_evidence_v1.py .
 COPY hawki_redteam_ui.py .
 COPY hawki_alert_analysis ./hawki_alert_analysis
 COPY data ./data

@@ -31,8 +31,12 @@
         </form>
     </article>
     <aside id="aw-evidence-panel" class="aw-evidence">
-        <header class="aw-heading"><h2>증거 및 대응</h2></header>
-        <div id="aw-evidence-list" class="aw-evidence-list"></div>
+        <header class="aw-heading"><h2>증거 및 제안</h2><button id="aw-refresh" type="button" title="증거 및 제안 새로고침" aria-label="증거 및 제안 새로고침">↻</button></header>
+        <section class="aw-evidence-section" aria-labelledby="aw-evidence-heading">
+            <h2 id="aw-evidence-heading">증거</h2>
+            <div id="aw-evidence-list" class="aw-evidence-list"></div>
+        </section>
+        <div id="aw-proposal-list" class="aw-proposal-list" aria-label="수집 제안"></div>
         <footer class="aw-response-links"><a href="/hunts">파일 추적 ↗</a><a href="/response">호스트 대응 ↗</a><a href="/rules">Suricata 룰 ↗</a><a href="/actions">승인 대기열 ↗</a></footer>
     </aside>
     <dialog id="aw-alert-dialog" class="aw-dialog">
