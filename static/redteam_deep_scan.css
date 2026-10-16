@@ -32,3 +32,51 @@
     border-radius: 8px;
     line-height: 1.8;
 }
+
+[data-redteam-scan-card] .scan-step { margin: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
+[data-redteam-scan-card] .scan-step h3 { margin: 0 0 10px; }
+[data-redteam-scan-card] .scan-step p { line-height: 1.7; overflow-wrap: anywhere; }
+[data-redteam-scan-card] .scan-picker-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 12px; }
+[data-redteam-scan-card] .scan-picker-controls label { flex: 1 1 160px; }
+[data-redteam-scan-card] .scan-step label { display: block; }
+[data-redteam-scan-card] .scan-step select { display: block; width: 100%; margin-top: 6px; max-width: 100%; }
+[data-redteam-scan-card] .scan-selected { margin: 14px 0; padding: 12px; border-left: 3px solid var(--line-2); background: var(--panel-2); border-radius: 6px; }
+[data-redteam-scan-card] .scan-advanced { margin-top: 14px; }
+[data-redteam-scan-card] .scan-advanced > summary { cursor: pointer; }
+[data-redteam-scan-card] .scan-advanced button { margin-top: 8px; }
+[data-redteam-scan-card] .scan-explainer dt { font-weight: 600; margin-top: 12px; }
+[data-redteam-scan-card] .scan-explainer dd { margin: 4px 0 12px; line-height: 1.7; }
+[data-redteam-scan-card] .scan-review { border: 2px solid var(--line-2); }
+[data-redteam-scan-card] .scan-review[hidden] { display: none; }
+[data-redteam-scan-card] .scan-ack { display: flex !important; gap: 8px; align-items: start; margin: 14px 0; }
+[data-redteam-scan-card] .scan-ack input { width: auto; flex: 0 0 auto; margin-top: 4px; }
+[data-redteam-scan-card] .scan-alert-link { overflow-wrap: anywhere; }
+
+/* 2026-10-16: 처음 보는 사람도 알 수 있게 — 요약 3칸, 비교표, 단계 번호, 도구별 결과 카드 */
+[data-redteam-scan-card] .scan-intro { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 4px 16px 12px; }
+[data-redteam-scan-card] .scan-intro > div { padding: 14px; border-radius: 10px; background: var(--panel-2); }
+[data-redteam-scan-card] .scan-intro strong { display: block; margin-bottom: 6px; }
+[data-redteam-scan-card] .scan-intro p { margin: 0; line-height: 1.7; font-size: 13.5px; }
+[data-redteam-scan-card] .scan-compare { width: calc(100% - 32px); margin: 0 16px 6px; border-collapse: collapse; font-size: 13px; }
+[data-redteam-scan-card] .scan-compare th, [data-redteam-scan-card] .scan-compare td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+[data-redteam-scan-card] .scan-compare thead th { font-weight: 700; }
+[data-redteam-scan-card] .scan-compare tbody th { width: 90px; color: var(--muted); font-weight: 600; }
+[data-redteam-scan-card] .scan-step-no { display: inline-grid; place-items: center; width: 24px; height: 24px; margin-right: 8px; border-radius: 50%; background: var(--accent, #2563eb); color: #fff; font-size: 13px; }
+[data-redteam-scan-card] .scan-tool-explain { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+[data-redteam-scan-card] .scan-tool-explain > div { padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; }
+[data-redteam-scan-card] .scan-tool-explain ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.8; }
+[data-redteam-scan-card] .scan-notice { margin: 12px 16px; color: var(--muted); }
+[data-redteam-scan-card] .scan-result { margin: 0 16px 16px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
+[data-redteam-scan-card] .scan-result[hidden] { display: none; }
+[data-redteam-scan-card] .scan-result h3 { margin: 0 0 6px; }
+[data-redteam-scan-card] .scan-tool-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin: 12px 0; }
+[data-redteam-scan-card] .scan-tool-card { padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; }
+[data-redteam-scan-card] .scan-tool-card p { margin: 4px 0; line-height: 1.7; border: 0; padding: 0; }
+[data-redteam-scan-card] [data-scan-tools] .scan-tool-card p { margin: 4px 0; padding: 0; border: 0; }
+@media (max-width: 900px) {
+    [data-redteam-scan-card] .scan-intro, [data-redteam-scan-card] .scan-tool-explain { grid-template-columns: 1fr; }
+}
+[data-redteam-scan-card] .scan-tool-card { white-space: pre-line; line-height: 1.8; }
+[data-redteam-scan-card] .scan-tool-card::first-line { font-weight: 700; }
+[data-redteam-scan-card] .scan-tool-card.rt-bad { border-left: 3px solid var(--danger); }
+[data-redteam-scan-card] .scan-tool-card.rt-ok { border-left: 3px solid var(--success, #16a34a); }

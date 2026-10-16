@@ -28,14 +28,15 @@
         const method = options.method || "GET";
         if (!["GET", "HEAD"].includes(method)) headers.set("X-CSRF-Token", ui.csrf);
         if (options.body) headers.set("Content-Type", "application/json");
-        const response = await fetch(url, {...options, headers, credentials: "same-origin"});
+        const response = await fetch(url, {...options, headers, credentials: "same-origin"}).catch(() => { throw new Error("연결을 확인한 뒤 다시 시도해 주세요."); });
         let data = {}; try { data = await response.json(); } catch (_) {}
         if (response.status === 401) {
             location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
             throw new Error("로그인이 필요합니다.");
         }
         if (!response.ok) {
-            const error = new Error(data.error || `요청 실패: ${response.status}`);
+            const messages={400:"입력값을 확인해 주세요.",403:"이 작업을 수행할 권한이 없습니다.",404:"해당 항목을 찾을 수 없습니다.",409:"현재 상태에서 처리할 수 없습니다. 새로고침해 주세요.",429:"잠시 후 다시 시도해 주세요."};
+            const error = new Error(messages[response.status] || "요청을 처리하지 못했습니다. 다시 시도해 주세요.");
             error.status = response.status; throw error;
         }
         return data;
@@ -44,8 +45,8 @@
     const collectionPanel = window.HawkiCollectionPanel({root, api, post,
         currentSession: () => ui.current?.id, changed: refreshInvestigation,
         ask: text => {
-            if ($("aw-input").value.trim()) { notice("작성 중인 메시지를 먼저 보내거나 지워주세요."); return; }
-            $("aw-input").value = text; rememberDraft(); $("aw-input").focus();
+            if ($("aw-input").value.trim()) { notice("작성 중인 메시지를 먼저 보내주세요."); return false; }
+            $("aw-input").value = text; rememberDraft(); $("aw-input").focus(); return true;
         }});
     function evidenceMap() {
         const s = ui.current;
@@ -194,8 +195,8 @@
         if (target.dataset.session !== s.id) target.replaceChildren();
         target.dataset.session = s.id;
         const endpoint = `/api/agent/workspace/sessions/${encodeURIComponent(s.id)}/collection-proposals`;
-        const labels = {proposed:"제안 · 미제출", draft:"검토 중 · 미제출", pending_approval:"승인 대기",
-            queued:"실행 대기", active:"수집 진행", finished:"수집 처리 종료", failed:"실패",
+        const labels = {proposed:"검토 대기", draft:"검토 중", pending_approval:"승인 대기",
+            queued:"대기 중", active:"수집 중", finished:"처리 완료", failed:"실패",
             rejected:"반려", cancelled:"취소", expired:"검토 만료", submission_unknown:"접수 확인 필요"};
         try {
             const data = await api(`${endpoint}?offset=${offset}`);
@@ -203,15 +204,15 @@
             proposalOffset = offset; target.replaceChildren();
             if (!data.items?.length) return;
             target.append(make("h2", "수집 제안"));
-            target.append(make("p", `상태 조회: ${new Date().toLocaleString()}`, "aw-checked-at"));
             for (const p of data.items) {
                 const card = make("details", undefined, "aw-evidence-card");
                 card.dataset.proposal = p.id; card.open = opened.has(p.id);
-                card.append(make("summary", `${p.operation} · ${labels[p.status] || p.status}`));
+                const operations={files:"파일 검색",hash:"해시 검색",yara:"YARA 검사",directory:"디렉터리 목록",acquire:"파일 수집",processes:"프로세스",network:"네트워크",services:"서비스",cron:"예약 작업",keys:"SSH 키",users:"사용자",logins:"로그인",disk:"디스크",triage:"초동 조사"};
+                card.append(make("summary", `${operations[p.operation] || "수집"} · ${labels[p.status] || "상태 확인 필요"}`));
                 card.append(make("p", p.id));
                 card.append(make("p", p.rationale));
                 card.append(make("p", p.client_ids.join(", ")));
-                card.append(make("pre", JSON.stringify({parameters:p.params, artifacts:p.artifacts}, null, 2)));
+                const settings = make("details");settings.append(make("summary", "수집 설정"),make("pre", JSON.stringify({parameters:p.params, artifacts:p.artifacts}, null, 2)));card.append(settings);
                 const refs = make("p", "근거: ");
                 for (const ref of p.evidence_refs) {
                     refs.append(evidenceMap().has(ref) ? evidenceButton(ref) : make("span", ref), document.createTextNode(" "));
@@ -243,10 +244,9 @@
                 });
                 card.append(review);
                 if (p.job_id) card.append(make("p", p.job_id));
-                const policy = p.approval_required === true ? "별도 승인 필요" :
-                    p.approval_required === false ? "별도 승인 불필요" : "승인 요건은 검토 시 확인";
-                card.append(make("small", policy));
-                if (["proposed", "draft"].includes(p.status)) card.append(make("small", "수집 검토 후 직접 제출해야 시작됩니다. 읽기 전용 수집도 대상 시스템 자원을 사용합니다."));
+                const policy = p.approval_required === true ? "승인 필요" :
+                    p.approval_required === false ? "직접 제출" : "검토 필요";
+                if (["proposed", "draft", "pending_approval"].includes(p.status)) card.append(make("small", policy));
                 for (const flow of p.flows || []) {
                     const detail = make("div", undefined, "aw-flow");
                     detail.append(make("code", flow.flow_id), make("small", flow.client_id),
@@ -254,10 +254,10 @@
                     card.append(detail);
                 }
                 if (p.flows?.length) {
-                    const follow = make("button", "수집 결과 질문"); follow.type = "button";
+                    const follow = make("button", "대화에서 분석"); follow.type = "button";
                     follow.addEventListener("click", () => {
-                        if ($("aw-input").value.trim()) { notice("작성 중인 메시지를 먼저 보내거나 지워주세요."); return; }
-                        $("aw-input").value = `제안 ${p.id}, 작업 ${p.job_id}에 연결된 수집 결과를 읽기 전용 도구로 확인해 주세요. 수집 시각, 상태, 반환 범위와 한계를 구분하고 증거 ID를 인용해 주세요. 새 수집을 제안하거나 실행하지 마세요.`;
+                        if ($("aw-input").value.trim()) { notice("작성 중인 메시지를 먼저 보내주세요."); return false; }
+                        $("aw-input").value = `작업 ${p.job_id}의 수집 결과를 분석해 주세요.`;
                         rememberDraft(); $("aw-input").focus();
                     });
                     card.append(follow);
@@ -408,7 +408,7 @@
                     dot.classList.add(value.configured === false ? "unconfigured" : value.ok ? "online" : "offline");
                 });
             }
-            $("global-health-text").textContent = `${configured}개 서비스 중 ${online}개 연결됨`;
+            $("global-health-text").textContent = `설정된 서비스 ${configured}개 중 ${online}개 연결됨`;
         } catch (_) { $("global-health-text").textContent = "상태 확인 실패"; }
     }
     function chrome(user) {
@@ -459,12 +459,27 @@
             $("aw-time-error").textContent = ""; renderScope(); $("aw-time-dialog").close();
         });
         const params = new URLSearchParams(location.search);
+        // Links from other screens name what they want done (mode); the
+        // conversation starts with that request written out, not sent.
+        function starterPrompt(query) {
+            const given = (query.get("prompt") || "").trim();
+            const incident = (query.get("incident") || "").trim();
+            const lead = {
+                alert_summary: "선택한 경보를 증거·해석·다음 확인 사항으로 설명해 줘.",
+                log_search: "이 조건으로 관련 로그를 찾아 정리해 줘.",
+                file_hunt: "이 파일 단서로 어느 호스트에 같은 파일이 있는지 확인할 수집 계획을 세워 줘.",
+                velociraptor_response: "이 호스트에서 확인할 증거와 대응 조치 제안을 정리해 줘.",
+                suricata_rule: "이 탐지 의도에 맞는 Suricata 룰 초안을 검토해 줘.",
+                incident_report: "이 사건을 보고서 형식으로 정리해 줘.",
+            }[query.get("mode")] || "";
+            return [lead, incident ? `사건: ${incident}` : "", given].filter(Boolean).join("\n");
+        }
         await loadSessions();
         if (params.get("session")) await select(params.get("session"));
         else {
             for (const key of ["host", "alert_id"]) if (params.get(key)) ui.current.scope[key] = params.get(key);
             const ids = params.get("alert_ids"); if (!ui.current.scope.alert_id && ids) ui.current.scope.alert_id = ids.split(",")[0];
-            $("aw-input").value = params.get("prompt") || ""; rememberDraft(); renderScope();
+            $("aw-input").value = starterPrompt(params); rememberDraft(); renderScope();
         }
         services();
         try {

@@ -38,7 +38,7 @@
             <div class="user-row">
                 <div>
                     <strong>{{ user.username }}</strong>
-                    <small>{{ user.created_at }}</small>
+                    <small>{{ user.created_at|kst }}</small>
                 </div>
 
                 <form method="post" action="{{ url_for('admin_set_user_role', user_id=user.id) }}">
@@ -69,7 +69,7 @@
                     <span class="{{ 'user-status-active' if user.is_active else 'user-status-disabled' }}">
                         {{ "사용 중" if user.is_active else "차단됨" }}
                     </span>
-                    <small>최근 로그인: {{ user.last_login_at or "없음" }}</small>
+                    <small>최근 로그인: {{ (user.last_login_at|kst) or "없음" }}</small>
                 </div>
             </div>
             {% endfor %}

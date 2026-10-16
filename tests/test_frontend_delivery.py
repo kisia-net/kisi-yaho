@@ -128,9 +128,18 @@ class DeliveryTests(unittest.TestCase):
         with patch('hawki_redteam_ui.requests.request') as call:
             for payload in ({'alert_id': 'evt-' + 'a' * 16},
                             {'alert_id': 'offline-test-alert', 'callback': 'http://other.test'},
-                            {'alert_id': 'offline-test-alert', 'tools': ['garak']}):
+                            {'alert_id': 'offline-test-alert', 'tools': ['promptfoo']},
+                            {'alert_id': 'offline-test-alert', 'tools': ['garak', 'promptfoo']},
+                            {'alert_id': 'offline-test-alert', 'tools': ['garak', 'other']}):
                 self.assertEqual(self.post(payload).status_code, 400)
         call.assert_not_called()
+
+    def test_garak_only_button_forwards_garak_alone(self):
+        # 2026-10-16: the card's second button runs garak by itself.
+        with patch('hawki_redteam_ui.requests.request', return_value=Response(scan(), 202)) as call:
+            response = self.post({'alert_id': 'offline-test-alert', 'tools': ['garak']})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(call.call_args.kwargs['json']['tools'], ['garak'])
 
     def test_scan_id_mismatch_is_rejected(self):
         with patch('hawki_redteam_ui.requests.request', return_value=Response(scan())):

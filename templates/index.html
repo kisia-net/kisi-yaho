@@ -36,21 +36,19 @@
             <h2>데이터 흐름</h2>
         </div>
         <div class="flow-controls">
-            <div class="flow-switch" role="tablist" aria-label="흐름 보기">
-                <button type="button" role="tab" data-flow-select="process" aria-selected="true">처리 흐름</button>
-                <button type="button" role="tab" data-flow-select="source" aria-selected="false">출처 흐름</button>
-            </div>
             <span class="muted" data-flow-updated></span>
         </div>
     </div>
 
-    <div class="flow-view" data-flow-pane="process" role="tabpanel">
+    <div class="flow-view flow-view-stacked" data-flow-pane="process">
+        <h3 class="flow-view-title">처리 흐름 <small class="muted">원시 이벤트가 경보가 되고 분석가에게 가기까지</small></h3>
         <ol class="flow-stages" data-flow-stages>
             <li class="muted">불러오는 중…</li>
         </ol>
     </div>
 
-    <div class="flow-view" data-flow-pane="source" role="tabpanel" hidden>
+    <div class="flow-view flow-view-stacked" data-flow-pane="source">
+        <h3 class="flow-view-title">출처 흐름 <small class="muted">레벨 8 이상 경보가 어느 센서·탐지 유형에서 왔는지</small></h3>
         <div class="source-flow-head">
             <span class="muted" data-source-flow-caption></span>
             <div class="flow-subswitch" role="group" aria-label="출처 흐름 표시">
@@ -61,7 +59,6 @@
         <div class="source-flow-chart" data-source-flow-chart></div>
         <div class="source-flow-table" data-source-flow-table hidden></div>
         <div class="source-flow-bridge">
-            <button type="button" class="link-button" data-flow-select="process">← 처리 흐름</button>
             <span data-source-flow-bridge></span>
         </div>
     </div>
@@ -87,17 +84,7 @@
     </article>
 
     <article class="panel">
-        <div class="panel-header"><div><p class="panel-kicker">연결 상태</p><h2>서비스 접속 가능 여부</h2></div><span id="status-checked-at" class="muted">확인 전</span></div>
-        <div class="service-grid" id="dashboard-services">
-            {% set service_names = {'llm': 'LLM (vLLM)', 'wazuh_indexer': 'Wazuh Indexer', 'wazuh_dashboard': 'Wazuh Dashboard', 'velociraptor': 'Velociraptor', 'suricata': 'Suricata', 'redteam_runner': '레드팀 실행기'} %}
-            {% for name in ['llm', 'wazuh_indexer', 'wazuh_dashboard', 'velociraptor', 'suricata', 'redteam_runner'] %}
-            <div class="service-card" data-service-card="{{ name }}">
-                <span class="status-dot unknown" data-service-dot="{{ name }}"></span>
-                <div><strong>{{ service_names.get(name, name) }}</strong><small data-service-label="{{ name }}">확인 중</small></div>
-                <span class="latency" data-service-latency="{{ name }}">—</span>
-            </div>
-            {% endfor %}
-        </div>
+        <div class="panel-header"><div><p class="panel-kicker">위협 정보 · 레드팀</p><h2>외부 정보와 AI 검증</h2></div></div>
         <div class="dashboard-subpanel" id="dashboard-cti" aria-live="polite">
             <div class="dashboard-subpanel-head"><strong>위협 인텔리전스 (CTI)</strong><span class="muted" data-cti-summary>확인 중</span></div>
             <ul class="cti-feed-list" data-cti-feeds></ul>
@@ -112,17 +99,6 @@
 </section>
 
 
-<section class="panel">
-    <div class="panel-header"><div><p class="panel-kicker">바로가기</p><h2>분석 작업 화면</h2></div></div>
-    <div class="feature-grid">
-        <a class="feature-card" href="/agent?mode=alert_summary"><span>01</span><strong>경보 설명받기</strong><p>경보를 증거·해석·다음 확인사항으로 풀어 줍니다.</p></a>
-        <a class="feature-card" href="/logs"><span>02</span><strong>로그 검색</strong><p>Wazuh Indexer의 실시간 경보를 읽기 전용으로 검색합니다.</p></a>
-        <a class="feature-card" href="/hunts"><span>03</span><strong>파일 추적</strong><p>의심 파일 수집을 Velociraptor로 계획·준비합니다.</p></a>
-        <a class="feature-card" href="/response"><span>04</span><strong>호스트 대응</strong><p>증거 수집·격리·조치 제안을 준비합니다.</p></a>
-        <a class="feature-card" href="/rules"><span>05</span><strong>룰 관리</strong><p>Suricata 룰을 작성·검증·상신·승인합니다.</p></a>
-        <a class="feature-card" href="/actions"><span>06</span><strong>조치 승인</strong><p>변경을 일으키는 모든 제안을 제출 전에 검토합니다.</p></a>
-    </div>
-</section>
 <section class="dashboard-visual-grid">
     <article class="panel dashboard-activity-panel">
         <div class="panel-header">

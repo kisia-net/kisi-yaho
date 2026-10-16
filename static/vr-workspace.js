@@ -27,7 +27,7 @@ async function request(path, options={}) {
     const type=response.headers.get("content-type") || "";
     if (!type.includes("application/json")) throw new Error("서버 응답을 확인할 수 없습니다.");
     const data=await response.json();
-    if (!response.ok) throw new Error(data.error || "요청에 실패했습니다.");
+    if (!response.ok) {const messages={400:"입력값을 확인해 주세요.",403:"이 작업을 수행할 권한이 없습니다.",404:"해당 항목을 찾을 수 없습니다.",409:"현재 상태에서 처리할 수 없습니다. 새로고침해 주세요.",429:"잠시 후 다시 시도해 주세요."};throw new Error(messages[response.status] || "요청을 처리하지 못했습니다. 다시 시도해 주세요.");}
     return data;
   } catch(error) {
     if (error.name==="AbortError") throw new Error("응답 시간이 초과되었습니다.");
@@ -88,7 +88,7 @@ function renderTabs() {
 async function loadCatalog() {
   const data=await request("/catalog");
   state.catalog=data.items;state.canApprove=data.can_approve;state.ready=data.worker.ready;
-  $("vr-connection").textContent=state.ready?"Velociraptor 연결됨 · 수집 서비스 연결됨":"Velociraptor 연결됨 · 수집 서비스 연결 안 됨";
+  $("vr-connection").textContent=state.ready?"수집 서비스 연결됨":"수집 서비스 연결 안 됨";
   $("vr-new").disabled=!state.catalog.length;
 }
 async function loadTab(offset=0) {
@@ -178,7 +178,7 @@ async function evidencePage() {
   const target=$("vr-evidence-view");
   if (!target)return;
   target.innerHTML=`<div class="vr-toolbar"><label>수집<select id="vr-flow-select">${s.flows.map((f,i)=>`<option value="${i}" ${i===s.index?"selected":""}>${esc(formatTime(f.create_time))} · ${esc(f.flow_id)}</option>`).join("")}</select></label><div class="vr-buttons">${["rows","logs","uploads"].map((kind,i)=>button(["결과","로그","수집 파일"][i],"result-kind",`data-kind="${kind}" ${s.kind===kind?'disabled':""}`)).join("")}${button("상태 새로고침","refresh-evidence")}</div></div><div id="vr-flow-state" class="vr-rowline">${badge(flow.state)}<span class="vr-muted">수집 ${esc(formatTime(flow.start_time || flow.create_time))}</span></div>${flow.status?`<p class="vr-error-text">${esc(flow.status)}</p>`:""}<div class="vr-provenance">${esc(s.clientId)} · ${esc(flow.flow_id)}</div>${s.kind==="rows" && sources.length?`<div class="vr-toolbar"><label>결과 소스<select id="vr-source-select">${sources.map(a=>`<option ${a===s.source?"selected":""}>${esc(a)}</option>`).join("")}</select></label>${button("표시 결과 내보내기","export")}</div>`:""}<div id="vr-result-table">${empty("불러오는 중…")}</div><details><summary>수집 요청 정보</summary><pre>${esc(JSON.stringify(flow.request || {},null,2))}</pre></details>`;
-  if (s.kind==="rows" && !s.source) {$("vr-result-table").innerHTML=empty("반환된 결과 소스가 없습니다. 수집 상태와 로그를 확인하세요.");return;}
+  if (s.kind==="rows" && !s.source) {$("vr-result-table").innerHTML=empty("표시할 결과가 없습니다.");return;}
   const token=Symbol();s.token=token;
   const query=new URLSearchParams({client_id:s.clientId,flow_id:flow.flow_id,artifact:s.source,kind:s.kind,offset:s.offset});
   if (s.order && s.source==="Linux.Search.FileFinder" && s.kind==="rows")query.set("order",s.order);
@@ -256,7 +256,7 @@ function openComposer(operation=mode==="files"?"files":"triage",prefill={},hunt=
   const choices=[...state.clients];
   if(state.client && !choices.some(c=>c.client_id===state.client.client_id))choices.unshift(state.client);
   $("vr-targets").innerHTML=choices.map(c=>`<label><input type="checkbox" name="target" value="${esc(c.client_id)}" ${c.client_id===state.client?.client_id?"checked":""} ${String(c.os).toLowerCase()==="linux"?"":"disabled"}><span>${esc(c.hostname || c.client_id)} <small class="vr-muted">${esc(c.client_id)}</small></span></label>`).join("") || "호스트를 검색하세요.";
-  $("vr-targets-note").textContent=state.clientMore?"추가 호스트는 호스트 목록에서 더 불러올 수 있습니다.":"";
+  $("vr-targets-note").textContent=state.clientMore?"호스트 목록에서 더 보기":"";
   $("vr-compose-title").textContent=hunt?"새 헌트":"새 수집";
   $("vr-compose-error").textContent="";
   fields(prefill);

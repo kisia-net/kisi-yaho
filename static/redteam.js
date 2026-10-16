@@ -1,7 +1,7 @@
 // 레드팀 평가 panel, shared by the alert page and the 자동 보고서 page.
 // It follows one analysis through /api/redteam/status/<analysis_id>:
 // sending -> refused (with the reason) or accepted -> the runner's job state.
-(() => {
+((scope) => {
     const escapeHtml = (value) => String(value ?? "")
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
@@ -49,6 +49,63 @@
     };
     const chip = (label, cls) => `<span class="rt-chip ${cls}">${escapeHtml(label)}</span>`;
 
+    const CHECK_STATUS = {
+        passed: ["통과", "rt-ok"], failed: ["실패", "rt-bad"], error: ["실행 오류", "rt-bad"],
+        warning: ["검토 경고", "rt-warn"], not_applicable: ["해당 없음", "rt-muted"],
+        not_verified: ["검증 불가", "rt-warn"], not_available: ["결과 없음", "rt-muted"],
+    };
+    const CATEGORIES = {
+        "functional-control": "정상 분석 대조군", "direct-prompt-injection": "직접 프롬프트 주입",
+        "sensitive-information-disclosure": "민감정보 유출", "encoding-bypass": "인코딩 우회",
+        "excessive-agency": "권한·승인 우회", "identifier-hallucination": "근거 없는 식별자",
+    };
+    function checkRows(value) {
+        return (Array.isArray(value?.checks) ? value.checks : []).slice(0, 500)
+            .filter((row) => row && Object.hasOwn(CHECK_STATUS, row.status)).map((row) => ({
+                ...row, assertion: String(row.assertion || "Evaluation").slice(0, 160),
+                name_ko: String(row.name_ko || row.assertion || "검사 항목").slice(0, 160),
+                description_ko: String(row.description_ko || "이 항목의 검사 설명이 아직 제공되지 않았습니다. 검사명과 원문을 확인하세요.").slice(0, 1000),
+                reason_ko: String(row.reason_ko || "이전 보고서에는 한국어 상세 이유가 없습니다. 원문을 확인하세요.").slice(0, 1000),
+                reason: String(row.reason || "").slice(0, 800),
+            }));
+    }
+    function checkDetailsHtml(value) {
+        const rows = checkRows(value);
+        if (!rows.length) {
+            const messages = {
+                report_missing: "기존 결과 파일이 없어 검사별 상세 이유를 읽을 수 없습니다.",
+                report_unreadable: "기존 결과 파일을 읽지 못했습니다. 권한·형식을 확인해야 합니다.",
+                pending: "평가가 끝나면 검사별 상세 이유가 표시됩니다.",
+            };
+            return `<p class="muted rt-tool-note">${escapeHtml(messages[value?.detail_availability] || "검사별 상세 결과가 아직 제공되지 않았습니다.")} 상세 결과 없음은 통과를 뜻하지 않습니다.</p>`;
+        }
+        const counts = Object.fromEntries(Object.keys(CHECK_STATUS).map((key) => [key, rows.filter((row) => row.status === key).length]));
+        const description = Object.entries(counts).filter(([, count]) => count)
+            .map(([key, count]) => `${CHECK_STATUS[key][0]} ${count}`).join(" · ");
+        function item(row) {
+            const [label, cls] = CHECK_STATUS[row.status];
+            const caseName = CATEGORIES[row.category] || row.case_name;
+            const context = row.case_index ? `사례 ${row.case_index}${caseName ? " · " + caseName : ""}` : "";
+            return `<li class="rt-check rt-check-${row.status}">
+                <p>${chip(label, cls)} <strong>${escapeHtml(row.name_ko)}</strong> <code>${escapeHtml(row.assertion)}</code></p>
+                ${context ? `<p class="muted rt-check-context">${escapeHtml(context)}</p>` : ""}
+                ${row.detector ? `<p class="muted">검출기: ${escapeHtml(row.detector)}</p>` : ""}
+                <p class="rt-check-description"><strong>검사 내용:</strong> ${escapeHtml(row.description_ko)}</p>
+                <p class="rt-check-reason"><strong>판정 이유:</strong> ${escapeHtml(row.reason_ko)}</p>
+                ${row.advisory ? '<p class="muted">참고 지표 · 전체 사례의 통과/실패를 결정하지 않음</p>' : ""}
+                ${row.reason ? `<details class="rt-check-original"><summary>기록된 이유 원문</summary><p>${escapeHtml(row.reason)}</p></details>` : '<p class="muted">개별 이유 원문 없음 · 기록된 판정/집계만 표시</p>'}
+            </li>`;
+        }
+        const important = rows.filter((row) => ["failed", "error", "warning"].includes(row.status));
+        const others = rows.filter((row) => !["failed", "error", "warning"].includes(row.status));
+        return `<section class="rt-check-results" aria-label="검사 항목별 상세 결과">
+            <p class="rt-check-counts">검사 항목 ${rows.length}개${value?.details_truncated ? " (일부 표시)" : ""} · ${escapeHtml(description)}</p>
+            <p class="muted rt-tool-note">위의 분석 결과·사례 수와 다른 집계입니다. 해당 없음·검증 불가·결과 없음은 통과 수에서 제외합니다. 규칙 검사 결과이며 모델 전체의 안전성을 보증하지 않습니다.</p>
+            ${important.length ? `<p><strong>실패·오류·검토 경고</strong></p><ul class="rt-check-list">${important.map(item).join("")}</ul>` : ""}
+            ${others.length ? `<details class="rt-check-all"><summary>나머지 검사별 상세 결과 ${others.length}개 보기</summary><ul class="rt-check-list">${others.map(item).join("")}</ul></details>` : ""}
+        </section>`;
+    }
+
     function jobState(runner) {
         const job = runner && typeof runner.job === "object" ? runner.job : {};
         return String(runner?.status || runner?.state || job.status || job.state || "").toLowerCase();
@@ -58,7 +115,7 @@
     // be "completed" while a tool inside it failed, so the verdict comes from
     // here, not from the job state.
     const TOOL_STATE = {
-        passed: ["통과", "rt-ok"], success: ["통과", "rt-ok"], succeeded: ["통과", "rt-ok"], completed: ["통과", "rt-ok"],
+        passed: ["통과", "rt-ok"], success: ["통과", "rt-ok"], succeeded: ["통과", "rt-ok"], completed: ["실행 완료", "rt-muted"],
         failed: ["실패", "rt-bad"], error: ["오류", "rt-bad"], errored: ["오류", "rt-bad"], timeout: ["시간 초과", "rt-bad"],
         running: ["평가 중", "rt-info"], queued: ["대기", "rt-info"], pending: ["대기", "rt-info"], skipped: ["건너뜀", "rt-muted"],
     };
@@ -73,8 +130,8 @@
             const tokens = stats.tokenUsage && typeof stats.tokenUsage.total === "number" ? stats.tokenUsage.total : null;
             let state = String(value.status || "").toLowerCase();
             // Counts outrank a loose status word.
-            if ((num("failures") || 0) > 0) state = "failed";
-            else if ((num("errors") || 0) > 0) state = "error";
+            if ((num("errors") || 0) > 0) state = "error";
+            else if ((num("failures") || 0) > 0) state = "failed";
             const failed = (Array.isArray(value.failures) ? value.failures : [])
                 .filter((item) => item && typeof item === "object")
                 .slice(0, 10)
@@ -90,6 +147,7 @@
                 mode: String(value.mode || ""),
                 failureSummary: typeof value.failure_summary === "string" ? value.failure_summary.slice(0, 400) : "",
                 failed,
+                details: value,
                 // Older jobs predate failure_summary/failures; the runner does not backfill them.
                 reasonsReported: "failure_summary" in value || Array.isArray(value.failures),
             };
@@ -98,8 +156,8 @@
 
     function overall(tools) {
         if (!tools.length) return null;
-        if (tools.some((tool) => tool.state === "failed")) return ["검사 실패", "rt-bad"];
         if (tools.some((tool) => ["error", "errored", "timeout"].includes(tool.state))) return ["검사 오류", "rt-bad"];
+        if (tools.some((tool) => tool.state === "failed")) return ["검사 실패", "rt-bad"];
         if (tools.some((tool) => ["running", "queued", "pending"].includes(tool.state))) return null;
         if (tools.every((tool) => (TOOL_STATE[tool.state] || [])[1] === "rt-ok" || tool.state === "skipped")) return ["검사 통과", "rt-ok"];
         return null;
@@ -109,8 +167,8 @@
         return tools.map((tool) => {
             const [label, cls] = TOOL_STATE[tool.state] || [tool.state || "상태 미확인", "rt-muted"];
             const parts = [];
-            if (tool.successes !== null) parts.push(`성공 ${tool.successes}`);
-            if (tool.failures !== null) parts.push(`실패 ${tool.failures}`);
+            if (tool.successes !== null) parts.push(`분석 결과 통과 ${tool.successes}건`);
+            if (tool.failures !== null) parts.push(`분석 결과 실패 ${tool.failures}건`);
             if (tool.errors !== null) parts.push(`오류 ${tool.errors}`);
             if (tool.durationMs !== null) parts.push(`${(tool.durationMs / 1000).toFixed(tool.durationMs < 1000 ? 2 : 1)}초`);
             if (tool.exitCode !== undefined && tool.exitCode !== null) parts.push(`종료 코드 ${escapeHtml(tool.exitCode)}`);
@@ -118,13 +176,13 @@
                 ? `<p class="muted rt-tool-note">저장된 분석 결과 채점 · 모델 재호출 없음</p>`
                 : (tool.tokens === 0
                     ? `<p class="muted rt-tool-note">모델 토큰 사용 0 · 모델을 다시 부르지 않는 저장 결과 채점이면 정상입니다.</p>` : "");
-            const reasons = tool.failed.length
+            const reasons = checkRows(tool.details).length ? "" : tool.failed.length
                 ? `<ul class="rt-failures">${tool.failed.map((item) => `<li><strong>${escapeHtml(item.assertion)}</strong>${item.reason ? ` · ${escapeHtml(item.reason)}` : ""}</li>`).join("")}</ul>`
                 : (tool.failureSummary ? `<p class="rt-failure-summary">${escapeHtml(tool.failureSummary)}</p>` : "");
             const noReasons = tool.state === "failed" && !tool.reasonsReported
                 ? `<p class="muted rt-tool-note">이 작업은 실패 이유를 함께 보내기 전에 평가되어, 이유가 기록되어 있지 않습니다.</p>` : "";
             const files = tool.artifacts.length ? `<p class="muted rt-tool-note">실행기 결과 파일: ${tool.artifacts.map(escapeHtml).join(", ")}</p>` : "";
-            return `<div class="rt-tool"><p><strong>${escapeHtml(tool.name)}</strong> ${chip(label, cls)} <span class="muted">${parts.join(" · ")}</span></p>${reasons}${noReasons}${warn}${files}</div>`;
+            return `<div class="rt-tool"><p><strong>${escapeHtml(tool.name)}</strong> ${chip(label, cls)} <span class="muted">${parts.join(" · ")}</span></p>${reasons}${noReasons}${warn}${checkDetailsHtml(tool.details)}${files}</div>`;
         }).join("");
     }
 
@@ -216,5 +274,7 @@
         if (decision === "send" || decision === "queued") tick();
     }
 
-    window.HawkiRedteam = { render, DECISION, JOB_STATE, toolResults, overall };
-})();
+    const api = { render, DECISION, JOB_STATE, toolResults, toolRows, overall, checkRows, checkDetailsHtml };
+    if (typeof module !== "undefined" && module.exports) module.exports = api;
+    else scope.HawkiRedteam = api;
+})(typeof window === "undefined" ? globalThis : window);

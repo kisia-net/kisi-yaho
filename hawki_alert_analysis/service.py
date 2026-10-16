@@ -108,6 +108,9 @@ class AlertAnalysisService:
         page_size: int = 100,
         status: str = "all",
         handled_ids: list[str] | None = None,
+        rank: bool = False,
+        group: bool = False,
+        scan_limit: int = 3000,
     ) -> dict[str, Any]:
         """One page of the queue, the real total, and the 처리 상태 filter.
 
@@ -120,6 +123,12 @@ class AlertAnalysisService:
         handled = list(handled_ids or [])
         offset = (page - 1) * page_size
         searcher = getattr(self.repository, "search_alert_page", None)
+        if rank or group:
+            return self._ranked_page(
+                min_level=min_level, query=query, category=category, since=since, order=order, host=host,
+                page=page, page_size=page_size, status=status, handled=handled, rank=rank, group=group,
+                scan_limit=scan_limit,
+            )
         if callable(searcher):
             result = searcher(
                 min_level, category=category, since=since, order=order, host=host, text=query,
@@ -158,6 +167,105 @@ class AlertAnalysisService:
             "page_size": page_size,
             "pages": pages,
             "window_limited": window_limited,
+        }
+
+    def _scored(self, alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        inventory = getattr(self.repository, "asset_inventory", None)
+        feed = getattr(self.repository, "threat_intel_feed", None)
+        for item in alerts:
+            if not isinstance(item.get("priority"), dict):
+                item["priority"] = priority_for_alert_item(item, asset_inventory=inventory, threat_intel_feed=feed)
+        return alerts
+
+    def _ranked_page(
+        self, *, min_level: int, query: str, category: str, since: str, order: str, host: str,
+        page: int, page_size: int, status: str, handled: list[str], rank: bool, group: bool,
+        scan_limit: int,
+    ) -> dict[str, Any]:
+        """The alert queue ranked and grouped over the whole period, then paged.
+
+        Paging the indexer by Wazuh level and re-sorting each page by HAW-KI
+        priority put P2 alerts on pages 1, 2, 3 and 5; grouping inside one
+        page turned a page of 50 into one or two rows and repeated the same
+        group on the next page. Here the alerts of the period (up to
+        scan_limit, highest Wazuh level first when ranking) are collected
+        once, ranked by priority score, grouped by rule + source + host, and
+        the page is cut from that list.
+        """
+        scan_limit = max(page_size, min(int(scan_limit), 10000))
+        fetch_order = "level" if rank else order
+        collector = getattr(self.repository, "search_alert_window", None)
+        if callable(collector):
+            result = collector(
+                min_level, category=category, since=since, order=fetch_order, host=host, text=query,
+                limit=scan_limit,
+                exclude_ids=handled if status == "open" else None,
+                only_ids=handled if status == "handled" else None,
+            )
+            alerts = list(result.get("alerts") or [])
+            total = int(result.get("total") or 0)
+            relation = str(result.get("relation") or "eq")
+        else:
+            options = {"host": host} if host else {}
+            alerts = self.list_alerts(
+                min_level=min_level, query=query, category=category, since=since, order=fetch_order, **options,
+            )
+            wanted = set(handled)
+            if status == "open":
+                alerts = [item for item in alerts if str(item.get("id")) not in wanted]
+            elif status == "handled":
+                alerts = [item for item in alerts if str(item.get("id")) in wanted]
+            total, relation = len(alerts), "eq"
+            alerts = alerts[:scan_limit]
+        self._scored(alerts)
+
+        def score(item: dict[str, Any]) -> float:
+            value = (item.get("priority") or {}).get("score")
+            return float(value) if isinstance(value, (int, float)) else -1.0
+
+        def when(item: dict[str, Any]) -> str:
+            return str(item.get("time") or "")
+
+        if rank:
+            alerts.sort(key=lambda item: (score(item), when(item)), reverse=True)
+        else:
+            alerts.sort(key=when, reverse=True)
+
+        if group:
+            groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+            for item in alerts:
+                key = (str(item.get("rule_id") or item.get("title") or ""), str(item.get("source_ip") or "-"),
+                       str(item.get("host") or "-"))
+                entry = groups.get(key)
+                if entry is None:
+                    # alerts are already in display order, so the first one leads.
+                    groups[key] = {"lead": item, "count": 1, "first": when(item), "last": when(item)}
+                    continue
+                entry["count"] += 1
+                entry["first"] = min(entry["first"], when(item)) if when(item) else entry["first"]
+                entry["last"] = max(entry["last"], when(item))
+            units = list(groups.values())
+        else:
+            units = [{"lead": item, "count": 1, "first": when(item), "last": when(item)} for item in alerts]
+
+        unit_total = len(units)
+        pages = max(1, -(-unit_total // page_size)) if unit_total else 1
+        page = min(page, pages)
+        chosen = units[(page - 1) * page_size:page * page_size]
+        return {
+            "alerts": [unit["lead"] for unit in chosen],
+            "groups": [{"id": str(unit["lead"].get("id") or ""), "count": unit["count"],
+                        "first": unit["first"], "last": unit["last"]} for unit in chosen],
+            "total": total,
+            "relation": relation,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+            "unit_total": unit_total,
+            "unit": "group" if group else "alert",
+            "scanned": len(alerts),
+            "scan_limited": total > len(alerts),
+            "window_limited": False,
         }
 
     def source_flow(self, *, start: Any = None, end: Any = None) -> dict[str, Any]:

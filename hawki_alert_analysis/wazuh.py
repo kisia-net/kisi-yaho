@@ -478,6 +478,41 @@ class WazuhEventRepository:
             "window_limited": window_limited,
         }
 
+    def search_alert_window(
+        self,
+        min_level: int = 0,
+        *,
+        category: str = "all",
+        since: str = "",
+        order: str = "newest",
+        host: str = "",
+        text: str = "",
+        limit: int = 3000,
+        exclude_ids: list[str] | None = None,
+        only_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """The first `limit` matching alerts in one query, and the real total.
+
+        The alert queue ranks and groups these itself (service._ranked_page);
+        `order` decides which alerts fill the window when there are more.
+        """
+        limit = max(1, min(int(limit), MAX_RESULT_WINDOW))
+        body = self._alert_query(min_level, category=category, since=since, order=order, host=host, text=text)
+        body.update({"from": 0, "size": limit, "track_total_hits": True})
+        query = body["query"]["bool"]
+        if exclude_ids:
+            query.setdefault("must_not", []).append({"ids": {"values": list(exclude_ids)}})
+        if only_ids is not None:
+            query.setdefault("filter", []).append({"ids": {"values": list(only_ids)}})
+        try:
+            payload = self.client.search(self.alert_index, body)
+        except (WazuhIndexerError, ValueError) as exc:
+            self.last_error = str(exc)
+            return {"alerts": [], "total": 0, "relation": "eq", "error": True}
+        self.last_error = ""
+        total, relation = _total_hits(payload)
+        return {"alerts": self._alert_items(_hits(payload)), "total": total, "relation": relation}
+
     def list_alerts_since(
         self,
         since: datetime,

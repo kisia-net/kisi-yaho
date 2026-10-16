@@ -22,6 +22,7 @@ from urllib.parse import quote
 
 import click
 import requests
+from hawki_redteam_details import NAMES as REDTEAM_CHECK_NAMES, public_details as public_redteam_details
 from dotenv import load_dotenv
 from flask import (
     Flask,
@@ -132,6 +133,20 @@ app.config.update(
     SEND_FILE_MAX_AGE_DEFAULT=0,
 )
 app.jinja_env.auto_reload = True
+
+
+@app.template_filter("kst")
+def format_kst(value: Any) -> str:
+    """ISO time from the stores, shown the way the rest of the screens show it."""
+    if not value:
+        return ""
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone(timedelta(hours=9))).strftime("%Y. %m. %d. %H:%M")
 # Flask 3 moved this off app.config, where the JSON_SORT_KEYS entry above no
 # longer has any effect. Key order is meaningful in the evidence bundle: the
 # four metadata blocks are published in a declared order.
@@ -153,7 +168,16 @@ if TRUST_PROXY_HOPS:
     # ones nginx appended. X-Forwarded-Proto is not trusted.
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=TRUST_PROXY_HOPS)
 
-BUILD_ID = os.getenv("APP_BUILD_ID", "2026.08.11-hawki-runtime-stability-v5")
+def default_build_id() -> str:
+    """When the image was built: app.py keeps its checkout time in the image."""
+    try:
+        stamp = datetime.fromtimestamp(Path(__file__).stat().st_mtime, timezone(timedelta(hours=9)))
+        return stamp.strftime("%Y.%m.%d %H:%M KST")
+    except OSError:
+        return "확인 불가"
+
+
+BUILD_ID = os.getenv("APP_BUILD_ID") or default_build_id()
 
 
 def compute_asset_version() -> str:
@@ -1249,13 +1273,11 @@ def dashboard_page():
 @app.get("/agent/")
 @role_required("analyst")
 def agent_page():
-    # Existing mode-specific links keep their original handlers and model routing.
-    classic = request.args.get("view") == "classic" or request.args.get("mode") in {
-        "conversation", "alert_summary", "log_search", "file_hunt",
-        "velociraptor_response", "suricata_rule", "incident_report",
-    }
-    return render_template("agent.html" if classic else "agent_workspace.html",
-                           workspace_v1=not classic, **template_context("agent"))
+    # One AI screen: 조사 대화. The old per-task screen (작업별 분석) is gone;
+    # links that named a mode (경보 설명받기, 파일 추적, 호스트 대응, 룰 작성)
+    # open the conversation with the alert, host and request filled in
+    # (agent-workspace.js reads mode/alert_id/host/prompt from the URL).
+    return render_template("agent_workspace.html", workspace_v1=True, **template_context("agent"))
 
 
 @app.get("/alerts")
@@ -1857,7 +1879,7 @@ ALERT_PERIODS = {"": "", "1h": "now-1h", "24h": "now-24h", "7d": "now-7d", "30d"
 # page or from an automatic report review (hawki_alert_analysis/feedback.py).
 ALERT_STATUSES = ("all", "open", "handled")
 ALERT_PAGE_SIZES = (25, 50, 100, 200)
-ALERT_PAGE_SIZE_DEFAULT = 100
+ALERT_PAGE_SIZE_DEFAULT = 50
 # The indexer query names handled alerts by id; the newest this many count.
 ALERT_HANDLED_ID_LIMIT = 5000
 
@@ -1914,6 +1936,7 @@ def api_alerts():
     if page_size not in ALERT_PAGE_SIZES:
         return jsonify({"error": "Unsupported page size."}), 400
 
+    queue_view = request.args.get("view") == "queue"
     handling = alert_handling_states()
     options = {"category": category, "since": ALERT_PERIODS[period], "order": order}
     if host:
@@ -1926,6 +1949,10 @@ def api_alerts():
         status=status,
         handled_ids=[alert_id for alert_id, record in handling.items()
                      if record["verdict"] in SETTLED_VERDICTS][-ALERT_HANDLED_ID_LIMIT:],
+        # The alert queue page asks for view=queue: rank by HAW-KI priority
+        # and group over the whole period, then page (service._ranked_page).
+        rank=queue_view and order == "level",
+        group=queue_view and request.args.get("group", "1") != "0",
         **options,
     )
     alerts = result["alerts"]
@@ -1941,6 +1968,11 @@ def api_alerts():
             "page_size": result["page_size"],
             "pages": result["pages"],
             "window_limited": result["window_limited"],
+            "groups": result.get("groups"),
+            "unit": result.get("unit", "alert"),
+            "unit_total": result.get("unit_total", result["total"]),
+            "scanned": result.get("scanned"),
+            "scan_limited": result.get("scan_limited", False),
             "status": status,
             "alerts": alerts,
             "category": category,
@@ -2243,6 +2275,34 @@ def api_threat_intel_status():
 # -- 레드팀 평가 (dashboard list and alert page) --------------------------------
 
 
+def korean_redteam_job(body: Any) -> Any:
+    """Korean check names, descriptions and reasons on a runner job body.
+
+    Older runners send `checks` with names and statuses only and the English
+    reason in `failures`; the Korean text (hawki_redteam_details) is built
+    from the two together, so the screen explains a failure without waiting
+    for a runner update. The original English stays in each row's `reason`.
+    """
+    if not isinstance(body, dict):
+        return body
+    for holder in (body, body.get("job") if isinstance(body.get("job"), dict) else None):
+        results = holder.get("tool_results") if isinstance(holder, dict) else None
+        if not isinstance(results, dict):
+            continue
+        for tool, value in list(results.items()):
+            if not isinstance(value, dict) or not isinstance(value.get("checks"), list):
+                continue
+            reasons = {str(item.get("assertion")): str(item.get("reason") or "")
+                       for item in value.get("failures") or [] if isinstance(item, dict)}
+            rows = []
+            for row in value["checks"]:
+                if isinstance(row, dict) and not row.get("reason") and reasons.get(str(row.get("assertion"))):
+                    row = {**row, "reason": reasons[str(row.get("assertion"))]}
+                rows.append(row)
+            results[tool] = {**value, **public_redteam_details({**value, "checks": rows})}
+    return body
+
+
 @app.get("/api/redteam/status/<analysis_id>")
 @role_required("analyst")
 def api_redteam_status(analysis_id: str):
@@ -2280,7 +2340,7 @@ def api_redteam_status(analysis_id: str):
             runner_url=CONFIG["redteam_runner_url"], token=CONFIG["redteam_runner_token"],
             timeout=CONFIG["redteam_runner_timeout"], job_id=job_id, jobs_path=CONFIG["redteam_jobs_path"],
         )
-        result.update(runner_status=status, runner=body if status < 400 else None)
+        result.update(runner_status=status, runner=korean_redteam_job(body) if status < 400 else None)
         if status < 400:
             remember_redteam_verdict(analysis_id, runner_summary(body))
     except (requests.RequestException, ValueError) as exc:
@@ -2459,6 +2519,8 @@ def api_dashboard_flow():
 # 레드팀 검증 화면: every analysis and what became of its evaluation.
 REDTEAM_RANGES = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30), "all": None}
 REDTEAM_STATUSES = ("all", "passed", "failed", "error", "refused", "checking", "not_sent")
+# 보내지 않음 on the screen covers both: refused by the runner or HAW-KI, or never sent.
+REDTEAM_UNSENT = ("refused", "not_sent")
 REDTEAM_KINDS = ("all", "manual", "auto", "deep")
 
 
@@ -2520,7 +2582,7 @@ def api_redteam_evaluations():
     period = (request.args.get("range") or "7d").strip()
     status = (request.args.get("status") or "all").strip()
     kind = (request.args.get("kind") or "all").strip()
-    if period not in REDTEAM_RANGES or status not in REDTEAM_STATUSES or kind not in REDTEAM_KINDS:
+    if period not in REDTEAM_RANGES or (status not in REDTEAM_STATUSES and status != "unsent") or kind not in REDTEAM_KINDS:
         return jsonify({"error": "Unsupported red team filter."}), 400
     try:
         page = max(int(request.args.get("page") or 1), 1)
@@ -2537,6 +2599,7 @@ def api_redteam_evaluations():
     counted = [row for row in rows if row["kind"] != "deep"]
     summary = {key: sum(1 for row in counted if row["status"] == key) for key in REDTEAM_STATUSES if key != "all"}
     summary["total"] = len(counted)
+    summary["unsent"] = sum(summary.get(key, 0) for key in REDTEAM_UNSENT)
     failing: dict[str, int] = {}
     for row in counted:
         for name in row["failed_checks"]:
@@ -2549,12 +2612,17 @@ def api_redteam_evaluations():
 
     if kind != "all":
         rows = [row for row in rows if row["kind"] == kind]
-    if status != "all":
+    if status == "unsent":
+        rows = [row for row in rows if row["status"] in REDTEAM_UNSENT]
+    elif status != "all":
         rows = [row for row in rows if row["status"] == status]
     total = len(rows)
     pages = max(1, -(-total // page_size))
     start = (min(page, pages) - 1) * page_size
+    shown = rows[start:start + page_size]
+    names = {name for name in failing} | {name for row in shown for name in row["failed_checks"]}
     return jsonify({
+        "check_names": {name: REDTEAM_CHECK_NAMES.get(name, name) for name in sorted(names)},
         "range": period,
         "summary": summary,
         "failing_checks": sorted(failing.items(), key=lambda pair: -pair[1])[:8],
@@ -2562,7 +2630,7 @@ def api_redteam_evaluations():
         "page": min(page, pages),
         "pages": pages,
         "page_size": page_size,
-        "evaluations": rows[start:start + page_size],
+        "evaluations": shown,
         "settings": {
             "auto_eval": bool(CONFIG["redteam_auto_eval_enabled"]),
             "tools": CONFIG["redteam_auto_tools"],

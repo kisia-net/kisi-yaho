@@ -62,9 +62,9 @@
         <label>
             한 페이지
             <select id="alert-page-size">
-                <option value="25">25건</option>
-                <option value="50" selected>50건</option>
-                <option value="100">100건</option>
+                <option value="25">25줄</option>
+                <option value="50" selected>50줄</option>
+                <option value="100">100줄</option>
             </select>
         </label>
 
@@ -85,6 +85,11 @@
         </a>
     </div>
 
+    <p class="alert-legend">
+        <span class="prio-chip prio-p1">P1</span>~<span class="prio-chip prio-p4">P4</span> HAW-KI 우선순위: 자산 중요도·외부 노출·위협 정보까지 반영한 급한 정도, P1이 가장 급함
+        <span class="alert-legend-sep">·</span>
+        <span class="sev-chip sev-medium">중간 <small>L7</small></span> Wazuh 심각도와 룰 레벨(0~15)
+    </p>
     <div class="data-table" id="alerts-table"></div>
     <nav class="alert-pager" id="alert-pager" aria-label="경보 페이지" hidden></nav>
     <p class="muted alert-status-note">

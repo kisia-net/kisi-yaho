@@ -20,6 +20,20 @@ from __future__ import annotations
 from typing import Any
 
 ERROR_MESSAGES_KO: dict[str, str] = {
+    "Another deep scan is active; wait for it to finish.": "이미 진행 중인 심층 점검이 있습니다. 끝난 뒤 다시 실행해 주세요.",
+    "Deep scans require live Wazuh mode with demo mode disabled.": "심층 점검은 실제 Wazuh 데이터에서만 실행할 수 있습니다(데모 모드에서는 불가).",
+    "Invalid scan ID.": "검사 작업 ID가 올바르지 않습니다.",
+    "No deep scan result is available.": "아직 심층 점검 결과가 없습니다.",
+    "Only alert_id and the fixed tools are accepted.": "경보 ID와 정해진 검사 도구만 보낼 수 있습니다.",
+    "Select a real Wazuh alert ID.": "실제 Wazuh 경보를 선택해 주세요.",
+    "The deep-scan runner could not accept or serve this request.": "레드팀 실행기가 이 요청을 처리하지 못했습니다. 잠시 후 결과 새로고침으로 확인해 주세요.",
+    "The deep-scan runner is unavailable or returned an invalid result.": "레드팀 실행기에 연결할 수 없거나 응답이 올바르지 않습니다. 실행기 서버가 켜져 있는지 확인해 주세요.",
+    "The runner's deep-scan API is unavailable. Update the runner before retrying.": "레드팀 실행기가 심층 점검 기능을 지원하지 않습니다. 실행기를 업데이트한 뒤 다시 시도해 주세요.",
+    "This button runs the fixed Promptfoo and garak scan.": "이 버튼은 정해진 검사(Promptfoo + garak 또는 garak만)만 실행합니다.",
+    "Invalid conversation request.": "대화 요청이 올바르지 않습니다.",
+    "Invalid message or conversation identifier.": "메시지 또는 대화 ID가 올바르지 않습니다.",
+    "The model connection failed.": "AI 모델에 연결하지 못했습니다. GPU 서버가 켜져 있는지 확인해 주세요.",
+    "The selected model is not configured for this workspace.": "선택한 모델은 이 작업공간에서 쓸 수 없습니다.",
     "A DetectionSpec object is required.": "DetectionSpec 객체가 필요합니다.",
     "A message is required.": "메시지를 입력해 주세요.",
     "Action not found.": "조치를 찾을 수 없습니다.",

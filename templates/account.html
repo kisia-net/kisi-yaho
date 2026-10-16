@@ -20,8 +20,8 @@
             <dl>
                 <dt>아이디</dt><dd>{{ current_user.username }}</dd>
                 <dt>권한</dt><dd>{{ {'analyst': '분석가', 'approver': '승인자', 'admin': '관리자'}.get(current_user.role, current_user.role) }}</dd>
-                <dt>생성일</dt><dd>{{ current_user.created_at }}</dd>
-                <dt>최근 로그인</dt><dd>{{ current_user.last_login_at or "첫 접속" }}</dd>
+                <dt>생성일</dt><dd>{{ current_user.created_at|kst }}</dd>
+                <dt>최근 로그인</dt><dd>{{ (current_user.last_login_at|kst) or "첫 접속" }}</dd>
             </dl>
         </div>
     </article>

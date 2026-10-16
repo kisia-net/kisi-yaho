@@ -149,7 +149,7 @@ function priorityBadge(alert) {
     const parts = (priority.factors || [])
         .filter((factor) => Number(factor.points) !== 0)
         .map((factor) => `${PRIORITY_FACTOR_LABELS[factor.factor] || factor.factor} ${Number(factor.points) > 0 ? "+" : ""}${factor.points}`);
-    const tip = `우선순위 점수 ${priority.score}점${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
+    const tip = `HAW-KI 우선순위 ${priority.band} (P1이 가장 급함) · 점수 ${priority.score}점${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
     return `<span class="prio-chip prio-${escapeHtml(band)}" title="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">${escapeHtml(priority.band)}</span>`;
 }
 
@@ -161,7 +161,10 @@ function priorityScore(alert) {
 function severityChip(alert) {
     const severity = alertSeverity(alert);
     const level = severity.level !== null ? ` <small>L${escapeHtml(String(severity.level))}</small>` : "";
-    return `<span class="sev-chip sev-${severity.key}">${escapeHtml(severity.label)}${level}</span>`;
+    const tip = severity.level !== null
+        ? `Wazuh 심각도 ${severity.label} · 룰 레벨 ${severity.level} (0~15, 높을수록 심각)`
+        : `Wazuh 심각도 ${severity.label}`;
+    return `<span class="sev-chip sev-${severity.key}" title="${escapeHtml(tip)}">${escapeHtml(severity.label)}${level}</span>`;
 }
 
 function persistTheme(theme) {
@@ -694,6 +697,13 @@ function setService(name, details) {
     document.querySelectorAll(`[data-service-latency="${name}"]`).forEach((label) => {
         label.textContent = details?.latency_ms != null ? `${details.latency_ms} ms` : "—";
     });
+    // Sidebar: one short word, the full line on hover.
+    const full = (!configured ? "미설정" : online ? `연결됨 · HTTP ${details.status_code}` : `연결 안 됨${reason}`)
+        + (configured ? autoEval : "") + (details?.latency_ms != null ? ` · ${details.latency_ms} ms` : "");
+    document.querySelectorAll(`[data-service-short="${name}"]`).forEach((label) => {
+        label.textContent = !configured ? "미설정" : online ? "연결됨" : "연결 안 됨";
+        label.closest("[data-service-row]")?.setAttribute("title", full);
+    });
 }
 async function loadServices() {
     try {
@@ -703,7 +713,7 @@ async function loadServices() {
         const configured = Object.values(services).filter((x) => x.configured !== false);
         const online = configured.filter((x) => x.ok).length;
         if (byId("global-health-text")) byId("global-health-text").textContent = `설정된 서비스 ${configured.length}개 중 ${online}개 연결됨`;
-        if (byId("status-checked-at")) byId("status-checked-at").textContent = new Date(data.checked_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+        if (byId("status-checked-at")) byId("status-checked-at").textContent = new Date(data.checked_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
     } catch (error) {
         if (byId("global-health-text")) byId("global-health-text").textContent = "상태 확인 실패";
     }
@@ -1161,7 +1171,7 @@ function renderDashboardFlow(data) {
                 ${stage.id === "raw" ? flowSparkline(data.per_minute || []) : ""}
                 ${stage.extra?.deep_scan_calls ? `<span class="flow-detail">정밀 검사 분석 ${escapeHtml(formatNumber(stage.extra.deep_scan_calls))}건 별도</span>` : ""}
             </a>
-            ${stage.switch === "source" ? `<button type="button" class="flow-switch-link" data-flow-select="source">출처별로 보기 →</button>` : ""}
+            ${stage.switch === "source" ? `<button type="button" class="flow-switch-link" data-flow-select="source">출처별로 보기 ↓</button>` : ""}
         </li>`;
     }).join("") || `<li class="muted">표시할 흐름이 없습니다.</li>`;
     const scale = Math.log10(max + 1);
@@ -1185,7 +1195,6 @@ function renderDashboardFlow(data) {
 
 // 출처 흐름: sensor -> detection type -> priority, drawn as a Sankey (or a
 // table). Same panel and window as 처리 흐름; colours follow the source.
-const FLOW_VIEW_KEY = "hawki.dashboard.flowView";
 const SOURCE_FORMAT_KEY = "hawki.dashboard.sourceFormat";
 const SOURCE_SLOTS = ["web", "modsecurity", "suricata", "ssh", "vulnerability", "system", "other"];
 
@@ -1336,14 +1345,11 @@ function renderSourceFlow(data) {
     }
 }
 
-function showFlowView(view, remember = true) {
+// 처리 흐름 and 출처 흐름 are shown together; "출처별로 보기" scrolls down.
+function showFlowView(view) {
     const root = byId("dashboard-flow");
     if (!root) return;
-    root.dataset.flowView = view;
-    root.querySelectorAll("[data-flow-pane]").forEach((pane) => { pane.hidden = pane.dataset.flowPane !== view; });
-    root.querySelectorAll(".flow-switch [data-flow-select]").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.flowSelect === view)));
-    if (remember) storeChoice(FLOW_VIEW_KEY, view);
-    if (view === "source" && !root.dataset.sourceLoaded) loadSourceFlow();
+    root.querySelector(`[data-flow-pane="${view}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function showSourceFormat(format, remember = true) {
@@ -1384,7 +1390,6 @@ function initFlowPanel() {
     // A narrow screen cannot read a Sankey: the table is shown instead.
     const narrow = window.matchMedia("(max-width: 720px)").matches;
     showSourceFormat(narrow ? "table" : storedChoice(SOURCE_FORMAT_KEY, ["chart", "table"], "chart"), false);
-    showFlowView(storedChoice(FLOW_VIEW_KEY, ["process", "source"], "process"), false);
 }
 
 async function loadDashboardFlow() {
@@ -1397,7 +1402,7 @@ async function loadDashboardFlow() {
         const list = root.querySelector("[data-flow-stages]");
         if (list) list.innerHTML = `<li class="muted">처리 흐름을 불러오지 못했습니다 · ${escapeHtml(error.message)}</li>`;
     }
-    if (root.dataset.flowView === "source") loadSourceFlow();
+    loadSourceFlow();
     clearTimeout(flowTimer);
     flowTimer = setTimeout(() => {
         if (document.visibilityState === "visible") loadDashboardFlow();
@@ -3046,6 +3051,8 @@ async function loadAlertsInner() {
         status,
         page: String(state.alertPage || 1),
         page_size: String(pageSize),
+        view: "queue",
+        group: grouped ? "1" : "0",
     });
     if (state.alertHost) params.set("host", state.alertHost);
     const data = await api(`/api/alerts?${params}`);
@@ -3057,22 +3064,29 @@ async function loadAlertsInner() {
 
     const level = Number(levelInput.value || 0);
     const alerts = [...(data.alerts || [])];
-    // Highest priority first by default (ties: newest first). With 우선순위순
-    // the server already picked the highest levels of the period, so a page of
-    // newest scanner noise can no longer hide a level-12 alert.
-    if (sortMode === "priority") {
-        alerts.sort((left, right) =>
-            priorityScore(right) - priorityScore(left)
-            || (Date.parse(right.time) || 0) - (Date.parse(left.time) || 0));
+    // The server ranks (HAW-KI priority, then newest) and groups over the
+    // whole period before cutting the page, so page 2 continues page 1.
+    let rows;
+    if (Array.isArray(data.groups) && data.groups.length === alerts.length) {
+        rows = alerts.map((alert, i) => ({ lead: alert, ...data.groups[i] }));
+    } else {
+        // Older server: rank and group inside this page only.
+        if (sortMode === "priority") {
+            alerts.sort((left, right) =>
+                priorityScore(right) - priorityScore(left)
+                || (Date.parse(right.time) || 0) - (Date.parse(left.time) || 0));
+        }
+        rows = grouped ? groupAlerts(alerts) : alerts.map((alert) => ({ lead: alert, count: 1 }));
     }
-    const rows = grouped ? groupAlerts(alerts) : alerts.map((alert) => ({ lead: alert, count: 1 }));
-
-    const first = data.total ? (data.page - 1) * data.page_size + 1 : 0;
-    const last = Math.min(data.page * data.page_size, data.total);
+    const units = data.unit === "group" ? Number(data.unit_total || 0) : Number(data.unit_total ?? data.total ?? 0);
+    const first = units ? (data.page - 1) * data.page_size + 1 : 0;
+    const last = Math.min(data.page * data.page_size, units);
+    const unitWord = data.unit === "group" ? "묶음" : "건";
     count.textContent = [
         `${ALERT_RANGE_LABELS[range] ?? "최근"} ${ALERT_STATUS_LABELS[status] || ""} 경보 전체 ${formatNumber(data.total)}건${data.total_relation === "gte" ? " 이상" : ""}`,
-        data.total ? `${formatNumber(first)}–${formatNumber(last)}번째 (${sortMode === "priority" ? "레벨 높은 순" : "최신순"})` : "",
-        grouped && rows.length !== alerts.length ? `이 페이지 ${formatNumber(rows.length)}개 묶음` : "",
+        data.unit === "group" ? `같은 룰·출발지·호스트로 묶어 ${formatNumber(units)}개 묶음` : "",
+        units ? `${formatNumber(first)}–${formatNumber(last)}번째 ${unitWord} (${sortMode === "priority" ? "우선순위 높은 순" : "최신순"})` : "",
+        data.scan_limited ? `경보가 많아 ${sortMode === "priority" ? "레벨 높은" : "최근"} ${formatNumber(data.scanned)}건 기준으로 정렬했습니다` : "",
         level > 0 ? `Wazuh 레벨 ≥ ${level}` : "",
         state.alertHost ? `호스트 ${state.alertHost}` : "",
     ].filter(Boolean).join(" · ");
@@ -3080,7 +3094,7 @@ async function loadAlertsInner() {
     const header = rows.length ? `
         <div class="alert-row alert-row-head" role="row">
             <span>시각</span>
-            <span>우선순위 · 심각도</span>
+            <span title="P1~P4: HAW-KI 우선순위 · L: Wazuh 룰 레벨">우선순위 · 심각도</span>
             <span>경보</span>
             <span>호스트</span>
             <span>룰 · MITRE</span>
@@ -3849,7 +3863,7 @@ async function initHunts() {
             mode: "file_hunt",
             host: byId("hunt-target").value,
             incident: byId("hunt-incident").value,
-            prompt: byId("hunt-indicator").value,
+            prompt: byId("hunt-indicator").value ? `파일 단서: ${byId("hunt-indicator").value}` : "",
         });
         location.href = `/agent?${query}`;
     });
@@ -4503,7 +4517,7 @@ function initResponse() {
     loadVelociraptorClients("response-host");
     loadVelociraptorFlows("response-host", "response-flow-list");
     loadActionList("response-action-list", "velociraptor_");
-    byId("response-agent-form").addEventListener("submit", (e) => { e.preventDefault(); const params = new URLSearchParams({mode:"velociraptor_response", host:byId("response-host").value, incident:byId("response-incident").value, prompt:`Requested outcome: ${byId("response-outcome").value}\nEvidence: ${byId("response-evidence").value}`}); location.href = `/agent?${params}`; });
+    byId("response-agent-form").addEventListener("submit", (e) => { e.preventDefault(); const params = new URLSearchParams({mode:"velociraptor_response", host:byId("response-host").value, incident:byId("response-incident").value, prompt:`원하는 결과: ${byId("response-outcome").value}\n증거: ${byId("response-evidence").value}`}); location.href = `/agent?${params}`; });
 }
 
 async function validateRule() {
@@ -4885,7 +4899,7 @@ function initRules() {
     byId("ask-rule-agent").addEventListener("click", () => {
         const params = new URLSearchParams({
             mode: "suricata_rule",
-            prompt: `Detection intent: ${byId("rule-intent").value}\nRule draft: ${byId("rule-text").value}`,
+            prompt: `탐지 의도: ${byId("rule-intent").value}\n룰 초안: ${byId("rule-text").value}`,
         });
         location.href = `/agent?${params}`;
     });
