@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import requests
 from flask import jsonify, request
+from hawki_redteam_details import public_details
 
 SCAN_ID = re.compile(r"^[a-f0-9]{24}$")
 ALERT_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
@@ -147,6 +148,7 @@ def public_scan(value: Any) -> dict[str, Any]:
             "error_summary": str(item.get("error_summary") or "")[:600],
         }
         public = result["tools"][tool]
+        public.update(public_details(item))
         rows = item.get("probes")
         if "probes" not in item:
             legacy = value.get("probes", [])

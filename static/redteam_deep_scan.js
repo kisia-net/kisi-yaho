@@ -1,9 +1,43 @@
 (function (scope) {
     "use strict";
+    const checkUi = typeof module !== "undefined" && module.exports ? require("./redteam.js") : null;
+    function checkDetailsHtml(scan) {
+        const ui = checkUi || scope.HawkiRedteam;
+        if (!ui?.checkDetailsHtml) return "<p>검사별 상세 표시 파일(redteam.js)을 확인하세요.</p>";
+        return ["promptfoo", "garak"].map((tool) =>
+            `<section><h4>${tool} 검사별 판정·이유</h4>${ui.checkDetailsHtml(scan?.tools?.[tool])}</section>`).join("");
+    }
     const active = (scan) => ["queued", "running"].includes(scan?.status);
     const count = (value) => Number.isInteger(value) && value >= 0 ? value : 0;
     const ratio = (numerator, denominator) => denominator ?
         `${numerator}/${denominator} (${(100 * numerator / denominator).toFixed(1)}%)` : "미평가";
+    const validAlertId = (value) => typeof value === "string" &&
+        /^[A-Za-z0-9_.:-]{1,200}$/.test(value) && !/^evt-[a-f0-9]{16}$/i.test(value);
+    const short = (value, max = 200) => typeof value === "string" ? value.slice(0, max) : "";
+    function selectedAlert(evidence, expectedId) {
+        if (!validAlertId(expectedId) || !evidence || evidence.id !== expectedId ||
+            !evidence.rule || typeof evidence.rule !== "object" || !evidence.rule.id) {
+            throw new Error("선택한 ID와 실제 Wazuh 경보가 일치하지 않습니다.");
+        }
+        return {id: expectedId, title: short(evidence.rule.description) || "설명 없는 경보",
+            host: short(evidence.agent?.name, 128) || "호스트 미보고",
+            time: short(evidence.timestamp || evidence["@timestamp"], 80) || "시각 미보고",
+            level: Number.isInteger(evidence.rule.level) ? evidence.rule.level : null};
+    }
+    function alertOptions(payload) {
+        if (payload?.source !== "wazuh_indexer" || !Array.isArray(payload.alerts)) {
+            throw new Error("실제 Wazuh Indexer 경보 목록이 아닙니다. 테스트용 경보로 대체하지 않습니다.");
+        }
+        const seen = new Set();
+        return payload.alerts.slice(0, 200).filter((row) => {
+            if (!validAlertId(row?.id) || seen.has(row.id)) return false;
+            seen.add(row.id); return true;
+        }).map((row) => ({id: row.id, label: `${short(row.time, 80) || "시각 미보고"} · ${short(row.host, 128) || "호스트 미보고"} · ${short(row.title) || "설명 없는 경보"} · ${row.id}`}));
+    }
+    function targetText(alert) {
+        return `${alert.title} · 호스트 ${alert.host} · 발생 ${alert.time}` +
+            `${alert.level !== null ? " · Wazuh level " + alert.level : ""} · ID ${alert.id}`;
+    }
     function toolRows(scan) {
         return ["promptfoo", "garak"].map((name) => {
             const result = scan?.tools?.[name] || {};
@@ -51,15 +85,103 @@
     function mount(root, deps = {}) {
         const fetcher = deps.fetch || scope.fetch.bind(scope);
         const schedule = deps.schedule || scope.setTimeout.bind(scope);
-        const confirm = deps.confirm || scope.confirm.bind(scope);
         const document = deps.document || scope.document;
         const input = root.querySelector("[data-scan-alert]");
         const start = root.querySelector("[data-scan-start]");
         const refresh = root.querySelector("[data-scan-refresh]");
         const notice = root.querySelector("[data-scan-notice]");
+        const picker = root.querySelector("[data-scan-picker]");
+        const loadButton = root.querySelector("[data-scan-load-alerts]");
+        const range = root.querySelector("[data-scan-range]");
+        const query = root.querySelector("[data-scan-query]");
+        const verify = root.querySelector("[data-scan-verify]");
+        const reviewPanel = root.querySelector("[data-scan-review]");
+        const acknowledge = root.querySelector("[data-scan-ack]");
+        const runButton = root.querySelector("[data-scan-run]");
         let selectedScanId = /^[a-f0-9]{24}$/.test(root.dataset.scanId || "") ? root.dataset.scanId : "";
-        let current = null, generation = 0, unavailable = false, submitting = false;
-        function buttons() { start.disabled = submitting || active(current) || unavailable; }
+        let current = null, generation = 0, unavailable = true, submitting = false;
+        let selected = null, selectionBusy = false, selectionGeneration = 0, listBusy = false;
+        let reviewId = "";
+        const setText = (selector, text) => { const node = root.querySelector(selector); if (node) node.textContent = text; };
+        function buttons() {
+            const blocked = submitting || active(current) || unavailable || selectionBusy;
+            const ready = selected && selected.id === input.value.trim();
+            start.disabled = blocked || !ready;
+            if (runButton) runButton.disabled = blocked || !ready || reviewId !== selected.id || !acknowledge?.checked;
+            for (const node of [input, picker, verify, range, query]) if (node) node.disabled = blocked || (node === picker && !picker.dataset?.hasOptions);
+            if (loadButton) loadButton.disabled = blocked || listBusy;
+            setText("[data-scan-ready]", submitting ? "접수 요청 중입니다. 중복 실행하지 마세요." :
+                active(current) ? "이미 진행 중인 심층검사가 있습니다. 완료 후 실행할 수 있습니다." :
+                unavailable ? "작업 상태를 확인하지 못했습니다. 결과 새로고침으로 먼저 확인하세요." :
+                selectionBusy ? "실제 Wazuh 경보를 확인하고 있습니다. 모델 호출은 없습니다." :
+                ready ? "실제 경보 확인 완료 · 검사 내용을 확인해도 아직 실행되지 않습니다." : "실제 경보를 선택·확인해야 진행할 수 있습니다.");
+        }
+        function closeReview() {
+            reviewId = "";
+            if (reviewPanel) reviewPanel.hidden = true;
+            if (acknowledge) acknowledge.checked = false;
+            buttons();
+        }
+        async function selectAlert(id) {
+            if (submitting || active(current)) return false;
+            const ticket = ++selectionGeneration;
+            selected = null; input.value = id; selectionBusy = true; closeReview();
+            setText("[data-scan-selected]", "실제 경보를 확인하는 중…");
+            setText("[data-scan-selection-note]", "경보 증거 조회만 수행하며 LLM 분석을 요청하지 않습니다.");
+            try {
+                if (!validAlertId(id)) throw new Error("올바른 실제 Wazuh 문서 ID를 선택하세요.");
+                const evidence = await getJson("/api/alerts/" + encodeURIComponent(id) + "/evidence");
+                if (ticket !== selectionGeneration) return false;
+                selected = selectedAlert(evidence, id);
+                setText("[data-scan-selected]", targetText(selected));
+                setText("[data-scan-selection-note]", "HAW-KI의 실제 Wazuh 증거 조회로 확인했습니다. 세부 검사 유형은 실행기가 최종 확인합니다.");
+                if (current && current.alert_id !== id) notice.textContent = "주의: 아래 결과는 현재 선택한 경보와 다른 경보의 기존 검사 결과입니다. 새 검사 결과가 아닙니다.";
+                return true;
+            } catch (error) {
+                if (ticket === selectionGeneration) {
+                    setText("[data-scan-selected]", "검사 대상 확인 실패 · 실행할 수 없습니다.");
+                    setText("[data-scan-selection-note]", error.message + " · 로그인·Wazuh 연결·선택한 ID를 확인하세요. 테스트용 데이터로 대체하지 않습니다.");
+                }
+                return false;
+            } finally {
+                if (ticket === selectionGeneration) { selectionBusy = false; buttons(); }
+            }
+        }
+        async function loadAlerts() {
+            if (loadButton?.disabled || listBusy || !picker) return;
+            listBusy = true; buttons();
+            setText("[data-scan-list-note]", "Wazuh 경보 목록을 불러오는 중… 모델 호출은 없습니다.");
+            picker.replaceChildren(); picker.dataset.hasOptions = "";
+            try {
+                const period = ["24h", "7d", "30d"].includes(range?.value) ? range.value : "24h";
+                const params = new URLSearchParams({category: "all", range: period});
+                if (query?.value.trim()) params.set("q", query.value.trim().slice(0, 200));
+                const payload = await getJson("/api/alerts?" + params);
+                const options = alertOptions(payload);
+                const placeholder = document.createElement("option");
+                placeholder.value = ""; placeholder.textContent = "검사할 경보를 선택하세요 (자동 선택하지 않음)";
+                picker.appendChild(placeholder);
+                for (const option of options) {
+                    const node = document.createElement("option");
+                    node.value = option.id; node.textContent = option.label; picker.appendChild(node);
+                }
+                picker.value = ""; picker.dataset.hasOptions = options.length ? "1" : "";
+                setText("[data-scan-list-note]", options.length ?
+                    `실제 Wazuh 경보 ${options.length}건 표시 · 결과 상한이 있어 전체 경보 수와 다를 수 있습니다. 제목·호스트·시각으로 선택하세요.` :
+                    "이 기간·검색 조건에 경보가 없습니다. 기간을 넓히거나 검색어를 바꾸세요. 테스트용 경보는 넣지 않습니다.");
+            } catch (error) {
+                setText("[data-scan-list-note]", "경보 목록 조회 실패: " + error.message);
+            } finally { listBusy = false; buttons(); }
+        }
+        function review() {
+            if (start.disabled || !selected || !reviewPanel || !runButton || !acknowledge) return false;
+            reviewId = selected.id;
+            acknowledge.checked = false;
+            setText("[data-scan-review-target]", "실행할 경보: " + targetText(selected));
+            reviewPanel.hidden = false; buttons();
+            acknowledge.focus?.();
+            return true;
+        }
         async function getJson(url, options = {}) {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 10000);
@@ -88,6 +210,9 @@
             }
             const details = root.querySelector("[data-scan-details]");
             const probes = root.querySelector("[data-scan-probes]");
+            const checks = root.querySelector("[data-scan-checks]");
+            // All dynamic strings in this renderer are escaped by checkDetailsHtml.
+            if (checks) checks.innerHTML = checkDetailsHtml(scan);
             if (details && probes) {
                 probes.replaceChildren();
                 const rows = probeRows(scan);
@@ -146,11 +271,12 @@
         }
         async function submit() {
             const alertId = input.value.trim();
-            if (!/^[A-Za-z0-9_.:-]{1,200}$/.test(alertId) || /^evt-[a-f0-9]{16}$/i.test(alertId)) {
-                notice.textContent = "실제 Wazuh 경보 ID를 입력하세요."; return;
+            if (!selected || selected.id !== alertId || reviewId !== alertId || !acknowledge?.checked) {
+                notice.textContent = "실제 경보와 검사 내용을 확인하고 추가 모델 호출 동의 후 실행하세요."; return;
             }
-            if (start.disabled || !confirm("추가 모델 호출을 사용해 Promptfoo와 garak을 실행합니다. LLM 서버 사용 가능 여부를 확인했나요?")) return;
+            if (submitting || active(current) || unavailable || selectionBusy) return;
             submitting = true; buttons(); notice.textContent = "실행 요청 중…";
+            closeReview();
             selectedScanId = ""; // A subsequent refresh must check new acceptance, not an older reviewed ID.
             try {
                 const scan = await getJson("/api/redteam/scans", {method: "POST", headers: {
@@ -168,12 +294,30 @@
                 }
             } finally { submitting = false; buttons(); }
         }
-        start.addEventListener("click", submit);
+        start.addEventListener("click", review);
+        runButton?.addEventListener("click", submit);
+        root.querySelector("[data-scan-cancel]")?.addEventListener("click", closeReview);
+        acknowledge?.addEventListener("change", buttons);
+        loadButton?.addEventListener("click", loadAlerts);
+        picker?.addEventListener("change", () => {
+            if (picker.value) void selectAlert(picker.value);
+            else {
+                ++selectionGeneration; selected = null; selectionBusy = false; input.value = ""; closeReview();
+                setText("[data-scan-selected]", "아직 선택한 경보가 없습니다.");
+            }
+        });
+        verify?.addEventListener("click", () => { void selectAlert(input.value.trim()); });
+        input.addEventListener("input", () => {
+            ++selectionGeneration; selected = null; selectionBusy = false; closeReview();
+            setText("[data-scan-selected]", "경보 ID가 바뀌었습니다. ‘이 ID의 경보 확인’을 눌러 실제 대상을 다시 확인하세요.");
+        });
         refresh.addEventListener("click", loadLatest);
+        buttons();
         void loadLatest();
-        return {loadLatest, submit};
+        if (validAlertId(root.dataset.alertId)) void selectAlert(root.dataset.alertId);
+        return {loadLatest, submit, review, closeReview, selectAlert, loadAlerts};
     }
-    const api = {active, toolRows, probeRows, mount};
+    const api = {active, toolRows, probeRows, checkDetailsHtml, validAlertId, selectedAlert, alertOptions, mount};
     if (typeof module !== "undefined" && module.exports) module.exports = api;
     else {
         scope.HawkiDeepScan = api;

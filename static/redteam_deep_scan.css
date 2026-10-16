@@ -32,3 +32,22 @@
     border-radius: 8px;
     line-height: 1.8;
 }
+
+[data-redteam-scan-card] .scan-step { margin: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
+[data-redteam-scan-card] .scan-step h3 { margin: 0 0 10px; }
+[data-redteam-scan-card] .scan-step p { line-height: 1.7; overflow-wrap: anywhere; }
+[data-redteam-scan-card] .scan-picker-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 12px; }
+[data-redteam-scan-card] .scan-picker-controls label { flex: 1 1 160px; }
+[data-redteam-scan-card] .scan-step label { display: block; }
+[data-redteam-scan-card] .scan-step select { display: block; width: 100%; margin-top: 6px; max-width: 100%; }
+[data-redteam-scan-card] .scan-selected { margin: 14px 0; padding: 12px; border-left: 3px solid var(--line-2); background: var(--panel-2); border-radius: 6px; }
+[data-redteam-scan-card] .scan-advanced { margin-top: 14px; }
+[data-redteam-scan-card] .scan-advanced > summary { cursor: pointer; }
+[data-redteam-scan-card] .scan-advanced button { margin-top: 8px; }
+[data-redteam-scan-card] .scan-explainer dt { font-weight: 600; margin-top: 12px; }
+[data-redteam-scan-card] .scan-explainer dd { margin: 4px 0 12px; line-height: 1.7; }
+[data-redteam-scan-card] .scan-review { border: 2px solid var(--line-2); }
+[data-redteam-scan-card] .scan-review[hidden] { display: none; }
+[data-redteam-scan-card] .scan-ack { display: flex !important; gap: 8px; align-items: start; margin: 14px 0; }
+[data-redteam-scan-card] .scan-ack input { width: auto; flex: 0 0 auto; margin-top: 4px; }
+[data-redteam-scan-card] .scan-alert-link { overflow-wrap: anywhere; }

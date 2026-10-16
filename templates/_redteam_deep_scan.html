@@ -4,17 +4,65 @@
          data-scan-id="{{ scan_id|default('', true) }}"
          data-csrf="{{ csrf_token() }}">
     <div class="panel-header">
-        <div><p class="panel-kicker">② 별도 보안 평가 · 수동 실행</p><h2>모델 심층 점검 · Promptfoo + garak</h2></div>
+        <div><p class="panel-kicker">② 모델 심층 점검 · 수동 실행</p><h2>선택한 경보로 심층 보안검사</h2></div>
         <button class="button secondary small" type="button" data-scan-refresh>결과 새로고침</button>
     </div>
-    <p class="muted">① 경보별 자동평가: 저장된 분석을 Promptfoo로 채점하며 모델을 재호출하지 않습니다. ② 심층 점검: 실제 Wazuh 경보와 HAW-KI 분석 API로 두 도구를 순차 실행합니다. 추가 모델 호출이 발생하며, 시간초과·연결 오류 시 후속 모델 호출은 중단합니다. 하루 1회 예약은 아직 활성화하지 않았습니다.</p>
-    <label>실제 경보 ID
-        <input type="text" maxlength="200" autocomplete="off" data-scan-alert
-               value="{{ alert_id|default('', true) }}" placeholder="Wazuh 문서 ID">
-    </label>
-    <div class="button-row">
-        <button class="button primary" type="button" data-scan-start>심층검사 실행</button>
+    <p class="muted">LLM 분석은 경보를 설명하는 기능이고, 이 검사는 공격성 질문에도 분석·승인 기준을 지키는지 확인하는 기능입니다. 경보를 고르거나 검사 내용을 확인하는 것만으로는 모델을 호출하지 않습니다.</p>
+    <div class="scan-step">
+        <h3>1. 검사할 실제 Wazuh 경보 선택</h3>
+        <p class="muted">경보 상세 화면에서 열었다면 그 경보를 자동으로 이어받습니다. 다른 경보는 아래 목록에서 선택하세요.</p>
+        <div class="scan-picker-controls">
+            <label>기간
+                <select data-scan-range><option value="24h">최근 24시간</option><option value="7d">최근 7일</option><option value="30d">최근 30일</option></select>
+            </label>
+            <label>경보 검색
+                <input type="search" maxlength="200" data-scan-query placeholder="경보 설명·호스트·IP 검색">
+            </label>
+            <button type="button" class="button secondary small" data-scan-load-alerts>경보 목록 불러오기</button>
+        </div>
+        <label>불러온 경보 목록
+            <select data-scan-picker aria-label="검사할 실제 Wazuh 경보" disabled><option value="">경보 목록을 불러온 뒤 선택하세요</option></select>
+        </label>
+        <p class="muted" data-scan-list-note role="status"></p>
+        <div class="scan-selected" aria-live="polite">
+            <strong>선택한 검사 대상</strong>
+            <p data-scan-selected>아직 선택한 경보가 없습니다.</p>
+            <p class="muted" data-scan-selection-note>경보를 선택하면 제목·호스트·발생 시각을 확인할 수 있습니다.</p>
+        </div>
+        <a href="/alerts?category=all&amp;range=24h" class="scan-alert-link">경보 목록 화면에서 증거를 먼저 확인하기 →</a>
+        <details class="scan-advanced">
+            <summary>고급: 경보 ID로 직접 선택</summary>
+            <label>실제 Wazuh 문서 ID
+                <input type="text" maxlength="200" autocomplete="off" data-scan-alert
+                       value="{{ alert_id|default('', true) }}" placeholder="Wazuh 문서 ID">
+            </label>
+            <button type="button" class="button secondary small" data-scan-verify>이 ID의 경보 확인</button>
+            <p class="muted">ID만 입력해서는 실행되지 않습니다. 실제 Wazuh 증거 조회로 대상을 확인해야 합니다. 목록이 비어도 테스트용 경보로 대체하지 않습니다.</p>
+        </details>
     </div>
+    <div class="scan-step">
+        <h3>2. 무엇을 검사하는지 확인</h3>
+        <dl class="scan-explainer">
+            <dt>경보별 자동평가와의 차이</dt><dd>① 자동평가는 이미 저장된 LLM 답변만 채점하며 모델을 다시 부르지 않습니다. ② 이 심층검사는 선택한 경보를 HAW-KI 분석 API에 여러 번 요청해 새 답변의 방어 동작을 검사합니다. 기존 답변 하나를 반복 채점하는 것이 아닙니다.</dd>
+            <dt>Promptfoo</dt><dd>정상 분석 1개와 공격 시나리오 5개(지시 무시, 민감정보 유출, 인코딩 우회, 승인 우회, 근거 없는 식별자)를 검사합니다. 경보 종류에 따른 확인 내용은 실행기가 실제 메타데이터로 선택합니다.</dd>
+            <dt>garak</dt><dd>별도의 제한된 주입 공격 probe를 보내고 detector로 응답을 검사합니다. Promptfoo 이후 순차 실행하며 두 도구의 평가 수는 합치지 않습니다.</dd>
+            <dt>모델·비용</dt><dd>실행기 → HAW-KI 분석 API → LLM 경로로 추가 모델 호출이 발생합니다. GPU 서버가 실행 중이어야 합니다. 호출 수는 서버 상한과 오류·중단 여부에 따라 달라지며 고정 요금이나 완료 시간을 보장하지 않습니다.</dd>
+            <dt>검사 범위</dt><dd>테스트 질문과 조치 제안을 평가합니다. 이 버튼이 차단·격리·룰 배포를 승인하는 것은 아닙니다. 실행 기록은 서버에 남으며 하루 1회 예약은 아직 켜지지 않았습니다.</dd>
+        </dl>
+        <button class="button primary" type="button" data-scan-start disabled>선택한 경보의 검사 내용 확인</button>
+        <p class="muted" data-scan-ready>실제 경보를 확인한 뒤 진행할 수 있습니다.</p>
+    </div>
+    <section class="scan-review scan-step" data-scan-review hidden aria-label="심층검사 실행 전 최종 확인">
+        <h3>3. 이 대상으로 실행할까요?</h3>
+        <p data-scan-review-target></p>
+        <p>Promptfoo 6개 시나리오와 제한된 garak 검사를 순차 실행합니다. 기존 LLM 답변을 채점하는 자동평가와 달리 새 답변을 요청합니다. 이 아래 실행 버튼을 눌러야 작업이 접수됩니다.</p>
+        <label class="scan-ack"><input type="checkbox" data-scan-ack> LLM 서버가 준비되어 있고 추가 모델 호출이 발생함을 확인했습니다.</label>
+        <div class="button-row">
+            <button class="button primary" type="button" data-scan-run disabled>확인하고 심층검사 실행</button>
+            <button class="button secondary" type="button" data-scan-cancel>돌아가기</button>
+        </div>
+        <p class="muted">‘돌아가기’는 실행 전 확인창만 닫습니다. 접수된 작업을 취소하는 기능은 아닙니다.</p>
+    </section>
     <p class="muted" data-scan-notice role="status" aria-live="polite">검사 결과 확인 중…</p>
     <div class="structured-output" data-scan-result hidden>
         <p data-scan-meta></p><p data-scan-summary></p>
@@ -22,6 +70,7 @@
         <details data-scan-details hidden>
             <summary>검사별 상세 결과 · Promptfoo 사례 / garak probe·detector</summary>
             <ul data-scan-probes></ul>
+            <div data-scan-checks></div>
         </details>
     </div>
 </section>

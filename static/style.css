@@ -5692,3 +5692,18 @@ html[data-theme="light"] .src-5 { fill: #e87ba4; background: #e87ba4; }
 .flow-more summary { cursor: pointer; font-size: 12.5px; color: var(--accent); }
 .flow-dropped { border-top: 1px dashed var(--line); padding-top: 8px; }
 .flow-dropped p { margin: 4px 0; font-size: 12.5px; }
+
+/* Assertion-level explanations: separate saved cases from check counts. */
+.rt-check-results { margin-top: 10px; overflow-wrap: anywhere; }
+.rt-check-counts { font-weight: 600; }
+.rt-check-list, .rt-recent-list .rt-check-list { list-style: none; padding: 0; margin: 8px 0; }
+.rt-check-list > .rt-check, .rt-recent-list .rt-check-list > .rt-check {
+    display: block; margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 8px; line-height: 1.7;
+}
+.rt-check-list > .rt-check-failed, .rt-check-list > .rt-check-error { border-left: 3px solid var(--danger); }
+.rt-check code, .rt-check-context, .rt-check-original { font-size: 12px; }
+.rt-check code { overflow-wrap: anywhere; white-space: normal; }
+.rt-check-original > summary, .rt-check-all > summary { cursor: pointer; }
+.rt-check-description, .rt-check-reason { margin: 6px 0; }
+.rt-check-original p { white-space: pre-wrap; overflow-wrap: anywhere; }

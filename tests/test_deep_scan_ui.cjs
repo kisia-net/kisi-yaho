@@ -47,9 +47,11 @@ test('restart subset is not described as a complete standard suite', async () =>
 
 function setup(fetch) {
     const elements = {};
-    for (const key of ['alert', 'start', 'refresh', 'notice', 'result', 'meta', 'summary', 'tools', 'details', 'probes']) {
+    for (const key of ['alert', 'start', 'refresh', 'notice', 'result', 'meta', 'summary', 'tools', 'details', 'probes',
+        'review', 'ack', 'run', 'cancel', 'selected', 'selection-note', 'ready', 'review-target']) {
         elements[key] = {value: key === 'alert' ? 'real-wazuh-1' : '', textContent: '', hidden: false, disabled: false,
-            addEventListener() {}, replaceChildren() {this.children = [];}, appendChild(item) {(this.children ||= []).push(item);}};
+            checked: false, listeners: {}, addEventListener(name, callback) {this.listeners[name] = callback;},
+            replaceChildren() {this.children = [];}, appendChild(item) {(this.children ||= []).push(item);}};
     }
     const root = {dataset: {csrf: 'local-csrf'}, querySelector(selector) {
         return elements[selector.match(/data-scan-([^\]]+)/)[1]];
@@ -83,10 +85,11 @@ test('button posts fixed tools and CSRF then disables during an accepted scan', 
     const calls = [];
     const {api, elements} = setup(async (url, options) => {
         calls.push({url, options});
+        if (url.endsWith('/evidence')) return {ok:true,status:200,json:async()=>({id:'real-wazuh-1',rule:{id:'31101'}})};
         if (!options.method) return noResult();
         return {ok: true, status: 202, json: async () => ({scan_id: 'a'.repeat(24), alert_id: 'real-wazuh-1', status: 'queued', tools: {}})};
     });
-    await flush(); await api.submit();
+    await flush(); await api.selectAlert('real-wazuh-1'); api.review(); elements.ack.checked=true; await api.submit();
     const call = calls.find((item) => item.options.method === 'POST');
     assert.equal(call.url, '/api/redteam/scans');
     assert.equal(call.options.headers['X-CSRF-Token'], 'local-csrf');
@@ -97,11 +100,12 @@ test('button posts fixed tools and CSRF then disables during an accepted scan', 
 
 test('failed POST is never automatically replayed and requires GET confirmation', async () => {
     let posts = 0;
-    const {api, elements} = setup(async (_, options) => {
+    const {api, elements} = setup(async (url, options) => {
+        if (url.endsWith('/evidence')) return {ok:true,status:200,json:async()=>({id:'real-wazuh-1',rule:{id:'31101'}})};
         if (!options.method) return noResult();
         posts++; throw new Error('timeout after possible acceptance');
     });
-    await flush(); await api.submit(); await api.submit();
+    await flush(); await api.selectAlert('real-wazuh-1'); api.review(); elements.ack.checked=true; await api.submit(); await api.submit();
     assert.equal(posts, 1);
     assert.equal(elements.start.disabled, true);
     await api.loadLatest();
