@@ -408,7 +408,7 @@
                     dot.classList.add(value.configured === false ? "unconfigured" : value.ok ? "online" : "offline");
                 });
             }
-            $("global-health-text").textContent = `${configured}개 서비스 중 ${online}개 연결됨`;
+            $("global-health-text").textContent = `설정된 서비스 ${configured}개 중 ${online}개 연결됨`;
         } catch (_) { $("global-health-text").textContent = "상태 확인 실패"; }
     }
     function chrome(user) {
@@ -459,12 +459,27 @@
             $("aw-time-error").textContent = ""; renderScope(); $("aw-time-dialog").close();
         });
         const params = new URLSearchParams(location.search);
+        // Links from other screens name what they want done (mode); the
+        // conversation starts with that request written out, not sent.
+        function starterPrompt(query) {
+            const given = (query.get("prompt") || "").trim();
+            const incident = (query.get("incident") || "").trim();
+            const lead = {
+                alert_summary: "선택한 경보를 증거·해석·다음 확인 사항으로 설명해 줘.",
+                log_search: "이 조건으로 관련 로그를 찾아 정리해 줘.",
+                file_hunt: "이 파일 단서로 어느 호스트에 같은 파일이 있는지 확인할 수집 계획을 세워 줘.",
+                velociraptor_response: "이 호스트에서 확인할 증거와 대응 조치 제안을 정리해 줘.",
+                suricata_rule: "이 탐지 의도에 맞는 Suricata 룰 초안을 검토해 줘.",
+                incident_report: "이 사건을 보고서 형식으로 정리해 줘.",
+            }[query.get("mode")] || "";
+            return [lead, incident ? `사건: ${incident}` : "", given].filter(Boolean).join("\n");
+        }
         await loadSessions();
         if (params.get("session")) await select(params.get("session"));
         else {
             for (const key of ["host", "alert_id"]) if (params.get(key)) ui.current.scope[key] = params.get(key);
             const ids = params.get("alert_ids"); if (!ui.current.scope.alert_id && ids) ui.current.scope.alert_id = ids.split(",")[0];
-            $("aw-input").value = params.get("prompt") || ""; rememberDraft(); renderScope();
+            $("aw-input").value = starterPrompt(params); rememberDraft(); renderScope();
         }
         services();
         try {

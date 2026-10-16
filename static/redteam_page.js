@@ -15,7 +15,7 @@
     const when = (value) => {
         const date = new Date(value);
         return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("ko-KR", {
-            month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+            timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
         });
     };
 
@@ -26,7 +26,11 @@
         refused: ["전송 거부", "rt-warn"],
         checking: ["확인 중", "rt-info"],
         not_sent: ["보내지 않음", "rt-muted"],
+        unsent: ["보내지 않음·거부", "rt-muted"],
     };
+    let checkNames = {};
+    // Korean name on screen, the check's own name on hover.
+    const checkTag = (name, cls = "tag") => `<span class="${cls}" title="${escapeHtml(name)}">${escapeHtml(checkNames[name] || name)}</span>`;
     const KIND = { manual: "분석가 요청", auto: "자동 보고서", deep: "정밀 검사 중 분석" };
     const NOT_SENT = {
         disabled: "자동평가 꺼짐", not_sent: "보고서 전송 꺼짐", skipped_no_token: "토큰 없음",
@@ -55,7 +59,8 @@
 
     function renderSummary(data) {
         const summary = data.summary || {};
-        const tiles = ["passed", "failed", "error", "refused", "checking", "not_sent"].map((key) => {
+        checkNames = data.check_names || {};
+        const tiles = ["passed", "failed", "error", "checking", "unsent"].map((key) => {
             const [label, cls] = STATUS[key];
             return `<button type="button" class="rt-tile ${cls}" data-rt-status="${key}">
                 <span>${escapeHtml(label)}</span><strong>${escapeHtml(number(summary[key]))}</strong></button>`;
@@ -71,7 +76,7 @@
         const rows = data.failing_checks || [];
         failing.hidden = !rows.length;
         failing.innerHTML = rows.length
-            ? `<span class="muted">자주 실패한 검사</span> ${rows.map(([name, count]) => `<span class="tag">${escapeHtml(name)} ${escapeHtml(number(count))}</span>`).join(" ")}`
+            ? `<span class="muted">자주 실패한 검사</span> ${rows.map(([name, count]) => `<span class="tag" title="${escapeHtml(name)}">${escapeHtml(checkNames[name] || name)} ${escapeHtml(number(count))}건</span>`).join(" ")}`
             : "";
     }
 
@@ -86,11 +91,11 @@
                 row.alert_id ? `<a href="/alerts/${encodeURIComponent(row.alert_id)}">경보 ${escapeHtml(row.alert_id.slice(0, 12))}</a>` : "",
                 row.report_id ? `<a href="/auto-reports?id=${encodeURIComponent(row.report_id)}">보고서 ${escapeHtml(row.report_id)}</a>` : "",
             ].filter(Boolean).join(" · ");
-            const failed = (row.failed_checks || []).map((name) => `<span class="tag tag-danger">${escapeHtml(name)}</span>`).join(" ");
+            const failed = (row.failed_checks || []).map((name) => checkTag(name, "tag tag-danger")).join(" ");
             return `<li class="rt-recent-item rt-eval-item">
                 <div class="rt-eval-row">
                     <span class="rt-eval-time">${escapeHtml(when(row.timestamp))}</span>
-                    <span class="rt-eval-kind">${escapeHtml(KIND[row.kind] || row.kind)}${row.by && row.kind === "manual" ? ` · ${escapeHtml(row.by)}` : ""}</span>
+                    <span class="rt-eval-kind">${escapeHtml(KIND[row.kind] || row.kind)}${row.by && row.kind === "manual" ? ` <span class="muted">(${escapeHtml(row.by)})</span>` : ""}</span>
                     <span class="rt-eval-links">${links}${modelName(row) ? `<br><span class="muted">${escapeHtml(modelName(row))}</span>` : ""}</span>
                     <span class="rt-eval-state"><span class="rt-chip ${cls}">${escapeHtml(label)}</span>${reason ? ` <span class="muted">${escapeHtml(reason)}</span>` : ""} ${failed}</span>
                     <span>${expandable ? `<button type="button" class="rt-expand" aria-expanded="false" data-rt-analysis="${escapeHtml(row.analysis_id)}" data-rt-decision="${escapeHtml(row.decision)}" data-rt-caption="레드팀 검증 화면에서 확인">결과 보기</button>` : ""}</span>

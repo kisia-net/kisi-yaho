@@ -240,9 +240,12 @@ def register_redteam_scan_routes(app, *, configuration, role_required, live_enab
         alert_id = payload.get("alert_id")
         if not isinstance(alert_id, str) or not ALERT_ID.fullmatch(alert_id) or FIXTURE_ID.fullmatch(alert_id):
             return jsonify({"error": "Select a real Wazuh alert ID."}), 400
-        if payload.get("tools", ["promptfoo", "garak"]) != ["promptfoo", "garak"]:
+        # Two buttons: the full scan, or garak alone (the runner accepts a
+        # subset). Any other list is refused rather than passed through.
+        tools = payload.get("tools", ["promptfoo", "garak"])
+        if tools not in (["promptfoo", "garak"], ["garak"]):
             return jsonify({"error": "This button runs the fixed Promptfoo and garak scan."}), 400
-        reply, status = proxy("POST", "/v1/scans", {"alert_id": alert_id, "tools": ["promptfoo", "garak"]})
+        reply, status = proxy("POST", "/v1/scans", {"alert_id": alert_id, "tools": list(tools)})
         if audit is not None:
             # A deep scan calls the model through HAW-KI's analysis API, so who
             # launched it, on which alert, and what the runner answered is
@@ -252,7 +255,7 @@ def register_redteam_scan_routes(app, *, configuration, role_required, live_enab
                 "alert_id": alert_id,
                 "status_code": status,
                 "scan_id": body.get("scan_id") if status == 202 else None,
-                "tools": ["promptfoo", "garak"],
+                "tools": list(tools),
             })
         return reply, status
 

@@ -31,7 +31,15 @@ from hawki_alert_analysis.ui_messages import (  # noqa: E402
 
 
 def error_literals() -> set[str]:
-    tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
+    found = set()
+    # app.py and the modules that register routes on the same app.
+    for name in ("app.py", "hawki_redteam_ui.py", "hawki_agent_workspace.py"):
+        found |= _error_literals(ROOT / name)
+    return found
+
+
+def _error_literals(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     found = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Dict):

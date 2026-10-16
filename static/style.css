@@ -5580,7 +5580,7 @@ html[data-theme="light"] .src-5 { fill: #e87ba4; background: #e87ba4; }
 .flow-panel .flow-view { padding: 0 16px 14px; }
 
 /* 레드팀 검증 화면 */
-.rt-summary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 4px 0 14px; }
+.rt-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 4px 0 14px; }
 .rt-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: transparent; font: inherit; color: inherit; cursor: pointer; text-align: left; }
 .rt-tile span { font-size: 12px; font-weight: 650; }
 .rt-tile strong { font-size: 22px; color: var(--text, inherit); }
@@ -5707,3 +5707,19 @@ html[data-theme="light"] .src-5 { fill: #e87ba4; background: #e87ba4; }
 .rt-check-original > summary, .rt-check-all > summary { cursor: pointer; }
 .rt-check-description, .rt-check-reason { margin: 6px 0; }
 .rt-check-original p { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* 2026-10-16 화면 다듬기: 처리 흐름·출처 흐름을 한 화면에, 연결 상태는 왼쪽 메뉴에 */
+.flow-view-stacked + .flow-view-stacked { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.flow-view-title { margin: 4px 0 10px; font-size: 14px; font-weight: 700; }
+.flow-view-title small { margin-left: 8px; font-weight: 400; font-size: 12px; }
+.sidebar-status .service-link { grid-template-columns: 9px minmax(0, 1fr) auto; }
+.sidebar-status .service-link > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-checked { margin-left: 6px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.rt-guide-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0 16px 16px; }
+.rt-guide-grid > div { padding: 14px; border-radius: 10px; background: var(--panel-2); }
+.rt-guide-grid strong { display: block; margin-bottom: 6px; }
+.rt-guide-grid p { margin: 0; line-height: 1.7; font-size: 13.5px; }
+@media (max-width: 900px) { .rt-guide-grid { grid-template-columns: 1fr; } }
+.alert-legend { margin: 0; padding: 10px 16px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--line); line-height: 2; }
+.alert-legend .prio-chip, .alert-legend .sev-chip { margin: 0 2px; }
+.alert-legend-sep { margin: 0 8px; }

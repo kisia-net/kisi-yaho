@@ -82,6 +82,29 @@
                 ` · ${verdict} · 통과 ${passed}/${total} · ${probe.tool === "garak" ? "detector 탐지" : "실패 검사"} ${hits} · 미평가 ${unscored}`;
         });
     }
+    const STATE_KO = {
+        queued: ["대기", "rt-info"], pending: ["대기", "rt-info"], running: ["진행 중", "rt-info"],
+        completed: ["실행 완료", "rt-muted"], passed: ["통과", "rt-ok"], failed: ["실패", "rt-bad"],
+        error: ["오류", "rt-bad"], incomplete: ["일부만 완료", "rt-warn"], cancelled: ["중단됨", "rt-muted"],
+        skipped: ["건너뜀", "rt-muted"], timeout: ["시간 초과", "rt-bad"],
+    };
+    const stateLabel = (value) => (STATE_KO[String(value || "").toLowerCase()] || [value || "확인 전"])[0];
+    const stateClass = (value) => (STATE_KO[String(value || "").toLowerCase()] || [null, "rt-muted"])[1];
+    function kst(value) {
+        const date = new Date(value || "");
+        return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("ko-KR", {
+            timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+            hour: "2-digit", minute: "2-digit", hour12: false,
+        });
+    }
+    // The runner writes its summaries partly in English; known phrases only.
+    function koreanSummary(text) {
+        return String(text || "")
+            .replace(/Scenario profile: ([\w-]+)\./g, "시나리오 구성: $1.")
+            .replace(/Unsupported identifiers propagated downstream: /g, "근거 없는 식별자가 후속 항목으로 전파됨: ")
+            .replace(/Cited evidence IDs are absent from the bundle: /g, "증거 묶음에 없는 ID 인용: ")
+            .replace(/\bfailed\b/g, "실패").replace(/\bincomplete\b/g, "일부만 완료");
+    }
     function mount(root, deps = {}) {
         const fetcher = deps.fetch || scope.fetch.bind(scope);
         const schedule = deps.schedule || scope.setTimeout.bind(scope);
@@ -98,6 +121,7 @@
         const reviewPanel = root.querySelector("[data-scan-review]");
         const acknowledge = root.querySelector("[data-scan-ack]");
         const runButton = root.querySelector("[data-scan-run]");
+        const garakButton = root.querySelector("[data-scan-run-garak]");
         let selectedScanId = /^[a-f0-9]{24}$/.test(root.dataset.scanId || "") ? root.dataset.scanId : "";
         let current = null, generation = 0, unavailable = true, submitting = false;
         let selected = null, selectionBusy = false, selectionGeneration = 0, listBusy = false;
@@ -108,6 +132,7 @@
             const ready = selected && selected.id === input.value.trim();
             start.disabled = blocked || !ready;
             if (runButton) runButton.disabled = blocked || !ready || reviewId !== selected.id || !acknowledge?.checked;
+            if (garakButton) garakButton.disabled = blocked || !ready || reviewId !== selected?.id || !acknowledge?.checked;
             for (const node of [input, picker, verify, range, query]) if (node) node.disabled = blocked || (node === picker && !picker.dataset?.hasOptions);
             if (loadButton) loadButton.disabled = blocked || listBusy;
             setText("[data-scan-ready]", submitting ? "접수 요청 중입니다. 중복 실행하지 마세요." :
@@ -198,15 +223,30 @@
         function render(scan) {
             current = scan; buttons();
             root.querySelector("[data-scan-result]").hidden = false;
-            root.querySelector("[data-scan-meta]").textContent =
-                `경보 ${scan.alert_id} · 작업 ${scan.scan_id} · 상태 ${scan.status} · 모델 ${scan.model || "미보고"} · 시작 ${scan.started_at || "대기"} · 종료 ${scan.finished_at || "—"}`;
-            root.querySelector("[data-scan-summary]").textContent = scan.summary || "";
+            const tools = Object.keys(scan.tools || {});
+            root.querySelector("[data-scan-meta]").textContent = [
+                `상태 ${stateLabel(scan.status)}`,
+                tools.length === 1 && tools[0] === "garak" ? "garak만 실행" : "Promptfoo + garak",
+                `모델 ${scan.model || "미보고"}`,
+                `시작 ${kst(scan.started_at) || "대기"}`,
+                `종료 ${kst(scan.finished_at) || "—"}`,
+                `경보 ${scan.alert_id}`,
+                `작업 ${scan.scan_id}`,
+            ].join(" · ");
+            root.querySelector("[data-scan-summary]").textContent = koreanSummary(scan.summary || "");
             const output = root.querySelector("[data-scan-tools]");
             output.replaceChildren();
             for (const row of toolRows(scan)) {
-                const item = document.createElement("p");
-                item.textContent = `${row.name}: ${row.status} · ${row.passed}/${row.total} ${row.unit} 통과 (${row.passRate}) · ${row.hitLabel} ${row.hits} · 실행 오류 ${row.errors} · 미평가 ${row.unscored}${row.evaluation ? " · " + row.evaluation : ""}${row.reason ? " · " + row.reason : ""}`;
-                output.appendChild(item);
+                if (tools.length && !tools.includes(row.name)) continue;
+                // One text-only element per tool: runner strings never become HTML.
+                const card = document.createElement("div");
+                card.className = "scan-tool-card " + stateClass(row.status);
+                card.textContent = [
+                    `${row.name === "promptfoo" ? "Promptfoo · 공격 질문 6종" : "garak · 지시 주입 공격"} — ${stateLabel(row.status)}`,
+                    `${row.unit} ${row.passed}/${row.total} 통과 (${row.passRate}) · ${row.hitLabel} ${row.hits} · 실행 오류 ${row.errors} · 미평가 ${row.unscored}`,
+                    ...[row.evaluation, row.reason].filter(Boolean).map(koreanSummary),
+                ].join("\n");
+                output.appendChild(card);
             }
             const details = root.querySelector("[data-scan-details]");
             const probes = root.querySelector("[data-scan-probes]");
@@ -269,7 +309,8 @@
                 buttons();
             }
         }
-        async function submit() {
+        async function submit(tools = ["promptfoo", "garak"]) {
+            const chosen = Array.isArray(tools) && tools.length === 1 && tools[0] === "garak" ? ["garak"] : ["promptfoo", "garak"];
             const alertId = input.value.trim();
             if (!selected || selected.id !== alertId || reviewId !== alertId || !acknowledge?.checked) {
                 notice.textContent = "실제 경보와 검사 내용을 확인하고 추가 모델 호출 동의 후 실행하세요."; return;
@@ -281,7 +322,7 @@
             try {
                 const scan = await getJson("/api/redteam/scans", {method: "POST", headers: {
                     "Content-Type": "application/json", "X-CSRF-Token": root.dataset.csrf,
-                }, body: JSON.stringify({alert_id: alertId, tools: ["promptfoo", "garak"]})});
+                }, body: JSON.stringify({alert_id: alertId, tools: chosen})});
                 unavailable = false; render(scan); polling(scan);
             } catch (error) {
                 if (error.status === 409 && error.body?.scan) {
@@ -295,7 +336,8 @@
             } finally { submitting = false; buttons(); }
         }
         start.addEventListener("click", review);
-        runButton?.addEventListener("click", submit);
+        runButton?.addEventListener("click", () => submit(["promptfoo", "garak"]));
+        garakButton?.addEventListener("click", () => submit(["garak"]));
         root.querySelector("[data-scan-cancel]")?.addEventListener("click", closeReview);
         acknowledge?.addEventListener("change", buttons);
         loadButton?.addEventListener("click", loadAlerts);

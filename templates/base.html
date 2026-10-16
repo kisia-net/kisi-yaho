@@ -46,29 +46,27 @@
             <a class="nav-item {{ 'active' if active_page == 'audit' else '' }}" href="/audit" target="_self"><span>↺</span>감사 로그</a>
         </nav>
 
-        <div class="sidebar-section">
-            <p class="sidebar-label">연결된 서비스</p>
-            {% if wazuh_dashboard_url %}
-            <a class="service-link" href="{{ wazuh_dashboard_url }}" target="_blank" rel="noopener noreferrer">
-                <span class="status-dot unknown" data-service-dot="wazuh_dashboard"></span><span>Wazuh Dashboard</span><small>↗</small>
+        <div class="sidebar-section sidebar-status">
+            <p class="sidebar-label">서비스 연결 상태 <small class="sidebar-checked" id="status-checked-at"></small></p>
+            {% set svc_rows = [
+                ('llm', 'LLM (vLLM)', ''),
+                ('wazuh_indexer', 'Wazuh Indexer', ''),
+                ('wazuh_dashboard', 'Wazuh Dashboard', wazuh_dashboard_url),
+                ('velociraptor', 'Velociraptor', velociraptor_url),
+                ('suricata', 'Suricata', suricata_ui_url),
+                ('redteam_runner', '레드팀 실행기', ''),
+            ] %}
+            {% for key, label, url in svc_rows %}
+            {% if url %}
+            <a class="service-link" href="{{ url }}" {% if key == 'wazuh_dashboard' %}target="_blank" rel="noopener noreferrer"{% else %}target="_self"{% endif %} data-service-row="{{ key }}">
+                <span class="status-dot unknown" data-service-dot="{{ key }}"></span><span>{{ label }} <small aria-hidden="true">↗</small></span><small data-service-short="{{ key }}">확인 중</small>
             </a>
             {% else %}
-            <div class="service-link disabled">
-                <span class="status-dot unknown" data-service-dot="wazuh_dashboard"></span><span>Wazuh Dashboard</span><small>미설정</small>
+            <div class="service-link" data-service-row="{{ key }}">
+                <span class="status-dot unknown" data-service-dot="{{ key }}"></span><span>{{ label }}</span><small data-service-short="{{ key }}">확인 중</small>
             </div>
             {% endif %}
-            <a class="service-link" href="{{ velociraptor_url }}" target="_self">
-                <span class="status-dot unknown" data-service-dot="velociraptor"></span><span>Velociraptor</span><small>↗</small>
-            </a>
-            {% if suricata_ui_url %}
-            <a class="service-link" href="{{ suricata_ui_url }}" target="_self">
-                <span class="status-dot unknown" data-service-dot="suricata"></span><span>Suricata UI</span><small>↗</small>
-            </a>
-            {% else %}
-            <div class="service-link disabled">
-                <span class="status-dot unknown" data-service-dot="suricata"></span><span>Suricata UI</span><small>미설정</small>
-            </div>
-            {% endif %}
+            {% endfor %}
         </div>
 
         <div class="sidebar-footer">
@@ -107,17 +105,12 @@
             </div>
         </header>
         <div class="workspace-content">
-            {% if active_page == 'agent' %}
-            <nav class="agent-view-nav" aria-label="분석 방식">
-                <a href="/agent" {% if workspace_v1|default(false) %}aria-current="page"{% endif %}>조사 대화</a>
-                <a href="/agent?view=classic" {% if not workspace_v1|default(false) %}aria-current="page"{% endif %}>작업별 분석</a>
-            </nav>
-            {% endif %}
             {% block content %}{% endblock %}
         </div>
     </main>
 </div>
 <div id="toast-region" class="toast-region" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='sidebar-status.js', v=asset_version) }}" defer></script>
 <!-- Markdown, sanitization, and syntax highlighting, served from this origin.
      Install with: python tools/vendor_assets.py
      Absent, rendering falls back to escaped plain text. -->

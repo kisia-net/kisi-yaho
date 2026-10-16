@@ -2,7 +2,7 @@
 {% block content %}
 <section id="vr-workspace" class="vr" data-mode="{{ vr_mode }}" data-csrf="{{ csrf_token() }}" data-gui="{{ velociraptor_url }}">
   <div class="vr-topline">
-    <div><span class="vr-eyebrow">ENDPOINT INVESTIGATION</span><p id="vr-connection" class="vr-muted" role="status">연결 확인 중…</p></div>
+    <div><span class="vr-eyebrow">엔드포인트 조사</span><p id="vr-connection" class="vr-muted" role="status">연결 확인 중…</p></div>
     <div class="vr-buttons"><button type="button" id="vr-refresh" class="vr-button">새로고침</button><a class="vr-button" href="{{ velociraptor_url }}" target="_blank" rel="noopener noreferrer">Velociraptor ↗</a><button type="button" id="vr-new" class="vr-button vr-primary">{{ '새 파일 검색' if vr_mode == 'files' else '초동 조사 수집' }}</button></div>
   </div>
   <div id="vr-error" class="vr-alert" role="alert" hidden></div>
