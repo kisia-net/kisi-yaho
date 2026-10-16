@@ -2153,7 +2153,6 @@ def api_threat_intel():
 CTI_FEEDS = (
     ("abusech-feodo.json", "abuse.ch Feodo", "봇넷 C2 서버"),
     ("blocklistde.json", "blocklist.de", "최근 48시간 공격 IP (의심)"),
-    ("abusech-threatfox.json", "abuse.ch ThreatFox", "악성코드 인프라 IOC"),
 )
 CTI_STALE_HOURS = 36
 

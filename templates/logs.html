@@ -10,7 +10,7 @@
     <div class="log-builder" id="log-builder" aria-label="검색 도우미">
         <div class="log-builder-head">
             <strong>검색 도우미</strong>
-            <span class="muted">칸을 채우면 아래 쿼리가 자동으로 만들어집니다. 비워 둔 칸은 조건에서 빠집니다.</span>
+            <span class="muted">빈 칸은 조건에서 제외</span>
         </div>
         <div class="log-builder-fields">
             <label>출발지 IP<input data-builder="src_ip" placeholder="예: 207.175.220.59" autocomplete="off"></label>
@@ -94,7 +94,7 @@
                 인덱스 패턴
                 <input id="log-index" value="{{ log_alert_index }}" autocomplete="off" spellcheck="false">
             </label>
-            <p class="log-field-note">보안 경보는 <code>{{ log_alert_index }}</code>, 전체 원시 로그는 <code>{{ log_archive_index }}</code>입니다. 다른 인덱스를 직접 지정할 때만 바꾸세요.</p>
+            <p class="log-field-note">경보 <code>{{ log_alert_index }}</code> · 원시 로그 <code>{{ log_archive_index }}</code></p>
         </details>
     </form>
 

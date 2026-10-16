@@ -324,9 +324,9 @@
                 </div>
                 <div class="auto-report-notice">${reviewChip(review.status)} ${aiChip(ai.status, ai.waiting_reason)} <span>AI 초안입니다. 분석가가 검토하기 전에는 확인된 사실로 공유하지 마세요.</span></div>
                 ${section("1. 경보", table(["항목", "값"], alertRows) + repeat)}
-                ${section("2. 우선순위 근거", `<p class="muted">코드로 계산한 점수이며 모델이 바꿀 수 없습니다.</p>${table(["요인", "값", "점수"], factorRows) || "<p class=\"muted\">요인 정보 없음</p>"}`)}
-                ${section("3. 자산", table(["자산", "중요도", "노출도", "서비스"], assetRows) || `<p class="muted">자산 목록에서 찾은 기록이 없습니다. 자산 중요도는 알 수 없습니다.</p>`)}
-                ${section("4. 위협 인텔리전스", intelRows.length ? `${table(["지표", "판정", "신뢰도", "출처", "위치", "상태"], intelRows)}<p class="muted">지표 일치는 외부 맥락이며 침해를 증명하지 않습니다.</p>` : `<p class="muted">일치한 지표가 없습니다. 일치가 없다고 안전하다는 뜻은 아닙니다.</p>`)}
+                ${section("2. 우선순위 근거", `<p class="muted">코드 계산 점수</p>${table(["요인", "값", "점수"], factorRows) || "<p class=\"muted\">요인 정보 없음</p>"}`)}
+                ${section("3. 자산", table(["자산", "중요도", "노출도", "서비스"], assetRows) || `<p class="muted">자산 목록에 없음</p>`)}
+                ${section("4. 위협 인텔리전스", intelRows.length ? `${table(["지표", "판정", "신뢰도", "출처", "위치", "상태"], intelRows)}` : `<p class="muted">일치한 지표 없음</p>`)}
                 ${section("5. AI 분석", aiBody)}
                 ${section("6. 제안 조치 (자동 실행 안 됨 · 승인 필요)", actions || `<p class="muted">제안된 조치가 없습니다.</p>`)}
                 ${section("7. 증거 목록", evidenceRows.length ? `<details class="auto-report-evidence"><summary>증거 ${escapeHtml(evidenceRows.length)}건${Number(evidence.total) > evidenceRows.length ? ` (전체 ${escapeHtml(evidence.total)}건)` : ""} 보기</summary>${table(["ID", "시각", "호스트", "룰", "내용"], evidenceRows)}</details>` : `<p class="muted">저장된 증거 목록이 없습니다.</p>`)}

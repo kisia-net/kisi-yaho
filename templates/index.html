@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">중요 알림, 승인 대기 현황, 서비스 연결 상태를 봅니다. 상세 작업은 각 전용 화면에서 하도록 의도적으로 분리했습니다.</p><script src="{{ url_for('static', filename='redteam.js', v=asset_version) }}"></script>
+{% block subtitle %}<script src="{{ url_for('static', filename='redteam.js', v=asset_version) }}"></script>
 {% endblock %}
 {% block content %}
 <section class="metric-grid compact" id="dashboard-metrics">
@@ -41,14 +41,14 @@
     </div>
 
     <div class="flow-view flow-view-stacked" data-flow-pane="process">
-        <h3 class="flow-view-title">처리 흐름 <small class="muted">원시 이벤트가 경보가 되고 분석가에게 가기까지</small></h3>
+        <h3 class="flow-view-title">처리 흐름</h3>
         <ol class="flow-stages" data-flow-stages>
             <li class="muted">불러오는 중…</li>
         </ol>
     </div>
 
     <div class="flow-view flow-view-stacked" data-flow-pane="source">
-        <h3 class="flow-view-title">출처 흐름 <small class="muted">레벨 8 이상 경보가 어느 센서·탐지 유형에서 왔는지</small></h3>
+        <h3 class="flow-view-title">출처 흐름 <small class="muted">레벨 8 이상</small></h3>
         <div class="source-flow-head">
             <span class="muted" data-source-flow-caption></span>
             <div class="flow-subswitch" role="group" aria-label="출처 흐름 표시">
@@ -103,7 +103,7 @@
     <article class="panel dashboard-activity-panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">탐지 추이 · 심각도별 · 막대를 누르면 그 시간의 경보를 검색</p>
+                <p class="panel-kicker">탐지 추이 · 심각도별</p>
                 <h2>최근 24시간</h2>
             </div>
             <div class="wz-legend" id="dashboard-activity-legend" aria-hidden="true"></div>
@@ -118,7 +118,7 @@
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Wazuh 탐지 메타데이터 · 레벨을 누르면 경보 목록</p>
+                <p class="panel-kicker">Wazuh 룰 레벨</p>
                 <h2>룰 레벨 분포</h2>
             </div>
         </div>
@@ -135,19 +135,19 @@
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">WAF 탐지와 웹 서버 응답을 출발지 IP로 묶음 · 최근 24시간 · 경보 많은 상위 10개 + 성공 응답 있는 IP</p>
+                <p class="panel-kicker">출발지 IP별 · 최근 24시간</p>
                 <h2>막힘 / 통과 판정</h2>
             </div>
             <span class="muted" id="wz-block-pass-summary"></span>
         </div>
         <div id="wz-block-pass" class="wz-block-pass loading-block">불러오는 중…</div>
-        <p class="wz-note muted">2xx 와 "공격 후 200"(룰 31106)은 경보 룰이 걸린 요청만 셉니다. 정상 200 응답은 경보가 아니어서 들어오지 않습니다.</p>
+        <p class="wz-note muted">2xx·"공격 후 200"(룰 31106)은 경보가 난 요청만 집계</p>
     </article>
 
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">공격 단계 · 상위 전술 10 × 기법 8 · 칸을 누르면 그 기법의 경보 목록</p>
+                <p class="panel-kicker">MITRE 전술 × 기법</p>
                 <h2>MITRE ATT&amp;CK 전술 × 기법</h2>
             </div>
         </div>
@@ -159,7 +159,7 @@
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">웹 공격 경보의 응답 코드 · 상위 10개</p>
+                <p class="panel-kicker">웹 공격 응답 코드</p>
                 <h2>HTTP 상태 코드</h2>
             </div>
         </div>
@@ -169,7 +169,7 @@
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">공격자가 노린 경로 · 출발지 IP 수가 많으면 여러 곳이 노리는 경로</p>
+                <p class="panel-kicker">공격 대상 경로</p>
                 <h2>요청 URL Top 10</h2>
             </div>
         </div>

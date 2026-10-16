@@ -26,7 +26,7 @@
     }
     function alertOptions(payload) {
         if (payload?.source !== "wazuh_indexer" || !Array.isArray(payload.alerts)) {
-            throw new Error("실제 Wazuh Indexer 경보 목록이 아닙니다. 테스트용 경보로 대체하지 않습니다.");
+            throw new Error("실제 Wazuh 경보 목록이 아닙니다 (테스트용 대체 안 함)");
         }
         const seen = new Set();
         return payload.alerts.slice(0, 200).filter((row) => {
@@ -135,11 +135,11 @@
             if (garakButton) garakButton.disabled = blocked || !ready || reviewId !== selected?.id || !acknowledge?.checked;
             for (const node of [input, picker, verify, range, query]) if (node) node.disabled = blocked || (node === picker && !picker.dataset?.hasOptions);
             if (loadButton) loadButton.disabled = blocked || listBusy;
-            setText("[data-scan-ready]", submitting ? "접수 요청 중입니다. 중복 실행하지 마세요." :
-                active(current) ? "이미 진행 중인 심층검사가 있습니다. 완료 후 실행할 수 있습니다." :
-                unavailable ? "작업 상태를 확인하지 못했습니다. 결과 새로고침으로 먼저 확인하세요." :
-                selectionBusy ? "실제 Wazuh 경보를 확인하고 있습니다. 모델 호출은 없습니다." :
-                ready ? "실제 경보 확인 완료 · 검사 내용을 확인해도 아직 실행되지 않습니다." : "실제 경보를 선택·확인해야 진행할 수 있습니다.");
+            setText("[data-scan-ready]", submitting ? "접수 중" :
+                active(current) ? "진행 중인 검사 있음" :
+                unavailable ? "상태 확인 실패 · 결과 새로고침" :
+                selectionBusy ? "경보 확인 중" :
+                ready ? "" : "경보를 먼저 고르세요");
         }
         function closeReview() {
             reviewId = "";
@@ -152,20 +152,20 @@
             const ticket = ++selectionGeneration;
             selected = null; input.value = id; selectionBusy = true; closeReview();
             setText("[data-scan-selected]", "실제 경보를 확인하는 중…");
-            setText("[data-scan-selection-note]", "경보 증거 조회만 수행하며 LLM 분석을 요청하지 않습니다.");
+            setText("[data-scan-selection-note]", "");
             try {
                 if (!validAlertId(id)) throw new Error("올바른 실제 Wazuh 문서 ID를 선택하세요.");
                 const evidence = await getJson("/api/alerts/" + encodeURIComponent(id) + "/evidence");
                 if (ticket !== selectionGeneration) return false;
                 selected = selectedAlert(evidence, id);
                 setText("[data-scan-selected]", targetText(selected));
-                setText("[data-scan-selection-note]", "HAW-KI의 실제 Wazuh 증거 조회로 확인했습니다. 세부 검사 유형은 실행기가 최종 확인합니다.");
-                if (current && current.alert_id !== id) notice.textContent = "주의: 아래 결과는 현재 선택한 경보와 다른 경보의 기존 검사 결과입니다. 새 검사 결과가 아닙니다.";
+                setText("[data-scan-selection-note]", "");
+                if (current && current.alert_id !== id) notice.textContent = "아래는 다른 경보의 기존 검사 결과입니다.";
                 return true;
             } catch (error) {
                 if (ticket === selectionGeneration) {
                     setText("[data-scan-selected]", "검사 대상 확인 실패 · 실행할 수 없습니다.");
-                    setText("[data-scan-selection-note]", error.message + " · 로그인·Wazuh 연결·선택한 ID를 확인하세요. 테스트용 데이터로 대체하지 않습니다.");
+                    setText("[data-scan-selection-note]", error.message + " · 테스트용 데이터로 대체하지 않음");
                 }
                 return false;
             } finally {
@@ -175,7 +175,7 @@
         async function loadAlerts() {
             if (loadButton?.disabled || listBusy || !picker) return;
             listBusy = true; buttons();
-            setText("[data-scan-list-note]", "Wazuh 경보 목록을 불러오는 중… 모델 호출은 없습니다.");
+            setText("[data-scan-list-note]", "경보 목록 불러오는 중…");
             picker.replaceChildren(); picker.dataset.hasOptions = "";
             try {
                 const period = ["24h", "7d", "30d"].includes(range?.value) ? range.value : "24h";
@@ -184,7 +184,7 @@
                 const payload = await getJson("/api/alerts?" + params);
                 const options = alertOptions(payload);
                 const placeholder = document.createElement("option");
-                placeholder.value = ""; placeholder.textContent = "검사할 경보를 선택하세요 (자동 선택하지 않음)";
+                placeholder.value = ""; placeholder.textContent = "검사할 경보 선택";
                 picker.appendChild(placeholder);
                 for (const option of options) {
                     const node = document.createElement("option");
@@ -192,8 +192,8 @@
                 }
                 picker.value = ""; picker.dataset.hasOptions = options.length ? "1" : "";
                 setText("[data-scan-list-note]", options.length ?
-                    `실제 Wazuh 경보 ${options.length}건 표시 · 결과 상한이 있어 전체 경보 수와 다를 수 있습니다. 제목·호스트·시각으로 선택하세요.` :
-                    "이 기간·검색 조건에 경보가 없습니다. 기간을 넓히거나 검색어를 바꾸세요. 테스트용 경보는 넣지 않습니다.");
+                    `경보 ${options.length}건` :
+                    "경보 없음 · 기간을 넓히거나 검색어 변경");
             } catch (error) {
                 setText("[data-scan-list-note]", "경보 목록 조회 실패: " + error.message);
             } finally { listBusy = false; buttons(); }
@@ -259,8 +259,8 @@
                 details.hidden = false;
                 if (!rows.length) {
                     const item = document.createElement("li");
-                    item.textContent = active(scan) ? "이 작업은 대기·진행 중으로 아직 세부 평가 결과가 없습니다." :
-                        "이 작업에는 세부 평가 결과가 없습니다. 인증 차단·실행 오류 또는 미실행 여부를 확인하세요. 통과 판정이 아닙니다.";
+                    item.textContent = active(scan) ? "검사 중" :
+                        "세부 평가 결과가 없습니다 · 통과 판정이 아닙니다";
                     probes.appendChild(item);
                 }
                 for (const row of rows) {
@@ -271,9 +271,9 @@
             }
             notice.textContent = scan.alert_id !== input.value.trim() && input.value.trim()
                 ? "주의: 표시된 최신 검사는 현재 입력한 경보와 다른 경보의 결과입니다."
-                : scan.validation_scope === "restart_subset" ? "모델 재시작 후 부분 검증 결과입니다. 기본 6종 전체 검사와 구분해 보세요. 이전 중단·실패 기록은 보존되어 있습니다."
-                    : scan.status === "completed" ? "실행 완료입니다. 전체 통과 여부는 각 도구의 판정을 확인하세요."
-                    : active(scan) ? "검사 진행 중입니다. 새로고침하거나 화면을 닫아도 서버 검사는 계속됩니다." : "검사 상태와 오류 내용을 확인하세요.";
+                : scan.validation_scope === "restart_subset" ? "모델 재시작 후 부분 검증 (6종 전체 검사와 구분)"
+                    : scan.status === "completed" ? "실행 완료 · 도구별 판정 확인"
+                    : active(scan) ? "검사 중 · 화면을 닫아도 계속됩니다" : "";
         }
         function polling(scan) {
             const ticket = ++generation;
@@ -286,7 +286,7 @@
                     if (ticket !== generation) return;
                     unavailable = false; render(next);
                     if (active(next) && ++attempts < 900) schedule(tick, 3000);
-                    else if (active(next)) notice.textContent = "화면 조회 시간이 끝났습니다. 결과 새로고침으로 다시 확인하세요.";
+                    else if (active(next)) notice.textContent = "조회 시간 초과 · 결과 새로고침";
                 } catch (error) {
                     // A failed status lookup is not permission to start a second scan.
                     notice.textContent = "상태 조회 실패: " + error.message + " · 결과 새로고침으로 확인하세요.";
@@ -304,7 +304,7 @@
                 unavailable = error.status !== 404;
                 if (error.status === 404) {
                     current = null; root.querySelector("[data-scan-result]").hidden = true;
-                    notice.textContent = "심층검사 결과 없음";
+                    notice.textContent = "검사 기록 없음";
                 } else notice.textContent = "결과 조회 실패: " + error.message;
                 buttons();
             }
@@ -313,7 +313,7 @@
             const chosen = Array.isArray(tools) && tools.length === 1 && tools[0] === "garak" ? ["garak"] : ["promptfoo", "garak"];
             const alertId = input.value.trim();
             if (!selected || selected.id !== alertId || reviewId !== alertId || !acknowledge?.checked) {
-                notice.textContent = "실제 경보와 검사 내용을 확인하고 추가 모델 호출 동의 후 실행하세요."; return;
+                notice.textContent = "실제 경보 확인과 동의 후 실행"; return;
             }
             if (submitting || active(current) || unavailable || selectionBusy) return;
             submitting = true; buttons(); notice.textContent = "실행 요청 중…";
@@ -331,7 +331,7 @@
                     // A timeout can occur after server acceptance. Require a GET
                     // refresh, never blindly repeat this model-affecting POST.
                     unavailable = true;
-                    notice.textContent = error.message + " · 재실행 전에 결과 새로고침으로 접수 여부를 확인하세요.";
+                    notice.textContent = error.message + " · 재실행 전 결과 새로고침";
                 }
             } finally { submitting = false; buttons(); }
         }
@@ -351,7 +351,7 @@
         verify?.addEventListener("click", () => { void selectAlert(input.value.trim()); });
         input.addEventListener("input", () => {
             ++selectionGeneration; selected = null; selectionBusy = false; closeReview();
-            setText("[data-scan-selected]", "경보 ID가 바뀌었습니다. ‘이 ID의 경보 확인’을 눌러 실제 대상을 다시 확인하세요.");
+            setText("[data-scan-selected]", "ID 변경됨 · 다시 확인 필요");
         });
         refresh.addEventListener("click", loadLatest);
         buttons();

@@ -377,7 +377,8 @@ def main(argv: list[str] | None = None) -> int:
     # Several feeds, each into its own file (the daily cron job).
     if args.input is None and args.output is None:
         now = datetime.now(timezone.utc)
-        names = list(FEED_FILES) if args.feed == "all" else [args.feed]
+        # ThreatFox needs an API key the team does not use; it runs only when named.
+        names = [name for name in FEED_FILES if name != "threatfox"] if args.feed == "all" else [args.feed]
         results = {name: run_feed(name, args, now) for name in names}
         if not args.dry_run:
             record_status(args.dir, results)

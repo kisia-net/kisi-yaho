@@ -252,7 +252,7 @@
 
                 ${inputLines || feedback ? `<h4>판단에 들어간 다른 입력</h4><ul class="xai-inputs">${inputLines}${feedback ? `<li>참고한 과거 분석가 판정 (근거가 아닌 맥락)<ul class="xai-feedback">${feedback}</ul></li>` : ""}</ul>` : ""}
 
-                <p class="xai-method">주장의 문장은 모델이 썼고, 연결·확인 상태·개수·우선순위 요인은 코드가 계산했습니다. 증거 묶음에 없는 ID를 인용하면 "근거 없음"으로 표시됩니다.</p>
+                <p class="xai-method">문장은 모델, 확인 상태·우선순위는 코드가 계산</p>
             </div>`;
         // The CSP (style-src 'self') drops inline style attributes; set widths here.
         container.querySelectorAll(".xai-factor-bar i[data-width]").forEach((bar) => {
