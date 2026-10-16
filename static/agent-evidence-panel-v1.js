@@ -14,9 +14,9 @@ window.HawkiEvidencePanel = function ({root, api, currentSession, notice}) {
     const valid = (g, s) => g === generation && s === session && currentSession() === s;
     function update() {
         count.textContent = total;
-        status.textContent = `저장된 증거 ${total}건 · 표시 ${cards.size}건`;
+        status.textContent = `증거 ${total}건 · 표시 ${cards.size}건`;
         next.hidden = !more; next.disabled = loading;
-        next.textContent = loading ? '불러오는 중…' : '이전 증거 20건 더 보기';
+        next.textContent = loading ? '불러오는 중…' : '더 보기';
     }
     async function detail(ref, card) {
         if (card.dataset.loaded === 'true' || card.dataset.loading === 'true') return;
@@ -47,7 +47,7 @@ window.HawkiEvidencePanel = function ({root, api, currentSession, notice}) {
     function add(item) {
         if (!/^E-[a-f0-9]{32}$/.test(item.ref || '') || cards.has(item.ref)) return cards.get(item.ref);
         const card=make('details',undefined,'aw-evidence-card');card.id=`aw-proof-${item.ref}`;
-        card.append(make('summary',item.ref),make('p',`${item.tool || ''} · ${item.status || 'unknown'}`));
+        card.append(make('summary',item.ref),make('p',`${({environment:'환경',get_alert:'경보 상세',search_logs:'로그 검색',summarize_logs:'로그 집계',list_assets:'자산',lookup_indicator:'위협 정보',list_velociraptor_clients:'클라이언트',list_velociraptor_flows:'수집 목록',get_collection_flow:'수집 상세',read_collection_results:'수집 결과',response_capabilities:'수집 항목'})[item.tool] || '증거'} · ${({success:'완료',partial:'일부 결과',error:'실패',failed:'실패',disabled:'사용 불가'})[item.status] || '상태 확인 필요'}`));
         if (item.recorded_at) card.append(make('p',item.recorded_at));
         card.addEventListener('toggle',()=>{if(card.open) detail(item.ref,card);});
         cards.set(item.ref,card);summaries.append(card);return card;
@@ -72,9 +72,8 @@ window.HawkiEvidencePanel = function ({root, api, currentSession, notice}) {
         session=s;signature=key;generation++;loading=false;cursor=null;more=false;total=0;
         records=new Map();cards=new Map();list.replaceChildren();
         status=make('p','','aw-evidence-status');status.setAttribute('role','status');
-        const coverage=make('p','저장된 증거를 표시합니다. 보관 기능 적용 전에 제거된 이전 증거는 없을 수 있습니다.','aw-evidence-coverage');
-        summaries=make('div');next=make('button','이전 증거 20건 더 보기');next.type='button';next.hidden=true;
-        next.addEventListener('click',page);list.append(status,coverage,summaries,next);
+        summaries=make('div');next=make('button','더 보기');next.type='button';next.hidden=true;
+        next.addEventListener('click',page);list.append(status,summaries,next);
         if (!s) {update();return;}
         for(const record of [...(s.evidence||[]),...(s.lastResult?.tool_trace||[])]) if(record?.ref)records.set(record.ref,record);
         if(s.saved)page();

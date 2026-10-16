@@ -1,12 +1,14 @@
-#agent-workspace.aw-collection-open { grid-template-columns:160px minmax(300px,1fr) minmax(330px,40%); }
-#agent-workspace.aw-collection-open .aw-evidence { overflow:auto; }
-#agent-workspace .aw-collection-panel { flex:none; border-bottom:2px solid var(--blue); background:var(--panel); }
+#agent-workspace .aw-collection-panel { width:min(760px,92vw); max-width:92vw; max-height:85dvh; padding:0; margin:auto; color:var(--text); border:1px solid var(--line-2); border-radius:14px; background:var(--panel); box-shadow:var(--shadow); overflow:auto; overscroll-behavior:contain; }
+#agent-workspace .aw-collection-panel::backdrop { background:rgba(0,0,0,.65); }
 #agent-workspace .aw-collection-panel .aw-heading { position:sticky; top:0; background:var(--panel); z-index:2; }
-#agent-workspace .aw-collection-content,#agent-workspace .aw-collection-results,#agent-workspace .aw-collection-status { padding:8px 14px; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
-#agent-workspace .aw-collection-panel h3 { font-size:13px; }
-#agent-workspace .aw-collection-panel pre { max-height:340px; overflow:auto; white-space:pre-wrap; background:var(--panel-2); padding:10px; border-radius:8px; font-size:11px; }
-#agent-workspace .aw-collection-actions { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
-#agent-workspace .aw-collection-unit { border-top:1px solid var(--line); padding:8px 0; }
-#agent-workspace .aw-collection-unit button { margin:5px; }
-@media(max-width:1100px) { #agent-workspace.aw-collection-open {grid-template-columns:minmax(280px,1fr) minmax(320px,42%);} #agent-workspace.aw-collection-open .aw-history {display:none;} }
-@media(max-width:760px) { #agent-workspace.aw-collection-open {display:flex;flex-direction:column;height:auto;} #agent-workspace.aw-collection-open .aw-chat {min-height:500px;} #agent-workspace.aw-collection-open .aw-evidence {max-height:75dvh;} }
+#agent-workspace .aw-collection-content,#agent-workspace .aw-collection-results,#agent-workspace .aw-collection-status { padding:12px 20px; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+#agent-workspace .aw-collection-status:empty,#agent-workspace .aw-collection-results:empty { display:none; }
+#agent-workspace .aw-collection-panel h3 { font-size:15px; }
+#agent-workspace .aw-collection-panel pre { max-height:340px; overflow:auto; white-space:pre-wrap; background:var(--panel-2); padding:12px; border-radius:8px; font-size:11px; }
+#agent-workspace .aw-collection-panel details { margin:12px 0; }
+#agent-workspace .aw-collection-panel summary { cursor:pointer; }
+#agent-workspace .aw-collection-actions { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
+#agent-workspace .aw-collection-unit { border-top:1px solid var(--line); padding:12px 0; }
+#agent-workspace .aw-collection-badge { color:var(--muted); }
+#agent-workspace .aw-collection-panel button:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
+@media(max-width:600px) { #agent-workspace .aw-collection-panel { width:95vw; max-width:95vw; max-height:90dvh; } }

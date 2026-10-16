@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=asset_version) }}">
 {% if workspace_v1|default(false) %}
 <link rel="stylesheet" href="{{ url_for('static', filename='agent-workspace.css', v='evidence-panel-v1') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='agent-collection-panel-v2.css', v='agent-quality-v2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='agent-collection-panel-v2.css', v='frontend-polish-v1') }}">
 {% endif %}
 {% if active_page == 'agent' %}
 <link rel="stylesheet" href="{{ url_for('static', filename='agent-integration-v1.css', v='agent-integration-v1') }}">
@@ -130,11 +130,11 @@
 {% endfor %}
 {% endif %}
 {% if workspace_v1|default(false) %}
-<script src="{{ url_for('static', filename='agent-collection-panel-v2.js', v='agent-quality-v2') }}"></script>
-<script src="{{ url_for('static', filename='agent-evidence-panel-v1.js', v='evidence-panel-v1') }}"></script>
-<script src="{{ url_for('static', filename='agent-workspace.js', v='evidence-panel-v1') }}"></script>
+<script src="{{ url_for('static', filename='agent-collection-panel-v2.js', v='frontend-polish-v1') }}"></script>
+<script src="{{ url_for('static', filename='agent-evidence-panel-v1.js', v='frontend-polish-v1') }}"></script>
+<script src="{{ url_for('static', filename='agent-workspace.js', v='frontend-polish-v1') }}"></script>
 {% elif active_page in ['hunts', 'response'] %}
-<script type="module" src="{{ url_for('static', filename='vr-workspace.js', v='agent-integration-v1') }}"></script>
+<script type="module" src="{{ url_for('static', filename='vr-workspace.js', v='frontend-polish-v1') }}"></script>
 {% else %}
 <script src="{{ url_for('static', filename='app.js', v=asset_version) }}"></script>
 {% endif %}
