@@ -1461,7 +1461,7 @@ async function loadDashboardCti() {
     } else if (matches.error) {
         target.textContent = `최근 24시간 일치 확인 실패 · ${matches.error}`;
     } else if (!matches.alerts) {
-        target.textContent = "최근 24시간 경보 중 CTI와 일치한 출발지 없음 (일치가 없다고 안전하다는 뜻은 아닙니다)";
+        target.textContent = "최근 24시간 CTI 일치 출발지 없음";
     } else {
         const top = (matches.top || []).slice(0, 3).map((item) =>
             `<a href="/alerts?range=24h&amp;category=all&amp;q=${encodeURIComponent(item.ip)}">${escapeHtml(item.ip)}</a> ${escapeHtml(item.verdict === "malicious" ? "악성" : "의심")} · 경보 ${escapeHtml(formatNumber(item.alerts))}`).join(" / ");
@@ -1506,7 +1506,7 @@ async function loadDashboardRedteam() {
             </div>
             ${expandable ? `<div class="rt-recent-detail" hidden></div>` : ""}
         </li>`;
-    }).join("") || `<li class="muted">아직 LLM 분석 기록이 없습니다. 경보를 열고 "LLM으로 분석"을 누르면 여기에 나옵니다.</li>`;
+    }).join("") || `<li class="muted">아직 LLM 분석 기록 없음</li>`;
 }
 
 // One handler for every row: opens the evaluation under the row and asks
@@ -2936,8 +2936,8 @@ async function loadAlerts() {
 }
 
 const ALERT_CATEGORY_NOTES = {
-    attack: "CVE 취약점 경보를 뺀 공격·이상 행위 경보입니다.",
-    vulnerability: "Wazuh 취약점 탐지기가 CVE마다 하나씩 올리는 경보입니다. 호스트 화면의 취약점 요약에서 묶어 볼 수 있습니다.",
+    attack: "CVE 취약점 경보 제외",
+    vulnerability: "CVE 취약점 경보 (호스트 화면에서 묶어 보기)",
     all: "모든 경보입니다.",
 };
 const ALERT_RANGE_LABELS = { "1h": "최근 1시간", "24h": "최근 24시간", "7d": "최근 7일", "30d": "최근 30일", "": "기간 제한 없음" };
@@ -3084,9 +3084,9 @@ async function loadAlertsInner() {
     const unitWord = data.unit === "group" ? "묶음" : "건";
     count.textContent = [
         `${ALERT_RANGE_LABELS[range] ?? "최근"} ${ALERT_STATUS_LABELS[status] || ""} 경보 전체 ${formatNumber(data.total)}건${data.total_relation === "gte" ? " 이상" : ""}`,
-        data.unit === "group" ? `같은 룰·출발지·호스트로 묶어 ${formatNumber(units)}개 묶음` : "",
+        data.unit === "group" ? `${formatNumber(units)}개 묶음` : "",
         units ? `${formatNumber(first)}–${formatNumber(last)}번째 ${unitWord} (${sortMode === "priority" ? "우선순위 높은 순" : "최신순"})` : "",
-        data.scan_limited ? `경보가 많아 ${sortMode === "priority" ? "레벨 높은" : "최근"} ${formatNumber(data.scanned)}건 기준으로 정렬했습니다` : "",
+        data.scan_limited ? `${sortMode === "priority" ? "레벨 높은" : "최근"} ${formatNumber(data.scanned)}건 기준` : "",
         level > 0 ? `Wazuh 레벨 ≥ ${level}` : "",
         state.alertHost ? `호스트 ${state.alertHost}` : "",
     ].filter(Boolean).join(" · ");
@@ -3103,7 +3103,7 @@ async function loadAlertsInner() {
 
     table.innerHTML = header + rows.map((row) => renderAlertRow(row.lead, row)).join("") || `
         <div class="empty-state">
-            ${status === "open" && !data.total ? "미처리 경보가 없습니다. 처리 상태를 '전체'로 바꾸면 처리된 경보도 볼 수 있습니다." : "필터와 일치하는 경보가 없습니다."}
+            ${status === "open" && !data.total ? "미처리 경보 없음" : "조건에 맞는 경보 없음"}
         </div>
     `;
     renderAlertPager(data);

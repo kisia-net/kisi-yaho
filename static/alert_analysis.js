@@ -148,7 +148,7 @@
         const used = Number(result.feedback_context) || 0;
         const status = history.context_enabled
             ? (used ? `이번 분석에 비슷한 과거 판정 ${used}건을 참고 맥락으로 넣었습니다.` : "이번 분석에 넣을 비슷한 과거 판정이 없었습니다.")
-            : "과거 판정을 분석에 넣는 기능은 꺼져 있습니다 (ANALYST_FEEDBACK_CONTEXT_ENABLED). 판정은 저장됩니다.";
+            : "과거 판정 참고 꺼짐 (판정은 저장됨)";
         const last = (history.for_alert || []).slice(-1)[0];
 
         panel.hidden = false;
@@ -253,7 +253,7 @@
         root.querySelector("[data-assets]").innerHTML = [
             assets.map(formatAsset).join(""),
             unresolved.length
-                ? `<div class="output-item"><strong>자산 목록에 없음</strong><div class="action-meta">${unresolved.map((value) => `<span class="tag">${escapeHtml(value)}</span>`).join("")}</div><p class="muted">외부 개체이거나 관리되지 않거나 자산 목록에 등록되지 않은 개체일 수 있습니다. 이는 맥락이 부족하다는 뜻이며 안전하다는 뜻이 아닙니다.</p></div>`
+                ? `<div class="output-item"><strong>자산 목록에 없음</strong><div class="action-meta">${unresolved.map((value) => `<span class="tag">${escapeHtml(value)}</span>`).join("")}</div><p class="muted">외부 또는 미등록 개체</p></div>`
                 : "",
         ].join("") || `<div class="empty-state">연관된 자산 정보가 없습니다.</div>`;
 
@@ -261,7 +261,7 @@
         const stats = caseData.threat_intelligence_stats || {};
         root.querySelector("[data-intel]").innerHTML = [
             intel.map(formatIndicator).join(""),
-            `<div class="output-item"><p class="muted">확인한 관측값: ${escapeHtml(stats.observables_checked || 0)} · 위협 정보 없음: ${escapeHtml(stats.observables_without_intelligence_count || 0)}. 위협 정보 일치는 의심을 높이지만 침해를 입증하지는 않습니다.</p></div>`,
+            `<div class="output-item"><p class="muted">확인한 관측값: ${escapeHtml(stats.observables_checked || 0)} · 위협 정보 없음: ${escapeHtml(stats.observables_without_intelligence_count || 0)}</p></div>`,
         ].join("") || `<div class="empty-state">일치하는 위협 지표가 없습니다.</div>`;
 
         root.querySelector("[data-timeline]").innerHTML = (caseData.timeline || []).map(formatEvent).join("");
@@ -784,7 +784,7 @@
                 자동 보고서 ${escapeHtml(report.id)} · ${escapeHtml(report.band || "")} · ${escapeHtml(AI_LABELS[report.ai_status] || report.ai_status || "")} · ${escapeHtml(REVIEW_LABELS[report.review_status] || report.review_status || "")}${report.occurrences > 1 ? ` · 묶인 경보 ${escapeHtml(report.occurrences)}건` : ""}
             </a>`).join("")}
             ${analyses.length ? `<span class="alert-history-item">LLM 분석 ${escapeHtml(analyses.length)}회 · 마지막 ${escapeHtml(when(analyses[0].timestamp))}${analyses[0].by ? ` (${escapeHtml(analyses[0].by)})` : ""}</span>` : ""}
-            ${reports.some((report) => report.ai_status === "completed") ? `<span class="muted">완료된 자동 보고서가 있으면 다시 분석하기 전에 먼저 열어 보세요. 같은 증거로 GPU를 한 번 더 쓰게 됩니다.</span>` : ""}`;
+            ${reports.some((report) => report.ai_status === "completed") ? `<span class="muted">완료된 자동 보고서가 있습니다. 재분석 전에 먼저 확인</span>` : ""}`;
         // The last analysis's red team evaluation, so opening the alert from
         // the dashboard shows where it stands without analysing again.
         const last = analyses.find((item) => item.analysis_id && item.redteam && !["disabled", "not_sent"].includes(item.redteam));

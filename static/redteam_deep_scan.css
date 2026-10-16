@@ -80,3 +80,4 @@
 [data-redteam-scan-card] .scan-tool-card::first-line { font-weight: 700; }
 [data-redteam-scan-card] .scan-tool-card.rt-bad { border-left: 3px solid var(--danger); }
 [data-redteam-scan-card] .scan-tool-card.rt-ok { border-left: 3px solid var(--success, #16a34a); }
+[data-redteam-scan-card] .scan-lead { margin: 4px 16px 0; color: var(--muted); font-size: 13.5px; }

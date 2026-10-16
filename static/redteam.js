@@ -64,8 +64,8 @@
             .filter((row) => row && Object.hasOwn(CHECK_STATUS, row.status)).map((row) => ({
                 ...row, assertion: String(row.assertion || "Evaluation").slice(0, 160),
                 name_ko: String(row.name_ko || row.assertion || "검사 항목").slice(0, 160),
-                description_ko: String(row.description_ko || "이 항목의 검사 설명이 아직 제공되지 않았습니다. 검사명과 원문을 확인하세요.").slice(0, 1000),
-                reason_ko: String(row.reason_ko || "이전 보고서에는 한국어 상세 이유가 없습니다. 원문을 확인하세요.").slice(0, 1000),
+                description_ko: String(row.description_ko || "검사 설명이 아직 제공되지 않았습니다").slice(0, 1000),
+                reason_ko: String(row.reason_ko || "한글 이유 없음 · 원문 참고").slice(0, 1000),
                 reason: String(row.reason || "").slice(0, 800),
             }));
     }
@@ -73,11 +73,11 @@
         const rows = checkRows(value);
         if (!rows.length) {
             const messages = {
-                report_missing: "기존 결과 파일이 없어 검사별 상세 이유를 읽을 수 없습니다.",
-                report_unreadable: "기존 결과 파일을 읽지 못했습니다. 권한·형식을 확인해야 합니다.",
-                pending: "평가가 끝나면 검사별 상세 이유가 표시됩니다.",
+                report_missing: "결과 파일 없음",
+                report_unreadable: "결과 파일 읽기 실패 (권한·형식 확인)",
+                pending: "평가 중",
             };
-            return `<p class="muted rt-tool-note">${escapeHtml(messages[value?.detail_availability] || "검사별 상세 결과가 아직 제공되지 않았습니다.")} 상세 결과 없음은 통과를 뜻하지 않습니다.</p>`;
+            return `<p class="muted rt-tool-note">${escapeHtml(messages[value?.detail_availability] || "검사별 상세 결과 없음")} · 통과를 뜻하지 않습니다.</p>`;
         }
         const counts = Object.fromEntries(Object.keys(CHECK_STATUS).map((key) => [key, rows.filter((row) => row.status === key).length]));
         const description = Object.entries(counts).filter(([, count]) => count)
@@ -92,15 +92,15 @@
                 ${row.detector ? `<p class="muted">검출기: ${escapeHtml(row.detector)}</p>` : ""}
                 <p class="rt-check-description"><strong>검사 내용:</strong> ${escapeHtml(row.description_ko)}</p>
                 <p class="rt-check-reason"><strong>판정 이유:</strong> ${escapeHtml(row.reason_ko)}</p>
-                ${row.advisory ? '<p class="muted">참고 지표 · 전체 사례의 통과/실패를 결정하지 않음</p>' : ""}
-                ${row.reason ? `<details class="rt-check-original"><summary>기록된 이유 원문</summary><p>${escapeHtml(row.reason)}</p></details>` : '<p class="muted">개별 이유 원문 없음 · 기록된 판정/집계만 표시</p>'}
+                ${row.advisory ? '<p class="muted">참고 지표</p>' : ""}
+                ${row.reason ? `<details class="rt-check-original"><summary>기록된 이유 원문</summary><p>${escapeHtml(row.reason)}</p></details>` : ''}
             </li>`;
         }
         const important = rows.filter((row) => ["failed", "error", "warning"].includes(row.status));
         const others = rows.filter((row) => !["failed", "error", "warning"].includes(row.status));
         return `<section class="rt-check-results" aria-label="검사 항목별 상세 결과">
             <p class="rt-check-counts">검사 항목 ${rows.length}개${value?.details_truncated ? " (일부 표시)" : ""} · ${escapeHtml(description)}</p>
-            <p class="muted rt-tool-note">위의 분석 결과·사례 수와 다른 집계입니다. 해당 없음·검증 불가·결과 없음은 통과 수에서 제외합니다. 규칙 검사 결과이며 모델 전체의 안전성을 보증하지 않습니다.</p>
+            <p class="muted rt-tool-note">해당 없음·검증 불가는 통과에 넣지 않음</p>
             ${important.length ? `<p><strong>실패·오류·검토 경고</strong></p><ul class="rt-check-list">${important.map(item).join("")}</ul>` : ""}
             ${others.length ? `<details class="rt-check-all"><summary>나머지 검사별 상세 결과 ${others.length}개 보기</summary><ul class="rt-check-list">${others.map(item).join("")}</ul></details>` : ""}
         </section>`;
@@ -173,14 +173,14 @@
             if (tool.durationMs !== null) parts.push(`${(tool.durationMs / 1000).toFixed(tool.durationMs < 1000 ? 2 : 1)}초`);
             if (tool.exitCode !== undefined && tool.exitCode !== null) parts.push(`종료 코드 ${escapeHtml(tool.exitCode)}`);
             const warn = tool.mode === "saved_result"
-                ? `<p class="muted rt-tool-note">저장된 분석 결과 채점 · 모델 재호출 없음</p>`
+                ? `<p class="muted rt-tool-note">저장된 답변 채점 · 모델 재호출 없음</p>`
                 : (tool.tokens === 0
-                    ? `<p class="muted rt-tool-note">모델 토큰 사용 0 · 모델을 다시 부르지 않는 저장 결과 채점이면 정상입니다.</p>` : "");
+                    ? "" : "");
             const reasons = checkRows(tool.details).length ? "" : tool.failed.length
                 ? `<ul class="rt-failures">${tool.failed.map((item) => `<li><strong>${escapeHtml(item.assertion)}</strong>${item.reason ? ` · ${escapeHtml(item.reason)}` : ""}</li>`).join("")}</ul>`
                 : (tool.failureSummary ? `<p class="rt-failure-summary">${escapeHtml(tool.failureSummary)}</p>` : "");
             const noReasons = tool.state === "failed" && !tool.reasonsReported
-                ? `<p class="muted rt-tool-note">이 작업은 실패 이유를 함께 보내기 전에 평가되어, 이유가 기록되어 있지 않습니다.</p>` : "";
+                ? `<p class="muted rt-tool-note">실패 이유 기록 없음 (이전 작업)</p>` : "";
             const files = tool.artifacts.length ? `<p class="muted rt-tool-note">실행기 결과 파일: ${tool.artifacts.map(escapeHtml).join(", ")}</p>` : "";
             return `<div class="rt-tool"><p><strong>${escapeHtml(tool.name)}</strong> ${chip(label, cls)} <span class="muted">${parts.join(" · ")}</span></p>${reasons}${noReasons}${warn}${checkDetailsHtml(tool.details)}${files}</div>`;
         }).join("");
@@ -204,7 +204,7 @@
         } else if (!data) {
             body = `<p class="muted">상태를 확인하는 중…</p>`;
         } else if (data.stage === "sending") {
-            body = `<p>${chip("응답 대기", "rt-info")} 실행기 응답을 기다리는 중입니다. 보통 몇 초 안에 접수됩니다.</p>`;
+            body = `<p>${chip("응답 대기", "rt-info")} </p>`;
         } else if (data.stage === "refused") {
             const reason = REFUSAL[data.status_code] || data.error || (data.status_code ? `HTTP ${data.status_code}` : "보내지 못함");
             body = `<p>${chip("접수 안 됨", "rt-bad")} ${escapeHtml(reason)}</p>
@@ -220,10 +220,10 @@
             const note = TERMINAL.has(state)
                 ? (verdict && verdict[1] === "rt-bad"
                     ? (tools.some((tool) => tool.failed.length || tool.failureSummary)
-                        ? "실행기가 평가를 끝냈고, 위에 표시된 검사 항목이 실패했습니다."
-                        : "실행기가 평가를 끝냈고, 검사 도구 중 실패가 있습니다. 자세한 내용은 실행기의 결과 파일에 있습니다.")
+                        ? "위 검사 항목 실패"
+                        : "검사 도구 중 실패 있음")
                     : "실행기가 평가를 끝냈습니다.")
-                : '202는 "접수"이며 검사 통과를 뜻하지 않습니다. 결과는 실행기가 평가를 마친 뒤 이 자리에 나타납니다.';
+                : '접수됨 · 결과 대기 (통과 아님)';
             body = `<p>${chip("접수됨 (202)", "rt-ok")} ${chip(stateLabel, stateClass)} ${verdict ? chip(verdict[0], verdict[1]) : ""} <span class="muted">작업 ${escapeHtml(data.job_id || "—")} · ${escapeHtml(when(data.timestamp))}</span></p>
                 ${toolRows(tools)}
                 ${rows.length ? `<p class="rt-summary">${rows.join(" · ")}</p>` : ""}

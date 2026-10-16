@@ -132,7 +132,7 @@
     }
 
     function renderRetrieval(data) {
-        if (!data.ran && !data.before) return `<p class="muted">이 캡처에는 AI 증거 수집 기록이 없습니다. 경보 화면에서 "LLM으로 분석"을 실행하면 그 순간이 저장됩니다.</p>`;
+        if (!data.ran && !data.before) return `<p class="muted">AI 증거 수집 기록 없음</p>`;
         const size = (item) => item ? `CTX ${number(item.context_count)} · ${number(item.size_chars)}자` : "—";
         return `${kv([
             ["상태", `<strong>${escapeHtml(data.status_label || data.stopped || "—")}</strong>`],
@@ -154,7 +154,7 @@
         const replies = (doc.record || {}).model_replies || [];
         if (!replies.length) {
             return doc.mode === "captured"
-                ? `<p class="muted">이 캡처에는 모델 응답 원문이 없습니다 (원문 저장 이전 캡처이거나 데모 응답).</p>`
+                ? `<p class="muted">모델 응답 원문 없음</p>`
                 : "";
         }
         return `<p class="muted">모델 응답 원문 · 앱이 정리하기 전 그대로</p>${replies.map((reply) => `
@@ -163,11 +163,11 @@
     }
 
     function renderJudgment(data, doc) {
-        if (!data.ran) return `<p class="muted">이 캡처에는 AI 판단이 없습니다. 경보 화면에서 "LLM으로 분석"을 실행하면 그 순간이 저장됩니다.</p>`;
+        if (!data.ran) return `<p class="muted">AI 판단 없음</p>`;
         const assessment = data.assessment || {};
         const list = (values) => (values || []).length ? `<ul>${values.map((value) => `<li>${escapeHtml(typeof value === "string" ? value : JSON.stringify(value))}</li>`).join("")}</ul>` : "—";
         const lastOnly = doc.mode === "last_analysis"
-            ? `<p class="flow-tag flow-tag-warn">마지막 분석 결과에서 가져왔습니다. 인용 확인은 지금 다시 만든 증거 기준이라 당시와 다를 수 있습니다.</p>`
+            ? `<p class="flow-tag flow-tag-warn">마지막 분석 결과 · 인용 확인은 현재 증거 기준</p>`
             : "";
         return `${lastOnly}${kv([
             ["모델", `<code>${escapeHtml(data.model)}</code>${data.demo ? " · 데모 응답" : ""}`],
@@ -193,7 +193,7 @@
     function renderResponse(data) {
         const proposed = data.proposed || [];
         const queued = data.queued || [];
-        if (!proposed.length && !queued.length) return `<p class="muted">제안되거나 승인 요청된 조치가 없습니다. 실행 결과는 아직 이 흐름에 연결되지 않았습니다.</p>`;
+        if (!proposed.length && !queued.length) return `<p class="muted">제안된 조치 없음</p>`;
         return `${proposed.length ? `<p class="muted">AI 가 제안한 조치 (승인 전)</p><ul>${proposed.map((item) => `<li><code>${escapeHtml(item.type)}</code> ${escapeHtml(item.title || "")} → ${escapeHtml(item.target || "")} <span class="muted">${escapeHtml(item.reason || "")}</span></li>`).join("")}</ul>` : ""}
             ${queued.length ? `<div class="data-table"><table class="report-table">
                 <thead><tr><th>승인 대기열</th><th>유형</th><th>상태</th><th>요청 시각</th></tr></thead>
@@ -215,7 +215,7 @@
         meta.textContent = {
             captured: `분석 실행 시점에 저장된 캡처 · ${source[record.source] || record.source || ""} · ${when(doc.captured_at)}`,
             last_analysis: `①~④ 는 지금 다시 만든 흐름, ⑤ ⑥ 은 마지막 분석 결과 (${when(record.saved_at)}) · 실행 시점 캡처 없음`,
-        }[doc.mode] || `지금 Wazuh 문서로 다시 만든 흐름 · ${when(doc.captured_at)} (AI 단계는 분석을 실행하면 저장됩니다)`;
+        }[doc.mode] || `지금 Wazuh 문서로 다시 만든 흐름 · ${when(doc.captured_at)} `;
         const select = root.querySelector("[data-flow-capture]");
         const options = [`<option value="live">지금 다시 만들기 (AI 단계 제외)</option>`]
             .concat(doc.last_analysis_available ? [`<option value="last">마지막 분석 결과로 채우기 (실행 시점 캡처 아님)</option>`] : [])
@@ -239,7 +239,7 @@
         verify.innerHTML = check.checked
             ? `<strong>${title}</strong> · 저장된 증거 패키지를 다시 해시한 값이 캡처 기록과 ${check.matches_capture ? "일치" : "불일치"}, ${audit}
                · 모델 응답 원문 ${number(check.model_reply_count)}건 · <code>${escapeHtml(String(check.recomputed_bundle_sha256 || "").slice(0, 16))}…</code>
-               ${check.demo ? `<br><span class="flow-tag flow-tag-warn">AI 판단은 데모 응답</span> 모델에 연결되지 않아 앱이 만든 응답입니다. 위 검증은 증거 패키지에 대한 것이고, 모델 판단이 있었다는 뜻이 아닙니다.` : ""}`
+               ${check.demo ? `<br><span class="flow-tag flow-tag-warn">데모 응답 (모델 미연결)</span>` : ""}`
             : `<strong>${title}</strong> · ${escapeHtml(check.reason || "")}`;
         if (doc.notice) verify.innerHTML += `<br><span class="flow-tag flow-tag-warn">${escapeHtml(doc.notice)}</span>`;
         renderSizes(doc);

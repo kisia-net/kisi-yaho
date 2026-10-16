@@ -125,7 +125,7 @@
             mode?.click();
             const input = document.getElementById("agent-input");
             if (!input) return;
-            input.value = "첨부한 경보 케이스를 분석해 주세요. 여러 장비의 증거를 상관분석하고, 확인된 관찰과 추론을 구분하고, 신뢰도와 심각도를 평가하고, 다음에 확인할 것을 알려 주세요.";
+            input.value = "첨부한 경보를 분석해 줘. 확인된 사실과 추론을 나누고, 심각도와 다음 확인 사항을 알려 줘.";
             document.getElementById("agent-form")?.requestSubmit();
         });
 

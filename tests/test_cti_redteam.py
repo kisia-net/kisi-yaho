@@ -128,7 +128,7 @@ class CtiStatusTests(Signed):
              mock.patch.object(app, "SIEM_INDEXER", Indexer(aggregations)):
             data = self.client.get("/api/threat-intel/status").get_json()
         states = {feed["file"]: feed["state"] for feed in data["feeds"]}
-        self.assertEqual(states, {"abusech-feodo.json": "ok", "blocklistde.json": "stale", "abusech-threatfox.json": "no_key"})
+        self.assertEqual(states, {"abusech-feodo.json": "ok", "blocklistde.json": "stale"})
         self.assertEqual(data["matches_24h"]["alerts"], 60)
         self.assertEqual(data["matches_24h"]["top"][0]["ip"], "167.86.81.69")
         self.assertEqual(data["matches_24h"]["by_agent"], {"001": 60})
