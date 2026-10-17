@@ -45,3 +45,34 @@ class SuricataStatusTargetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GatewayFailureReasonTests(unittest.TestCase):
+    def dispatch(self, response=None, exc=None):
+        record = {"id": "ACT-1", "type": "velociraptor_collection", "payload": {}}
+
+        def fake_post(*args, **kwargs):
+            if exc:
+                raise exc
+            return response
+
+        with mock.patch.dict(app.CONFIG, {"response_actions_enabled": True,
+                                          "velociraptor_gateway_url": "http://gw", "velociraptor_gateway_token": "t"}), \
+                mock.patch.object(app.requests, "post", fake_post):
+            return app.dispatch_action(record)
+
+    def test_gateway_reason_is_kept(self):
+        import requests
+        response = requests.Response()
+        response.status_code = 409
+        response._content = b'{"error": "reload_in_progress", "message": "still reloading", "detail": "last change 06:57"}'
+        response.url = "http://gw/actions"
+        status, result = self.dispatch(response=response)
+        self.assertEqual(status, "dispatch_failed")
+        self.assertEqual((result["status_code"], result["gateway_error"]), (409, "reload_in_progress"))
+        self.assertIn("06:57", result["gateway_detail"])
+
+    def test_unreachable_gateway_is_named(self):
+        import requests
+        status, result = self.dispatch(exc=requests.ConnectionError("refused"))
+        self.assertEqual((status, result["gateway_error"]), ("dispatch_failed", "unreachable"))

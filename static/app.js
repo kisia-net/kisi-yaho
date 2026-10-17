@@ -3924,6 +3924,29 @@ const APPROVAL_VALUE_LABELS = {
     high: "높음",
     critical: "치명",
 };
+// Reasons the Suricata deployment gateway gives (tools/suricata_gateway).
+const GATEWAY_FAILURES = {
+    reload_in_progress: "센서가 앞 변경을 적용하는 중이에요. 2~3분 뒤 Suricata 룰 화면에서 다시 승인 요청을 올려 주세요.",
+    test_failed: "센서의 suricata -T 검사에서 거절됐어요. 룰을 고쳐 다시 검증해 주세요.",
+    test_unavailable: "센서에서 suricata -T 검사를 실행하지 못했어요. 센서 상태를 확인해 주세요.",
+    reload_failed: "센서가 룰 다시 읽기를 받지 않아 이전 상태로 되돌렸어요. 잠시 뒤 다시 승인 요청을 올려 주세요.",
+    action_not_allowed: "센서는 탐지 전용이라 alert 룰만 적용할 수 있어요.",
+    wrong_host: "이 센서가 아닌 다른 호스트를 대상으로 한 요청이에요.",
+    wrong_interface: "이 센서의 인터페이스와 다른 요청이에요.",
+    sid_mismatch: "룰 안의 sid와 요청의 SID가 달라요.",
+    rev_mismatch: "룰 안의 rev와 요청의 개정 번호가 달라요.",
+    bad_rule: "룰 형식이 센서 기준에 맞지 않아요 (한 줄, 8000자 이하).",
+    unauthorized: "센서 게이트웨이 토큰이 맞지 않아요. 서버 설정을 확인해 주세요.",
+    unreachable: "센서 게이트웨이에 연결하지 못했어요. 게이트웨이 실행과 보안 그룹을 확인해 주세요.",
+    unreachable_timeout: "센서 게이트웨이가 응답하지 않아요. 센서 상태를 확인해 주세요.",
+};
+
+function gatewayFailureText(result) {
+    if (!result || typeof result !== "object") return "";
+    const code = normalizeApprovalValue(result.gateway_error);
+    return GATEWAY_FAILURES[code] || "";
+}
+
 const DISPATCH_MESSAGES = {
     "Execution is disabled by server policy.": "승인되었지만 아직 실행되지 않았습니다.",
     "No trusted action gateway is configured.": "조치 게이트웨이(Velociraptor 연동)가 설정되지 않아 승인만 기록했습니다.",
@@ -4272,6 +4295,21 @@ function renderApprovalOutcome(action) {
                 <span>${escapeHtml(DISPATCH_MESSAGES[normalizeApprovalValue(action.dispatch_result.message)])}</span>
             </div>
         `);
+    } else if (gatewayFailureText(action.dispatch_result)) {
+        parts.push(`
+            <div class="approval-outcome-row approval-outcome-bad">
+                <strong>적용 안 됨</strong>
+                <span>${escapeHtml(gatewayFailureText(action.dispatch_result))}</span>
+            </div>
+        `);
+        if (action.dispatch_result.gateway_detail) {
+            parts.push(`
+                <details class="approval-outcome-row">
+                    <summary>센서 응답 원문</summary>
+                    <pre class="approval-json"><code>${escapeHtml(action.dispatch_result.gateway_detail)}</code></pre>
+                </details>
+            `);
+        }
     } else if (action.dispatch_result && typeof action.dispatch_result === "object") {
         const routineMessage = normalizeApprovalValue(action.dispatch_result.message);
         const hiddenRoutineMessages = new Set([
@@ -4382,7 +4420,7 @@ function finishedApprovalCard(action) {
             <summary class="approval-done-row">
                 <span class="approval-status-chip status-${escapeHtml(status)}"><span></span>${escapeHtml(approvalStatusLabel(status))}</span>
                 <strong title="${escapeHtml(action.title || "")}">${escapeHtml(approvalTitle(action))}</strong>
-                <span class="approval-target">${escapeHtml(target)}</span>
+                <span class="approval-target">${escapeHtml(gatewayFailureText(action.dispatch_result) ? "센서 적용 안 됨 · 펼쳐서 이유 보기" : target)}</span>
                 <span class="approval-done-time">${escapeHtml(approvalDateLabel(when))}</span>
             </summary>
             <div class="approval-done-body">
