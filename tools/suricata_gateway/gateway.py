@@ -65,7 +65,11 @@ class Config:
         self.sensor_host = os.getenv("HAWKI_GW_SENSOR_HOST", "").strip()
         self.sensor_interface = os.getenv("HAWKI_GW_SENSOR_INTERFACE", "").strip()
         # {conf} and {rules} are filled in; no shell is ever used.
-        self.test_cmd = json_list("HAWKI_GW_TEST_CMD", ["suricata", "-T", "-c", "{conf}", "-S", "{rules}"])
+        # unix-command off: a test run must never take over the live daemon's socket.
+        self.test_cmd = json_list(
+            "HAWKI_GW_TEST_CMD",
+            ["suricata", "--set", "unix-command.enabled=no", "-T", "-c", "{conf}", "-S", "{rules}"],
+        )
         self.reload_cmd = json_list("HAWKI_GW_RELOAD_CMD", ["suricatasc", "-c", "ruleset-reload-nonblocking"])
         self.status_cmd = json_list("HAWKI_GW_STATUS_CMD", ["pidof", "suricata"])
         self.command_timeout = int(os.getenv("HAWKI_GW_COMMAND_TIMEOUT", "60"))
