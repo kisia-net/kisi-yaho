@@ -6692,6 +6692,26 @@ def dispatch_action(record: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         except ValueError:
             body = {"response": response.text[:800]}
         return "submitted", body
+    except requests.HTTPError as exc:
+        # Keep the gateway's own reason (code + detail) so the queue can say
+        # what happened instead of a bare "409 Client Error".
+        failure: dict[str, Any] = {"error": str(exc)[:500]}
+        response = exc.response
+        if response is not None:
+            failure["status_code"] = response.status_code
+            try:
+                answer = response.json()
+            except ValueError:
+                answer = None
+            if isinstance(answer, dict):
+                for key in ("error", "message", "detail"):
+                    if answer.get(key):
+                        failure[f"gateway_{key}"] = str(answer[key])[:500]
+        return "dispatch_failed", failure
+    except requests.Timeout as exc:
+        return "dispatch_failed", {"error": str(exc)[:500], "gateway_error": "unreachable_timeout"}
+    except requests.ConnectionError as exc:
+        return "dispatch_failed", {"error": str(exc)[:500], "gateway_error": "unreachable"}
     except requests.RequestException as exc:
         return "dispatch_failed", {"error": str(exc)[:500]}
 
