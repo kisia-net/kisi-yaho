@@ -31,11 +31,11 @@
     let checkNames = {};
     // Korean name on screen, the check's own name on hover.
     const checkTag = (name, cls = "tag") => `<span class="${cls}" title="${escapeHtml(name)}">${escapeHtml(checkNames[name] || name)}</span>`;
-    const KIND = { manual: "분석가 요청", auto: "자동 보고서", deep: "정밀 검사 중 분석" };
+    const KIND = { manual: "분석가 요청", auto: "자동 보고서", deep: "심층 점검 중 분석" };
     const NOT_SENT = {
         disabled: "자동평가 꺼짐", not_sent: "보고서 전송 꺼짐", skipped_no_token: "토큰 없음",
         skipped_not_live: "실데이터 아님", skipped_demo_result: "데모 결과", skipped_no_runner_url: "실행기 주소 없음",
-        skipped_no_tools: "도구 미지정", skipped_recursive_request: "정밀 검사 중 분석",
+        skipped_no_tools: "도구 미지정", skipped_recursive_request: "심층 점검 중 분석",
     };
 
     const form = root.querySelector("[data-rt-filters]");

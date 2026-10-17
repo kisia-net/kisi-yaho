@@ -9,7 +9,22 @@ export function formatTime(value) {
     v = n >= 1e17 ? n / 1e6 : n >= 1e14 ? n / 1000 : n >= 1e11 ? n : n * 1000;
   }
   const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? "—" : new Intl.DateTimeFormat("ko-KR", {dateStyle:"short", timeStyle:"medium", hour12:false}).format(d);
+  return Number.isNaN(d.getTime()) ? "—" : new Intl.DateTimeFormat("ko-KR", {timeZone:"Asia/Seoul", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false}).format(d);
+}
+// Velociraptor returns Go os.FileMode either as text ("drwxr-xr-x") or as the
+// raw number (2147484141 = directory bit + 0755). Show both as text.
+const MODE_TYPES = [[2**31,"d"],[2**27,"L"],[2**26,"D"],[2**25,"p"],[2**24,"S"],[2**21,"c"]];
+export function modeString(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "string" && !/^\d+$/.test(value)) return value;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return String(value);
+  const type = MODE_TYPES.find(([bit]) => Math.floor(n / bit) % 2 === 1)?.[1] || "-";
+  const perm = n % 512;
+  const rwx = ["r","w","x"];
+  let text = "";
+  for (let i = 8; i >= 0; i--) text += (Math.floor(perm / 2 ** i) % 2) ? rwx[(8 - i) % 3] : "-";
+  return type + text;
 }
 export function valueAt(row, keys) {
   for (const key of keys) {
@@ -50,7 +65,7 @@ export function columns(artifact, rows) {
     ["크기",r=>bytes(valueAt(r,["Size","size"]))],
     ["수정 시각",r=>formatTime(valueAt(r,["MTime","Mtime","mtime"]))],
     ["메타데이터 변경",r=>formatTime(valueAt(r,["CTime","Ctime","ctime"]))],
-    ["권한",r=>valueAt(r,["Mode.String","Mode"])],
+    ["권한",r=>modeString(valueAt(r,["Mode.String","Mode"]))],
     ["SHA-256 / 일치",r=>valueAt(r,["Hash.SHA256","Hash.sha256","SHA256","Rule","RuleName"])],
   ];
   if (/Pslist/.test(artifact)) return [["PID",r=>valueAt(r,["Pid","PID"])],["상위 PID",r=>valueAt(r,["Ppid","PPID"])],["프로세스",r=>valueAt(r,["Name","Exe","Executable"])],["명령행",r=>valueAt(r,["CommandLine","Cmdline","Command"])],["사용자",r=>valueAt(r,["Username","User","Uid"])],["시작 시각",r=>formatTime(valueAt(r,["CreateTime","StartTime"]))]];

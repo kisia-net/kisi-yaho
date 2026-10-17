@@ -4,25 +4,25 @@
 {% block content %}
 <section class="metric-grid compact" id="dashboard-metrics">
     <a class="metric-card" href="/alerts" title="보안 경보 목록 열기">
-        <span>경보 · 전체 / 최근 24시간</span>
+        <span>경보</span>
         <strong id="metric-alerts-24h">—</strong>
         <small>Wazuh 탐지 건수</small>
     </a>
 
     <a class="metric-card metric-critical" href="/alerts?min_level=8&amp;range=24h&amp;category=all" title="레벨 8 이상 경보만 보기">
-        <span>레벨 8 이상 · 전체 / 최근 24시간</span>
+        <span>레벨 8 이상</span>
         <strong id="metric-level8-24h">—</strong>
         <small id="metric-level8-note">Wazuh 룰 레벨 기준</small>
     </a>
 
     <a class="metric-card metric-neutral" href="/logs" title="로그 검색 열기">
-        <span>원시 이벤트 · 전체 / 최근 24시간</span>
+        <span>원시 이벤트</span>
         <strong id="metric-archive-24h">—</strong>
         <small>Wazuh 아카이브 수집량</small>
     </a>
 
     <a class="metric-card metric-approval" href="/actions" title="승인 대기열 열기">
-        <span>승인 대기 · 전체 / 최근 24시간</span>
+        <span>승인 대기</span>
         <strong id="metric-actions">—</strong>
         <small>검토를 기다리는 변경 조치 제안</small>
     </a>
@@ -103,8 +103,7 @@
     <article class="panel dashboard-activity-panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">탐지 추이 · 심각도별</p>
-                <h2>최근 24시간</h2>
+                <h2>심각도별 탐지 추이</h2>
             </div>
             <div class="wz-legend" id="dashboard-activity-legend" aria-hidden="true"></div>
         </div>
@@ -118,7 +117,6 @@
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">Wazuh 룰 레벨</p>
                 <h2>룰 레벨 분포</h2>
             </div>
         </div>
@@ -135,8 +133,7 @@
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">출발지 IP별 · 최근 24시간</p>
-                <h2>막힘 / 통과 판정</h2>
+                <h2>출발지 IP별 막힘 / 통과</h2>
             </div>
             <span class="muted" id="wz-block-pass-summary"></span>
         </div>
@@ -147,7 +144,6 @@
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">MITRE 전술 × 기법</p>
                 <h2>MITRE ATT&amp;CK 전술 × 기법</h2>
             </div>
         </div>
@@ -159,8 +155,7 @@
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">웹 공격 응답 코드</p>
-                <h2>HTTP 상태 코드</h2>
+                <h2>웹 공격 응답 코드</h2>
             </div>
         </div>
         <div id="wz-statuses" class="dashboard-level-chart loading-block">불러오는 중…</div>
@@ -169,8 +164,7 @@
     <article class="panel">
         <div class="panel-header">
             <div>
-                <p class="panel-kicker">공격 대상 경로</p>
-                <h2>요청 URL Top 10</h2>
+                <h2>공격 대상 URL Top 10</h2>
             </div>
         </div>
         <div id="wz-urls" class="wz-urls loading-block">불러오는 중…</div>

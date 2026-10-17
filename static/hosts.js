@@ -50,7 +50,7 @@
         const parsed = Date.parse(value);
 
         return Number.isFinite(parsed)
-            ? new Date(parsed).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+            ? new Date(parsed).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
             : value;
     }
 
@@ -166,8 +166,8 @@
                         </p>
                     </div>
 
-                    <span>
-                        ${escapeHtml(localTime(host.last_keepalive))}
+                    <span title="Wazuh 에이전트가 마지막으로 응답한 시각">
+                        마지막 응답 ${escapeHtml(localTime(host.last_keepalive))}
                     </span>
                 </a>
             `).join("") || `
@@ -578,7 +578,7 @@
                 fact("에이전트 ID", host.id),
                 fact("IP 주소", host.ip),
                 fact("상태", statusLabel(host.status)),
-                fact("마지막 keepalive", localTime(host.last_keepalive)),
+                fact("마지막 응답", localTime(host.last_keepalive)),
                 fact("Wazuh 버전", host.wazuh_version),
                 fact("매니저", host.manager),
                 fact("노드", host.node),

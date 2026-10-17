@@ -966,8 +966,10 @@ function renderBlockPass(data) {
     const totals = data.block_pass_totals || {};
     if (summaryTarget) {
         // The verdict counts are over the rows found, not every address: say both.
-        summaryTarget.textContent = `표의 IP ${formatNumber(totals.shown_ips ?? rows.length)}개 중 통과 의심 ${formatNumber(summary.passed || 0)} · 막힘 ${formatNumber(summary.blocked || 0)} · 관찰 ${formatNumber(summary.observed || 0)}`
-            + (Number.isFinite(totals.web_ips) ? ` · 웹 경보 출발지 IP 전체 약 ${formatNumber(totals.web_ips)}개, 성공 응답 있는 IP 전체 약 ${formatNumber(totals.passed_ips || 0)}개` : "");
+        summaryTarget.textContent = `IP ${formatNumber(totals.shown_ips ?? rows.length)}개 · 통과 의심 ${formatNumber(summary.passed || 0)} · 막힘 ${formatNumber(summary.blocked || 0)} · 관찰 ${formatNumber(summary.observed || 0)}`;
+        summaryTarget.title = Number.isFinite(totals.web_ips)
+            ? `웹 경보 출발지 IP 전체 약 ${formatNumber(totals.web_ips)}개, 성공 응답 있는 IP 약 ${formatNumber(totals.passed_ips || 0)}개`
+            : "";
     }
     if (!rows.length) {
         target.innerHTML = `<div class="empty-state">최근 24시간 출발지 IP가 있는 웹 경보가 없습니다.</div>`;
@@ -1083,8 +1085,8 @@ async function initDashboard() {
         const target = byId(id);
         if (!target) return;
         target.innerHTML = Number.isFinite(Number(total)) && total !== undefined && total !== null
-            ? `<span class="metric-total">${escapeHtml(formatNumber(total))}</span><span class="metric-sep">/</span>${escapeHtml(formatNumber(recent || 0))}`
-            : escapeHtml(formatNumber(recent || 0));
+            ? `<span class="metric-total">전체 ${escapeHtml(formatNumber(total))}</span><span class="metric-recent">${escapeHtml(formatNumber(recent || 0))}<small>최근 24시간</small></span>`
+            : `<span class="metric-recent">${escapeHtml(formatNumber(recent || 0))}<small>최근 24시간</small></span>`;
     };
     pair("metric-alerts-24h", totals.alerts, stats.alerts_24h);
     pair("metric-level8-24h", totals.level_8_plus, stats.level_8_plus_24h);
@@ -1093,9 +1095,9 @@ async function initDashboard() {
     const windowNote = byId("metric-window");
     if (windowNote && data.window?.start && data.window?.end) {
         const stamp = (value) => new Date(value).toLocaleString("ko-KR", {
-            month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+            timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
         });
-        windowNote.textContent = `최근 ${data.window.hours || 24}시간 = ${stamp(data.window.start)} ~ ${stamp(data.window.end)} (이 브라우저 시간 기준, 대시보드를 연 시각까지)`;
+        windowNote.textContent = `최근 ${data.window.hours || 24}시간: ${stamp(data.window.start)} ~ ${stamp(data.window.end)} KST`;
     }
 
     const attackOnly = stats.level_8_plus_attack_24h;
@@ -1169,7 +1171,7 @@ function renderDashboardFlow(data) {
                 ${verdicts}
                 ${stage.detail ? `<span class="flow-detail">${escapeHtml(stage.detail)}</span>` : ""}
                 ${stage.id === "raw" ? flowSparkline(data.per_minute || []) : ""}
-                ${stage.extra?.deep_scan_calls ? `<span class="flow-detail">정밀 검사 분석 ${escapeHtml(formatNumber(stage.extra.deep_scan_calls))}건 별도</span>` : ""}
+                ${stage.extra?.deep_scan_calls ? `<span class="flow-detail">심층 점검 분석 ${escapeHtml(formatNumber(stage.extra.deep_scan_calls))}건 제외</span>` : ""}
             </a>
             ${stage.switch === "source" ? `<button type="button" class="flow-switch-link" data-flow-select="source">출처별로 보기 ↓</button>` : ""}
         </li>`;
@@ -1472,7 +1474,7 @@ async function loadDashboardCti() {
 const RT_DECISION_SHORT = {
     send: "전송", queued: "전송", disabled: "꺼짐", not_sent: "보내지 않음", skipped_no_token: "토큰 없음",
     skipped_not_live: "실데이터 아님", skipped_demo_result: "데모", skipped_no_runner_url: "주소 없음",
-    skipped_recursive_request: "정밀 검사 중 분석", skipped_no_tools: "도구 미지정",
+    skipped_recursive_request: "심층 점검 중 분석", skipped_no_tools: "도구 미지정",
 };
 
 // 대시보드 레드팀 목록: the latest analyses and where their evaluation stands.
@@ -3915,6 +3917,8 @@ const APPROVAL_VALUE_LABELS = {
     drop: "차단",
     reject: "거부",
     pass: "통과",
+    disable: "사용 중지",
+    inventory_draft: "룰 목록 초안",
     superseded: "대체됨",
     verified: "검증됨",
     passed: "통과",
@@ -4030,37 +4034,152 @@ function approvalDateValue(value) {
 function approvalDateLabel(value) {
     const timestamp = approvalDateValue(value);
     if (!timestamp) return "시각 불명";
-    return new Date(timestamp).toLocaleString("ko-KR", {
+    return `${new Date(timestamp).toLocaleString("ko-KR", {
+        timeZone: "Asia/Seoul",
         year: "numeric",
-        month: "short",
+        month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,
+    })} KST`;
+}
+
+// Some older actions stored their tag list as one JSON text that was later
+// split on commas: ['["HAW-KI"', '"Verified"]']. Rebuild real tag values.
+function cleanApprovalTags(value) {
+    let items = value;
+    if (typeof items === "string") {
+        try { items = JSON.parse(items); } catch { items = items.split(","); }
+    }
+    if (!Array.isArray(items)) return [];
+    return items.flatMap((item) => {
+        const text = String(item ?? "").trim();
+        if (text.startsWith("[")) {
+            try { return cleanApprovalTags(JSON.parse(text)); } catch { /* a fragment, cleaned below */ }
+        }
+        const bare = text.replace(/^[\s\["']+|[\s\]"']+$/g, "").trim();
+        return bare ? [bare] : [];
     });
+}
+
+function approvalTagLabel(value) {
+    const key = normalizeApprovalValue(value).toLowerCase().replace(/[\s-]+/g, "_");
+    return APPROVAL_VALUE_LABELS[key] || normalizeApprovalValue(value);
 }
 
 function approvalTags(action) {
     const payload = action?.payload && typeof action.payload === "object" ? action.payload : {};
     const mode = approvalMode(action);
-    const rawTags = Array.isArray(action?.tags) ? action.tags : [];
     const candidates = [
-        approvalLabel(action.type),
+        approvalTagLabel(action.type),
         approvalModeLabel(mode),
-        normalizeApprovalValue(payload.deployment) ? approvalLabel(payload.deployment) : "",
-        normalizeApprovalValue(payload.requested_action) ? approvalLabel(payload.requested_action) : "",
-        normalizeApprovalValue(payload.artifact) ? approvalLabel(payload.artifact) : "",
+        normalizeApprovalValue(payload.deployment) ? approvalTagLabel(payload.deployment) : "",
+        normalizeApprovalValue(payload.requested_action) ? approvalTagLabel(payload.requested_action) : "",
+        normalizeApprovalValue(payload.artifact) ? approvalTagLabel(payload.artifact) : "",
         normalizeApprovalValue(action.resubmitted_from) ? "재제출" : "",
-        ...rawTags.map(approvalLabel),
+        ...cleanApprovalTags(action?.tags).map(approvalTagLabel),
     ];
-    return [...new Set(candidates.filter(Boolean))];
+    // One tag per meaning: "Suricata 룰" and "suricata rule" are the same.
+    const seen = new Set();
+    return candidates.filter(Boolean).filter((tag) => {
+        const key = tag.toLowerCase().replace(/[\s_-]+/g, "");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+// Older and server-made records keep English titles and summaries. Show them
+// in Korean here; the stored record stays as it was.
+const APPROVAL_TEXT_KO = [
+    [/^Deterministic Suricata ([\d.]+) verification passed\.?\s*/i, "Suricata $1 검증 통과. "],
+    [/Save this proposal to the rule inventory before staging\.?\s*/i, "배포 전에 룰 목록에 저장하세요. "],
+    [/The live sensor is detection-only; blocking is not verified\.?\s*/i, "센서가 탐지 전용이라 차단은 확인하지 않았습니다. "],
+    [/Stage only after configuration validation, representative traffic testing, and false-positive review\.?\s*/i, "설정 검증, 대표 트래픽 시험, 오탐 검토 뒤 배포하세요. "],
+    [/^Superseded by (?:a newer|the current) staging action\.?$/i, "새 배포 요청으로 대체됨"],
+    [/^Rule inventory changed after staging\.?$/i, "요청 뒤 룰이 수정되어 대체됨"],
+    [/^Suricata ([\d.]+) syntax test$/i, "Suricata $1 문법 검사"],
+    [/^deterministic positive replay$/i, "탐지 재현 시험"],
+    [/^deterministic benign control replay$/i, "정상 트래픽 대조 시험"],
+];
+
+function approvalText(value) {
+    let text = normalizeApprovalValue(value);
+    APPROVAL_TEXT_KO.forEach(([pattern, replacement]) => {
+        text = text.replace(pattern, replacement);
+    });
+    return text.trim();
+}
+
+const APPROVAL_FIXED_TITLES = {
+    "review verified suricata rule": "검증된 Suricata 룰 제안",
+    "verified suricata rule proposal": "검증된 Suricata 룰 제안",
+    "review generated suricata rule": "생성된 Suricata 룰 검토",
+};
+
+function approvalTitle(action) {
+    const raw = normalizeApprovalValue(action?.title);
+    if (!raw) return approvalLabel(action?.type);
+    const deploy = raw.match(/^Deploy\s+(.+)$/i);
+    if (deploy) return `${deploy[1]} 배포`;
+    const disable = raw.match(/^Disable\s+(.+)$/i);
+    if (disable) return `${disable[1]} 사용 중지`;
+    return APPROVAL_FIXED_TITLES[raw.toLowerCase()] || raw;
+}
+
+const APPROVAL_VIEW_STATUSES = {
+    pending: ["pending_approval"],
+    approved: ["approved_staged", "submitted", "approved"],
+    rejected: ["rejected", "dispatch_failed", "verification_blocked", "failed"],
+    superseded: ["superseded"],
+};
+
+const APPROVAL_VIEW_LABELS = {
+    pending: "처리할 것",
+    approved: "승인됨",
+    rejected: "반려 · 실패",
+    superseded: "대체됨",
+    all: "전체",
+};
+
+function approvalView(action) {
+    const status = normalizeApprovalValue(action?.status).toLowerCase();
+    const match = Object.entries(APPROVAL_VIEW_STATUSES).find(([, list]) => list.includes(status));
+    return match ? match[0] : "other";
+}
+
+function approvalPayload(action) {
+    return action?.payload && typeof action.payload === "object" ? action.payload : {};
+}
+
+function approvalTarget(action) {
+    const payload = approvalPayload(action);
+    const parts = [payload.host, payload.interface].map(normalizeApprovalValue).filter(Boolean);
+    if (normalizeApprovalValue(action?.type).startsWith("suricata_")) {
+        const {sid, revision} = suricataRuleIdentifiers(action);
+        if (sid) parts.push(`SID ${sid} · rev ${revision}`);
+    }
+    if (!parts.length && normalizeApprovalValue(payload.agent_id)) parts.push(normalizeApprovalValue(payload.agent_id));
+    if (normalizeApprovalValue(payload.artifact)) parts.push(normalizeApprovalValue(payload.artifact));
+    return parts.join(" · ");
+}
+
+// Rule inventory requests store "host / interface · SID n" as the summary,
+// which the target line already shows.
+function approvalSummaryText(action) {
+    const summary = normalizeApprovalValue(action?.summary);
+    if (!summary || /^\S+\s*\/\s*\S+\s*·\s*SID\s*\d+$/i.test(summary)) return "";
+    return approvalText(summary);
 }
 
 function approvalSearchText(action) {
     return [
         action.id,
         action.title,
+        approvalTitle(action),
         action.summary,
+        approvalTarget(action),
         action.type,
         action.risk,
         action.status,
@@ -4081,15 +4200,18 @@ const APPROVAL_ENUM_KEYS = new Set(["deployment", "requested_action", "verificat
 function renderApprovalValue(value, key = "") {
     if (Array.isArray(value)) {
         return value.length
-            ? `<ul>${value.map((item) => `<li>${escapeHtml(typeof item === "object" ? JSON.stringify(item) : item)}</li>`).join("")}</ul>`
+            ? `<ul>${value.map((item) => `<li>${escapeHtml(typeof item === "object" ? JSON.stringify(item) : approvalText(item))}</li>`).join("")}</ul>`
             : `<span class="approval-empty-value">없음</span>`;
     }
     if (value && typeof value === "object") {
         // Machine records (DetectionSpec, verification) stay one click away.
-        return `<details class="approval-json-toggle"><summary>JSON 보기 · ${escapeHtml(Object.keys(value).length)}개 항목</summary><pre class="approval-json"><code>${escapeHtml(JSON.stringify(value, null, 2))}</code></pre></details>`;
+        return `<details class="approval-json-toggle"><summary>원본 보기 · ${escapeHtml(Object.keys(value).length)}개 항목</summary><pre class="approval-json"><code>${escapeHtml(JSON.stringify(value, null, 2))}</code></pre></details>`;
     }
     if (typeof value === "boolean") return `<span>${value ? "예" : "아니요"}</span>`;
     const text = normalizeApprovalValue(value);
+    if (String(key).toLowerCase() === "previous_state") {
+        return `<span title="${escapeHtml(text)}">${escapeHtml(ruleStateLabel(text))}</span>`;
+    }
     const label = APPROVAL_ENUM_KEYS.has(String(key).toLowerCase()) ? APPROVAL_VALUE_LABELS[text.toLowerCase()] : "";
     return label ? `<span title="${escapeHtml(text)}">${escapeHtml(label)}</span>` : `<span>${escapeHtml(text)}</span>`;
 }
@@ -4105,89 +4227,65 @@ function suricataRuleIdentifiers(action) {
     };
 }
 
-function renderApprovalPayload(action) {
-    const payload = action?.payload && typeof action.payload === "object" ? action.payload : {};
+function renderApprovalRule(action, editable) {
+    const payload = approvalPayload(action);
     const rule = normalizeApprovalValue(payload.rule);
-    const suricata = normalizeApprovalValue(action.type) === "suricata_rule" && Boolean(rule);
+    if (!rule) return "";
+    const suricata = normalizeApprovalValue(action.type).startsWith("suricata_");
     const identifiers = suricata ? suricataRuleIdentifiers(action) : null;
+    const pending = normalizeApprovalValue(action.status) === "pending_approval";
+    const editor = suricata && editable ? `
+        <div class="approval-rule-editor">
+            <label>
+                <span>SID</span>
+                <input class="approval-rule-sid" data-id="${escapeHtml(action.id)}"
+                    type="number" min="1000000" max="4294967295"
+                    value="${escapeHtml(identifiers.sid)}">
+            </label>
+            <label>
+                <span>개정 번호</span>
+                <input class="approval-rule-revision" data-id="${escapeHtml(action.id)}"
+                    type="number" min="1" max="65535"
+                    value="${escapeHtml(identifiers.revision)}">
+            </label>
+            ${pending ? `
+                <button class="button secondary small save-rule-identifiers"
+                    data-id="${escapeHtml(action.id)}" type="button">SID / rev 저장</button>
+            ` : ""}
+        </div>
+    ` : "";
+    return `
+        <section class="approval-action-display approval-rule-display">
+            <pre><code>${escapeHtml(rule)}</code></pre>
+            ${editor}
+        </section>
+    `;
+}
+
+function renderApprovalPayload(action) {
+    const payload = approvalPayload(action);
     const entries = Object.entries(payload).filter(([key]) => !["rule", "sid", "revision"].includes(key));
-    const sections = [];
-
-    if (rule) {
-        sections.push(`
-            <section class="approval-action-display approval-rule-display">
-                <div class="approval-display-title">
-                    <span class="approval-display-dot"></span>
-                    <strong>Suricata 룰</strong>
+    if (!entries.length) return `<p class="approval-empty-value">추가 정보 없음</p>`;
+    return `
+        <dl class="approval-payload-grid">
+            ${entries.map(([key, value]) => `
+                <div>
+                    <dt>${escapeHtml(approvalLabel(key))}</dt>
+                    <dd>${renderApprovalValue(value, key)}</dd>
                 </div>
-                <pre><code>${escapeHtml(rule)}</code></pre>
-                ${suricata ? `
-                    <div class="approval-rule-editor">
-                        <label>
-                            <span>SID</span>
-                            <input class="approval-rule-sid" data-id="${escapeHtml(action.id)}"
-                                type="number" min="1000000" max="4294967295"
-                                value="${escapeHtml(identifiers.sid)}">
-                        </label>
-                        <label>
-                            <span>개정 번호</span>
-                            <input class="approval-rule-revision" data-id="${escapeHtml(action.id)}"
-                                type="number" min="1" max="65535"
-                                value="${escapeHtml(identifiers.revision)}">
-                        </label>
-                        ${normalizeApprovalValue(action.status) === "pending_approval" ? `
-                            <button class="button secondary small save-rule-identifiers"
-                                data-id="${escapeHtml(action.id)}" type="button">
-                                SID / rev 저장
-                            </button>
-                        ` : ""}
-                    </div>
-                ` : ""}
-            </section>
-        `);
-    }
-
-    if (entries.length) {
-        sections.push(`
-            <section class="approval-action-display">
-                <div class="approval-display-title">
-                    <span class="approval-display-dot"></span>
-                    <strong>${suricata ? "룰 정보" : "조치 상세"}</strong>
-                </div>
-                <dl class="approval-payload-grid">
-                    ${entries.map(([key, value]) => `
-                        <div>
-                            <dt>${escapeHtml(approvalLabel(key))}</dt>
-                            <dd>${renderApprovalValue(value, key)}</dd>
-                        </div>
-                    `).join("")}
-                </dl>
-            </section>
-        `);
-    }
-
-    if (!sections.length) {
-        sections.push(`
-            <section class="approval-action-display">
-                <div class="approval-display-title">
-                    <span class="approval-display-dot"></span>
-                    <strong>조치</strong>
-                </div>
-                <p class="approval-empty-value">추가 조치 매개변수가 없습니다.</p>
-            </section>
-        `);
-    }
-
-    return sections.join("");
+            `).join("")}
+        </dl>
+    `;
 }
 
 function renderApprovalOutcome(action) {
     const parts = [];
-    if (normalizeApprovalValue(action.decision_note)) {
+    const note = approvalText(action.decision_note || action.superseded_reason);
+    if (note) {
         parts.push(`
             <div class="approval-outcome-row">
-                <strong>결정 메모</strong>
-                <span>${escapeHtml(action.decision_note)}</span>
+                <strong>${approvalView(action) === "superseded" ? "대체 사유" : "결정 메모"}</strong>
+                <span>${escapeHtml(note)}</span>
             </div>
         `);
     }
@@ -4218,88 +4316,128 @@ function renderApprovalOutcome(action) {
     return parts.length ? `<section class="approval-outcome">${parts.join("")}</section>` : "";
 }
 
-function detailedApprovalCard(action) {
-    const mode = approvalMode(action);
+function approvalMetaLine(action) {
+    const items = [
+        `<span>${escapeHtml(action.id)}</span>`,
+        `<span>요청 ${escapeHtml(approvalDateLabel(action.created_at))}</span>`,
+    ];
+    if (normalizeApprovalValue(action.decided_at)) items.push(`<span>결정 ${escapeHtml(approvalDateLabel(action.decided_at))}</span>`);
+    if (normalizeApprovalValue(action.resubmitted_from)) items.push(`<span>이전 요청 ${escapeHtml(action.resubmitted_from)}</span>`);
+    return `<div class="approval-time-list">${items.join("")}</div>`;
+}
+
+function approvalTagRow(action) {
+    const tags = approvalTags(action);
+    return tags.length
+        ? `<div class="approval-tag-list">${tags.map((tag) => `<span class="approval-tag"><span></span>${escapeHtml(tag)}</span>`).join("")}</div>`
+        : "";
+}
+
+function approvalChips(action) {
     const risk = normalizeApprovalValue(action.risk || "unknown").toLowerCase();
     const status = normalizeApprovalValue(action.status || "unknown").toLowerCase();
-    const tags = approvalTags(action);
-    const createdAt = approvalDateLabel(action.created_at);
-    const decidedAt = normalizeApprovalValue(action.decided_at)
-        ? approvalDateLabel(action.decided_at)
-        : "";
-    const pending = status === "pending_approval";
-
     return `
-        <article class="approval-card approval-card-detailed" data-action-id="${escapeHtml(action.id)}">
+        <span class="approval-risk-chip risk-${escapeHtml(risk)}"><span></span>위험도 ${escapeHtml(riskLabel(risk))}</span>
+        <span class="approval-status-chip status-${escapeHtml(status)}"><span></span>${escapeHtml(approvalStatusLabel(status))}</span>
+    `;
+}
+
+function approvalDetails(action) {
+    return `
+        <details class="approval-more">
+            <summary>세부 정보</summary>
+            ${approvalTagRow(action)}
+            ${renderApprovalPayload(action)}
+            ${approvalMetaLine(action)}
+        </details>
+    `;
+}
+
+function pendingApprovalCard(action) {
+    const mode = approvalMode(action);
+    const target = approvalTarget(action);
+    const summary = approvalSummaryText(action);
+    const rule = renderApprovalRule(action, true);
+    return `
+        <article class="approval-card approval-card-detailed approval-card-pending" data-action-id="${escapeHtml(action.id)}">
             <header class="approval-card-header">
                 <div class="approval-card-heading">
                     <span class="approval-mode-dot mode-${escapeHtml(mode)}"
                         title="${escapeHtml(approvalModeLabel(mode))}"
                         aria-label="${escapeHtml(approvalModeLabel(mode))}"></span>
                     <div>
-                        <span class="approval-action-id">${escapeHtml(action.id)}</span>
-                        <h3>${escapeHtml(action.title || approvalLabel(action.type))}</h3>
+                        <h3 title="${escapeHtml(action.title || "")}">${escapeHtml(approvalTitle(action))}</h3>
+                        <p class="approval-target">${escapeHtml(approvalModeLabel(mode))}${target ? ` · ${escapeHtml(target)}` : ""}</p>
                     </div>
                 </div>
-                <span class="approval-status-chip status-${escapeHtml(status)}">
-                    <span></span>${escapeHtml(approvalStatusLabel(status))}
-                </span>
+                <div class="approval-chip-row">${approvalChips(action)}</div>
             </header>
 
-            ${normalizeApprovalValue(action.summary) ? `<p class="approval-summary-text">${escapeHtml(action.summary)}</p>` : ""}
+            ${summary ? `<p class="approval-summary-text">${escapeHtml(summary)}</p>` : ""}
 
-            <div class="approval-card-meta">
-                <div class="approval-tag-list">
-                    ${tags.map((tag) => `<span class="approval-tag"><span></span>${escapeHtml(tag)}</span>`).join("")}
-                    <span class="approval-risk-chip risk-${escapeHtml(risk)}">
-                        <span></span>위험도: ${escapeHtml(riskLabel(risk))}
-                    </span>
-                </div>
-                <div class="approval-time-list">
-                    <span>생성 ${escapeHtml(createdAt)}</span>
-                    ${decidedAt ? `<span>결정 ${escapeHtml(decidedAt)}</span>` : ""}
-                    ${normalizeApprovalValue(action.resubmitted_from)
-                        ? `<span>이전 요청 ${escapeHtml(action.resubmitted_from)}</span>`
-                        : ""}
+            <div class="approval-decision-panel">
+                <label>
+                    <span>결정 메모</span>
+                    <input class="approval-decision-note" data-id="${escapeHtml(action.id)}"
+                        placeholder="사유 (선택)">
+                </label>
+                <div class="approval-actions">
+                    <button class="button danger small action-decision"
+                        data-id="${escapeHtml(action.id)}" data-decision="reject" type="button">반려</button>
+                    <button class="button primary small action-decision"
+                        data-id="${escapeHtml(action.id)}" data-decision="approve" type="button">승인</button>
                 </div>
             </div>
 
-            ${renderApprovalPayload(action)}
-            ${renderApprovalOutcome(action)}
-
-            ${pending ? `
-                <div class="approval-decision-panel">
-                    <label>
-                        <span>결정 메모</span>
-                        <input class="approval-decision-note" data-id="${escapeHtml(action.id)}"
-                            placeholder="사유 또는 검토 메모 (선택)">
-                    </label>
-                    <div class="approval-actions">
-                        <button class="button danger small action-decision"
-                            data-id="${escapeHtml(action.id)}" data-decision="reject" type="button">반려</button>
-                        <button class="button primary small action-decision"
-                            data-id="${escapeHtml(action.id)}" data-decision="approve" type="button">승인</button>
-                    </div>
-                </div>
-            ` : `
-                <div class="approval-resend-panel">
-                    <label>
-                        <span>재요청 메모</span>
-                        <input class="approval-resend-note" data-id="${escapeHtml(action.id)}"
-                            placeholder="재승인 요청 메모 (선택)">
-                    </label>
-                    <button class="button secondary small action-resend"
-                        data-id="${escapeHtml(action.id)}" type="button">
-                        승인 재요청
-                    </button>
-                </div>
-            `}
+            ${rule ? `<details class="approval-more" open><summary>룰 본문 · SID 수정</summary>${rule}</details>` : ""}
+            ${approvalDetails(action)}
         </article>
     `;
 }
 
+function finishedApprovalCard(action) {
+    const view = approvalView(action);
+    const resendable = view !== "superseded";
+    const target = approvalTarget(action);
+    const summary = approvalSummaryText(action);
+    const when = normalizeApprovalValue(action.decided_at || action.superseded_at || action.created_at);
+    const status = normalizeApprovalValue(action.status || "unknown").toLowerCase();
+    return `
+        <details class="approval-card approval-card-done" data-action-id="${escapeHtml(action.id)}">
+            <summary class="approval-done-row">
+                <span class="approval-status-chip status-${escapeHtml(status)}"><span></span>${escapeHtml(approvalStatusLabel(status))}</span>
+                <strong title="${escapeHtml(action.title || "")}">${escapeHtml(approvalTitle(action))}</strong>
+                <span class="approval-target">${escapeHtml(target)}</span>
+                <span class="approval-done-time">${escapeHtml(approvalDateLabel(when))}</span>
+            </summary>
+            <div class="approval-done-body">
+                ${summary ? `<p class="approval-summary-text">${escapeHtml(summary)}</p>` : ""}
+                ${renderApprovalOutcome(action)}
+                ${renderApprovalRule(action, resendable)}
+                ${approvalDetails(action)}
+                ${resendable ? `
+                    <div class="approval-resend-panel">
+                        <label>
+                            <span>재요청 메모</span>
+                            <input class="approval-resend-note" data-id="${escapeHtml(action.id)}"
+                                placeholder="메모 (선택)">
+                        </label>
+                        <button class="button secondary small action-resend"
+                            data-id="${escapeHtml(action.id)}" type="button">승인 재요청</button>
+                    </div>
+                ` : ""}
+            </div>
+        </details>
+    `;
+}
+
+function detailedApprovalCard(action) {
+    return approvalView(action) === "pending" ? pendingApprovalCard(action) : finishedApprovalCard(action);
+}
+
 const approvalWorkspaceState = {
     actions: [],
+    view: "",
 };
 
 const suricataRuleInventoryState = {
@@ -4382,24 +4520,57 @@ function filteredApprovalActions() {
 }
 
 function renderApprovalSummary(actions) {
-    const pending = actions.filter((action) => action.status === "pending_approval").length;
-    const approved = actions.filter((action) => ["approved_staged", "submitted"].includes(action.status)).length;
-    const rejected = actions.filter((action) => ["rejected", "dispatch_failed"].includes(action.status)).length;
-    byId("approval-count-pending").textContent = String(pending);
-    byId("approval-count-approved").textContent = String(approved);
-    byId("approval-count-rejected").textContent = String(rejected);
-    byId("approval-total-label").textContent = `조치 ${actions.length}건`;
+    const counts = {pending: 0, approved: 0, rejected: 0, superseded: 0};
+    actions.forEach((action) => {
+        const view = approvalView(action);
+        if (view in counts) counts[view] += 1;
+    });
+    Object.entries(counts).forEach(([view, count]) => {
+        byId(`approval-count-${view}`).textContent = String(count);
+    });
+    const all = byId("approval-count-all");
+    if (all) all.textContent = String(actions.length);
+    const total = byId("approval-total-label");
+    if (total) total.textContent = `조치 ${actions.length}건`;
+}
+
+function setApprovalView(view) {
+    approvalWorkspaceState.view = APPROVAL_VIEW_LABELS[view] ? view : "pending";
+    renderApprovalWorkspace();
 }
 
 function renderApprovalWorkspace() {
-    const actions = filteredApprovalActions();
+    const view = approvalWorkspaceState.view || "pending";
+    const matched = filteredApprovalActions();
+    const actions = view === "all" ? matched : matched.filter((action) => approvalView(action) === view);
     const container = byId("approval-list");
     container.classList.remove("loading-block");
-    container.innerHTML = actions.map(detailedApprovalCard).join("")
-        || `<div class="empty-state">선택한 필터와 일치하는 조치가 없습니다.</div>`;
 
-    const total = approvalWorkspaceState.actions.length;
-    byId("approval-results-label").textContent = `전체 ${total}건 중 ${actions.length}건 표시`;
+    let html = "";
+    if (view === "all") {
+        const open = actions.filter((action) => approvalView(action) === "pending");
+        const done = actions.filter((action) => approvalView(action) !== "pending");
+        html = open.map(detailedApprovalCard).join("");
+        if (done.length) {
+            html += `<p class="approval-list-divider">처리 끝난 요청 ${done.length}건</p>${done.map(detailedApprovalCard).join("")}`;
+        }
+    } else {
+        html = actions.map(detailedApprovalCard).join("");
+    }
+    container.innerHTML = html || (view === "pending"
+        ? `<div class="empty-state">처리할 승인 요청이 없습니다. <button class="button secondary small" type="button" data-approval-view="all">지난 기록 보기</button></div>`
+        : `<div class="empty-state">조건에 맞는 요청이 없습니다.</div>`);
+
+    document.querySelectorAll(".approval-view-tabs [data-approval-view]").forEach((button) => {
+        const active = button.dataset.approvalView === view;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    container.querySelectorAll("[data-approval-view]").forEach((button) => {
+        button.addEventListener("click", () => setApprovalView(button.dataset.approvalView));
+    });
+
+    byId("approval-results-label").textContent = `${APPROVAL_VIEW_LABELS[view]} ${actions.length}건`;
     wireApprovalDecisionButtons();
 }
 
@@ -4409,6 +4580,11 @@ async function loadApprovalWorkspace() {
     container.textContent = "승인 대기열을 불러오는 중…";
     const data = await api("/api/actions");
     approvalWorkspaceState.actions = Array.isArray(data.actions) ? data.actions : [];
+    // First visit: open on what needs a decision, or on the history when nothing does.
+    if (!approvalWorkspaceState.view) {
+        const hasPending = approvalWorkspaceState.actions.some((action) => approvalView(action) === "pending");
+        approvalWorkspaceState.view = hasPending ? "pending" : "all";
+    }
     refreshApprovalFilterOptions(approvalWorkspaceState.actions);
     renderApprovalSummary(approvalWorkspaceState.actions);
     renderApprovalWorkspace();
@@ -4520,15 +4696,81 @@ function initResponse() {
     byId("response-agent-form").addEventListener("submit", (e) => { e.preventDefault(); const params = new URLSearchParams({mode:"velociraptor_response", host:byId("response-host").value, incident:byId("response-incident").value, prompt:`원하는 결과: ${byId("response-outcome").value}\n증거: ${byId("response-evidence").value}`}); location.href = `/agent?${params}`; });
 }
 
+const RULE_CHECK_KO = {
+    "Rule length must be between 30 and 8000 characters.": "룰 길이는 30~8000자여야 합니다.",
+    "Rule must begin with an action and protocol, such as alert tcp.": "동작과 프로토콜로 시작해야 합니다 (예: alert tcp).",
+    "Rule options must be enclosed in parentheses.": "옵션을 괄호 ( ) 안에 넣어야 합니다.",
+    "Rule must include msg.": "msg 옵션이 필요합니다.",
+    "Rule must include a numeric sid.": "숫자 sid가 필요합니다.",
+    "Use a locally managed SID range to avoid vendor-rule collisions.": "기본 룰과 겹치지 않게 1000000 이상 SID를 쓰세요.",
+    "Rule should include rev.": "rev(개정 번호)를 넣는 것이 좋습니다.",
+    "Consider a flow direction/state constraint to reduce false positives.": "오탐을 줄이려면 flow 조건을 넣어 보세요.",
+    "The rule has no content or PCRE condition and may be overly broad.": "content나 pcre 조건이 없어 너무 넓게 잡힐 수 있습니다.",
+};
+
+const ruleEditorState = {validated: false, saved: false, staged: ""};
+
+function updateRuleSteps() {
+    const {validated, saved, staged} = ruleEditorState;
+    const current = staged ? "" : !validated ? "validate" : !saved ? "save" : "stage";
+    const done = {
+        write: Boolean(byId("rule-name")?.value.trim() && byId("rule-text")?.value.trim()) || validated,
+        validate: validated,
+        save: saved,
+        stage: Boolean(staged),
+    };
+    document.querySelectorAll("#rule-steps [data-rule-step]").forEach((item) => {
+        const step = item.dataset.ruleStep;
+        item.classList.toggle("is-done", done[step]);
+        item.classList.toggle("is-current", done.write ? step === current : step === "write");
+    });
+    document.querySelectorAll("[data-rule-step-button]").forEach((button) => {
+        const next = button.dataset.ruleStepButton === current;
+        button.classList.toggle("primary", next);
+        button.classList.toggle("secondary", !next);
+    });
+}
+
+function markRuleEditorChanged() {
+    ruleEditorState.validated = false;
+    ruleEditorState.saved = false;
+    ruleEditorState.staged = "";
+    updateRuleSteps();
+}
+
 async function validateRule() {
     const data = await api("/api/rules/validate", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({rule:byId("rule-text").value})});
-    const errors = data.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join(""); const warnings = data.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("");
-    byId("rule-validation").classList.remove("empty-state"); byId("rule-validation").innerHTML = `<div class="validation-block"><strong>${data.valid ? "기본 문법 검증을 통과했습니다" : "검증 실패"}</strong>${errors ? `<ul>${errors}</ul>` : ""}${warnings ? `<ul>${warnings}</ul>` : ""}<p class="muted">${escapeHtml(data.note)}</p></div>`;
+    const ko = (text) => RULE_CHECK_KO[text] || text;
+    const errors = data.errors.map((x) => `<li>${escapeHtml(ko(x))}</li>`).join("");
+    const warnings = data.warnings.map((x) => `<li>${escapeHtml(ko(x))}</li>`).join("");
+    const box = byId("rule-validation");
+    box.className = `validation-output ${data.valid ? "rule-check-ok" : "rule-check-bad"}`;
+    box.innerHTML = `<div class="validation-block"><strong>${data.valid ? "문법 통과" : "문법 오류"}</strong>${errors ? `<ul>${errors}</ul>` : ""}${warnings ? `<p class="muted">참고</p><ul>${warnings}</ul>` : ""}<p class="muted">형식만 확인합니다. 실제 센서 적용 전 suricata -T 확인이 필요합니다.</p></div>`;
+    ruleEditorState.validated = Boolean(data.valid);
+    if (!data.valid) ruleEditorState.saved = false;
+    updateRuleSteps();
     return data;
 }
 
+const RULE_SOURCE_LABELS = {
+    rule_editor: "직접 작성",
+    manual: "직접 작성",
+    verified: "검증된 제안",
+    agent: "AI 제안",
+    suricata_rule: "AI 제안",
+};
+
+const RULE_ACTION_LABELS = {alert: "탐지", drop: "차단", reject: "거부", pass: "통과"};
+
 function ruleInventoryLabel(value) {
     return approvalLabel(normalizeApprovalValue(value));
+}
+
+function ruleSourceLabel(value) {
+    const key = normalizeApprovalValue(value).toLowerCase();
+    if (RULE_SOURCE_LABELS[key]) return RULE_SOURCE_LABELS[key];
+    if (key.startsWith("agent")) return "AI 제안";
+    return ruleInventoryLabel(value);
 }
 
 // Display-only Korean labels for rule state values; the raw state is kept for filtering.
@@ -4650,16 +4892,12 @@ function filteredRuleInventory() {
 function ruleInventorySummary() {
     const counts = suricataRuleInventoryState.facets?.counts || {};
     return [
-        ["활성화됨", counts.enabled || 0, "state-active"],
-        ["비활성화됨", counts.disabled || 0, "state-disabled"],
+        ["사용함", counts.enabled || 0, "state-active"],
+        ["사용 안 함", counts.disabled || 0, "state-disabled"],
         ["적용 중", counts.active || 0, "state-active"],
         ["준비됨", counts.staged || 0, "state-staged"],
     ].map(([label, value, className]) => `
-        <div class="approval-summary-item">
-            <span class="approval-summary-dot ${className}"></span>
-            <strong>${escapeHtml(value)}</strong>
-            <span>${escapeHtml(label)}</span>
-        </div>
+        <span class="rule-stat"><span class="rule-db-dot ${className}"></span>${escapeHtml(label)} <strong>${escapeHtml(value)}</strong></span>
     `).join("");
 }
 
@@ -4667,13 +4905,16 @@ function ruleDatabaseCard(rule) {
     const tags = (Array.isArray(rule.tags) ? rule.tags : [])
         .map((tag) => `<span class="approval-tag">${escapeHtml(tag)}</span>`)
         .join("");
-    const updated = rule.updated_at
-        ? new Date(rule.updated_at).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
-        : "알 수 없음";
+    const updated = approvalDateLabel(rule.updated_at);
     const stateClass = ruleInventoryStateClass(rule.state);
-    const stageLabel = rule.enabled
-        ? "배포 승인 요청"
-        : "비활성화 승인 요청";
+    const stageLabel = rule.enabled ? "배포 승인 요청" : "사용 중지 승인 요청";
+    const action = normalizeApprovalValue(rule.action).toLowerCase();
+    const meta = [
+        `${rule.host} · ${rule.interface}`,
+        `${RULE_ACTION_LABELS[action] || rule.action} · ${normalizeApprovalValue(rule.protocol).toUpperCase()}`,
+        `SID ${rule.sid} · rev ${rule.revision}`,
+        rule.state === "disabled" ? "" : (rule.enabled ? "사용함" : "사용 안 함"),
+    ].filter(Boolean);
 
     return `
         <article class="rule-database-card" data-rule-id="${escapeHtml(rule.id)}">
@@ -4681,8 +4922,8 @@ function ruleDatabaseCard(rule) {
                 <div class="rule-database-title">
                     <span class="rule-db-dot ${stateClass}"></span>
                     <div>
-                        <span class="approval-card-id">${escapeHtml(rule.id)}</span>
                         <h3>${escapeHtml(rule.name)}</h3>
+                        <p class="rule-database-meta-line">${meta.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</p>
                     </div>
                 </div>
                 <span class="approval-status-chip ${stateClass}">
@@ -4690,42 +4931,32 @@ function ruleDatabaseCard(rule) {
                 </span>
             </header>
 
-            <p class="rule-database-description">${escapeHtml(rule.description || "설명 없음.")}</p>
-
-            <div class="approval-tag-row">
-                <span class="approval-tag">${escapeHtml(rule.host)}</span>
-                <span class="approval-tag">${escapeHtml(rule.interface)}</span>
-                <span class="approval-tag">${escapeHtml(rule.action)}</span>
-                <span class="approval-tag">${escapeHtml(rule.protocol)}</span>
-                <span class="approval-tag">${rule.enabled ? "활성화됨" : "비활성화됨"}</span>
-                ${tags}
-            </div>
+            ${normalizeApprovalValue(rule.description) ? `<p class="rule-database-description">${escapeHtml(rule.description)}</p>` : ""}
+            ${tags ? `<div class="approval-tag-row">${tags}</div>` : ""}
 
             <pre class="rule-database-code"><code>${escapeHtml(rule.rule)}</code></pre>
 
-            <dl class="rule-database-meta">
-                <div><dt>SID</dt><dd>${escapeHtml(rule.sid)}</dd></div>
-                <div><dt>개정 번호</dt><dd>${escapeHtml(rule.revision)}</dd></div>
-                <div><dt>출처</dt><dd>${escapeHtml(ruleInventoryLabel(rule.source))}</dd></div>
-                <div><dt>수정 시각</dt><dd>${escapeHtml(updated)}</dd></div>
-                ${rule.last_action_id
-                    ? `<div><dt>최근 조치</dt><dd>${escapeHtml(rule.last_action_id)}</dd></div>`
-                    : ""}
-            </dl>
+            <p class="rule-database-foot">
+                <span>${escapeHtml(ruleSourceLabel(rule.source))}</span>
+                <span>수정 ${escapeHtml(updated)}</span>
+                ${rule.last_action_id ? `<span>최근 요청 ${escapeHtml(rule.last_action_id)}</span>` : ""}
+                <span class="rule-database-id">${escapeHtml(rule.id)}</span>
+            </p>
 
             <footer class="rule-database-actions">
+                ${rule.state !== "active" ? `
+                    <button class="button ghost small rule-delete-button delete-rule-record"
+                        data-id="${escapeHtml(rule.id)}" type="button">삭제</button>
+                ` : ""}
+                <span class="rules-editor-spacer"></span>
                 <button class="button secondary small edit-rule-record"
                     data-id="${escapeHtml(rule.id)}" type="button">수정</button>
                 <button class="button secondary small toggle-rule-record"
                     data-id="${escapeHtml(rule.id)}" type="button">
                     ${rule.enabled ? "사용 안 함으로" : "사용함으로"}
                 </button>
-                <button class="button warning small stage-rule-record-card"
+                <button class="button primary small stage-rule-record-card"
                     data-id="${escapeHtml(rule.id)}" type="button">${escapeHtml(stageLabel)}</button>
-                ${rule.state !== "active" ? `
-                    <button class="button danger small delete-rule-record"
-                        data-id="${escapeHtml(rule.id)}" type="button">삭제</button>
-                ` : ""}
             </footer>
         </article>
     `;
@@ -4780,8 +5011,9 @@ function clearRuleEditor() {
     byId("rule-intent").value = "";
     byId("rule-enabled").checked = true;
     byId("rule-validation").className = "validation-output empty-state";
-    byId("rule-validation").textContent = "검증 결과가 여기에 표시됩니다.";
-    byId("save-rule-record").textContent = "룰 저장";
+    byId("rule-validation").textContent = "문법 검증 전";
+    byId("save-rule-record").textContent = "저장";
+    markRuleEditorChanged();
 }
 
 function editRuleRecord(id) {
@@ -4795,7 +5027,14 @@ function editRuleRecord(id) {
     byId("rule-intent").value = rule.description || "";
     byId("rule-text").value = rule.rule;
     byId("rule-enabled").checked = Boolean(rule.enabled);
-    byId("save-rule-record").textContent = "룰 수정";
+    byId("save-rule-record").textContent = "수정 저장";
+    // A stored rule passed validation when it was saved.
+    ruleEditorState.validated = true;
+    ruleEditorState.saved = true;
+    ruleEditorState.staged = "";
+    byId("rule-validation").className = "validation-output empty-state";
+    byId("rule-validation").textContent = `${rule.name} 불러옴 · 바꾸면 다시 검증합니다`;
+    updateRuleSteps();
     byId("rule-form").scrollIntoView({behavior: "smooth", block: "start"});
 }
 
@@ -4846,6 +5085,13 @@ async function stageRuleRecord(id) {
     });
     toast(`${result.action.id} 승인 요청을 올렸습니다.`);
     await loadRuleInventory();
+    if (!id || id === byId("rule-record-id").value) {
+        ruleEditorState.staged = result.action.id;
+        const box = byId("rule-validation");
+        box.className = "validation-output rule-check-ok";
+        box.innerHTML = `<div class="validation-block"><strong>승인 요청을 올렸습니다 (${escapeHtml(result.action.id)})</strong><p><a href="/actions">승인 대기열에서 보기 →</a></p></div>`;
+        updateRuleSteps();
+    }
 }
 
 async function toggleRuleRecord(id) {
@@ -4895,7 +5141,9 @@ function initRules() {
     });
     byId("refresh-rule-inventory")?.addEventListener("click", loadRuleInventory);
     byId("new-rule-record")?.addEventListener("click", clearRuleEditor);
-    byId("validate-rule").addEventListener("click", validateRule);
+    byId("rule-form").addEventListener("input", markRuleEditorChanged);
+    byId("validate-rule").addEventListener("click", () => validateRule().catch((error) => toast(error.message)));
+    updateRuleSteps();
     byId("ask-rule-agent").addEventListener("click", () => {
         const params = new URLSearchParams({
             mode: "suricata_rule",
@@ -4932,12 +5180,14 @@ async function initActions() {
         "approval-search",
         "approval-tag-filter",
         "approval-risk-filter",
-        "approval-status-filter",
         "approval-time-filter",
         "approval-sort",
     ];
     filterIds.forEach((id) => {
         byId(id)?.addEventListener(id === "approval-search" ? "input" : "change", renderApprovalWorkspace);
+    });
+    document.querySelectorAll(".approval-view-tabs [data-approval-view]").forEach((button) => {
+        button.addEventListener("click", () => setApprovalView(button.dataset.approvalView));
     });
     byId("clear-approval-filters")?.addEventListener("click", () => {
         byId("approval-filters")?.reset();
@@ -4995,7 +5245,32 @@ const AUDIT_LABELS = {
     auto_report_cycle_failed: "자동 보고서 실행 실패",
     auto_report_reviewed: "자동 보고서 검토",
     auto_report_run_requested: "자동 보고서 수동 실행",
+    auto_report_rescored: "자동 보고서 우선순위 재계산",
+    agent_tool_call: "AI 도구 호출",
+    agent_collection_review_created: "AI 수집 검토 요청 생성",
+    workspace_continued: "AI 작업공간에서 이어가기",
+    log_search_link: "로그 검색 바로가기",
+    log_search_direct: "로그 직접 검색",
+    redteam_deep_scan_requested: "레드팀 심층 점검 요청",
+    suricata_legacy_action_superseded: "Suricata 이전 요청 정리",
+    test_action_record_removed: "테스트 조치 기록 삭제",
+    velociraptor_collection_submitted: "Velociraptor 수집 제출",
+    velociraptor_collection_reviewed: "Velociraptor 수집 검토",
+    velociraptor_collection_decision: "Velociraptor 수집 승인 결정",
+    velociraptor_collection_cancel_requested: "Velociraptor 수집 취소 요청",
 };
+const AUDIT_GROUPS = [
+    ["로그인 · 계정", /^(login|logout|password|user_)/],
+    ["AI 분석", /^(agent|alert_analysis|evidence|analyst_feedback|workspace)/],
+    ["자동 보고서", /^auto_report/],
+    ["레드팀", /^redteam/],
+    ["조치 · 승인", /^(action_|test_action)/],
+    ["Suricata 룰", /^(suricata|rule_)/],
+    ["Velociraptor", /^velociraptor/],
+    ["로그 검색", /^(wazuh_log|log_search)/],
+];
+// Background count checks from the search page; noisy, so hidden unless asked for.
+const AUDIT_QUIET_TYPES = new Set(["wazuh_log_search_check"]);
 const AUDIT_TONE = {
     login_failed: "bad", auto_report_ai_failed: "bad", auto_report_fetch_failed: "bad", auto_report_cycle_failed: "bad",
     evidence_agent_failed: "bad", agent_processing_error: "bad", suricata_rule_verification_failed: "bad",
@@ -5031,6 +5306,21 @@ async function initAudit() {
     });
     const data = await api(`/api/audit?${params}`);
 
+    const fillTypes = (select, values) => {
+        if (!select) return;
+        const current = select.value;
+        const label = (value) => AUDIT_LABELS[value] || value;
+        const groups = AUDIT_GROUPS.map(([name, pattern]) => [name, values.filter((value) => pattern.test(value))]);
+        const grouped = new Set(groups.flatMap(([, items]) => items));
+        groups.push(["기타", values.filter((value) => !grouped.has(value))]);
+        select.innerHTML = `<option value="">전체</option>` + groups
+            .filter(([, items]) => items.length)
+            .map(([name, items]) => `<optgroup label="${escapeHtml(name)}">${items
+                .sort((a, b) => label(a).localeCompare(label(b), "ko"))
+                .map((value) => `<option value="${escapeHtml(value)}" title="${escapeHtml(value)}">${escapeHtml(label(value))}</option>`).join("")}</optgroup>`)
+            .join("");
+        select.value = values.includes(current) ? current : "";
+    };
     const fill = (select, values, label) => {
         if (!select) return;
         const current = select.value;
@@ -5038,7 +5328,7 @@ async function initAudit() {
             .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(label(value))}</option>`).join("");
         select.value = values.includes(current) ? current : "";
     };
-    fill(typeSelect, data.event_types || [], (value) => AUDIT_LABELS[value] ? `${AUDIT_LABELS[value]} (${value})` : value);
+    fillTypes(typeSelect, data.event_types || []);
     fill(actorSelect, data.actors || [], (value) => value);
 
     if (byId("audit-count")) {
@@ -5046,12 +5336,16 @@ async function initAudit() {
             ? `전체 ${formatNumber(data.total)}건 중 최근 ${formatNumber((data.events || []).length)}건`
             : `조건에 맞는 ${formatNumber(data.matched)}건 (전체 ${formatNumber(data.total)}건) 중 최근 ${formatNumber((data.events || []).length)}건`;
     }
+    const showQuiet = Boolean(typeSelect?.value) || Boolean(byId("audit-show-quiet")?.checked);
+    const events = (data.events || []).filter((event) => showQuiet || !AUDIT_QUIET_TYPES.has(event.event_type));
+    const hidden = (data.events || []).length - events.length;
+    if (byId("audit-count") && hidden) byId("audit-count").textContent += ` · 추천 검색 건수 확인 ${formatNumber(hidden)}건 숨김`;
     list.classList.remove("loading-block");
-    list.innerHTML = (data.events || []).map((event) => {
+    list.innerHTML = events.map((event) => {
         const actor = event.actor?.username || (event.actor?.kind === "system" ? "자동" : "");
         const summary = auditSummary(event.detail || {});
         return `<div class="audit-row audit-row-${AUDIT_TONE[event.event_type] || "plain"}">
-            <span class="audit-time">${escapeHtml(new Date(event.timestamp).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }))}</span>
+            <span class="audit-time">${escapeHtml(new Date(event.timestamp).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }))}</span>
             <strong class="audit-type" title="${escapeHtml(event.event_type)}">${escapeHtml(AUDIT_LABELS[event.event_type] || event.event_type)}</strong>
             <span class="audit-actor">${escapeHtml(actor || "—")}</span>
             <details class="audit-detail">
@@ -5068,7 +5362,7 @@ function initAuditPage() {
         event.preventDefault();
         initAudit();
     });
-    ["audit-type", "audit-actor"].forEach((id) => byId(id)?.addEventListener("change", initAudit));
+    ["audit-type", "audit-actor", "audit-show-quiet"].forEach((id) => byId(id)?.addEventListener("change", initAudit));
     return initAudit();
 }
 
