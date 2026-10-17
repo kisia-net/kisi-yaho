@@ -1504,7 +1504,10 @@ def api_status():
         ("wazuh_indexer", CONFIG["wazuh_indexer_url"], ""),
         ("wazuh_dashboard", CONFIG["wazuh_dashboard_internal_url"], "/api/status"),
         ("velociraptor", CONFIG["velociraptor_url"], ""),
-        ("suricata", CONFIG["suricata_ui_url"], ""),
+        # A Suricata UI (EveBox) when there is one; otherwise the sensor's
+        # deployment gateway, whose /health says whether Suricata is running.
+        ("suricata", CONFIG["suricata_ui_url"] or CONFIG["suricata_gateway_url"],
+         "" if CONFIG["suricata_ui_url"] else "/health"),
         # The runner's unauthenticated health check; no token is sent.
         ("redteam_runner", CONFIG["redteam_runner_url"], HEALTH_PATH),
     ]
