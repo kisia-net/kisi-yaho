@@ -17,6 +17,7 @@ HAW-KI 상태 ──GET /health──────────▶ 게이트웨이
 - 새 룰 묶음을 **먼저 `suricata -T`로 검사**합니다. 실패하면 파일을 바꾸지 않습니다.
 - 다시 읽기 요청이 실패하면 이전 파일(`.bak`)로 되돌립니다.
 - 같은 조치 ID가 다시 와도 두 번 적용하지 않습니다.
+- `HAWKI_GW_RELOAD_TIME_CMD`를 설정하면, 앞 변경의 룰 다시 읽기(ET 룰 5만 개면 2~3분)가 끝나기 전에 온 요청은 파일을 건드리지 않고 409(`reload_in_progress`)로 돌려보냅니다. HAW-KI에는 "전송 실패"로 남으니, 몇 분 뒤 룰 화면에서 다시 승인 요청을 올리면 됩니다.
 - `hawki.rules`만 다룹니다. ET Open 등 다른 룰 파일은 건드리지 않습니다.
 
 ## 1. 센서 준비 (한 번만)
@@ -33,7 +34,7 @@ grep -nE "default-rule-path|rule-files|unix-command" -A3 /etc/suricata/suricata.
 `/etc/suricata/suricata.yaml`에서 두 가지를 확인합니다.
 
 ```yaml
-default-rule-path: /var/lib/suricata/rules
+default-rule-path: /etc/suricata/rules   # 우리 센서: suricata.rules 는 /var/lib/... 로 가는 링크
 rule-files:
   - suricata.rules
   - hawki.rules          # ← 없으면 추가
@@ -43,10 +44,11 @@ unix-command:
 ```
 
 ```bash
-sudo touch /var/lib/suricata/rules/hawki.rules
-sudo suricata -T -c /etc/suricata/suricata.yaml      # 설정 검사
-sudo systemctl restart suricata                      # yaml 을 바꿨을 때만
-sudo suricatasc -c uptime                            # 소켓 응답 확인
+sudo install -m 644 /dev/null /etc/suricata/rules/hawki.rules
+# 시험 실행은 반드시 unix-command 를 끕니다. 켠 채로 -T 를 돌리면 운영 중인 Suricata 의 소켓을 덮어씁니다.
+sudo suricata --set unix-command.enabled=no -T -v -c /etc/suricata/suricata.yaml   # 설정 검사 (ET 룰이면 2~3분)
+sudo systemctl restart suricata                      # yaml 을 바꿨을 때만 (룰 적재 2~3분 동안 탐지 공백)
+sudo suricatasc -c uptime /var/run/suricata-command.socket   # 소켓 응답 확인
 ```
 
 ## 2. 게이트웨이 설치
@@ -88,14 +90,14 @@ ENABLE_RESPONSE_ACTIONS=true
 1. 사이드바 Suricata가 "연결됨"으로 바뀝니다.
 2. Suricata 룰 화면에서 `alert` 룰을 저장 → 승인 요청 → 승인 대기열에서 승인합니다.
 3. 상태가 "제출됨", 룰 상태가 "적용 중"으로 바뀌면 센서에 들어간 것입니다.
-4. 센서에서 `sudo cat /var/lib/suricata/rules/hawki.rules`로 확인합니다.
+4. 센서에서 `sudo cat /etc/suricata/rules/hawki.rules`로 확인합니다.
 5. 기록: `sudo tail /var/lib/hawki-gateway/applied.jsonl`, `journalctl -u hawki-suricata-gateway -n 50`.
 
 거부되면 승인 대기열에 "전송 실패"로 남고 룰 상태는 "오류"가 됩니다. 이유는 `applied.jsonl`의 `error`와 `detail`에 있습니다.
 
 ## Suricata를 컨테이너로 돌릴 때
 
-env 파일에서 `HAWKI_GW_TEST_CMD`, `HAWKI_GW_RELOAD_CMD`, `HAWKI_GW_STATUS_CMD`를 `docker exec <컨테이너>` 형태로 바꿉니다(예시는 env 파일에 있음). 이때 `HAWKI_GW_RULES_FILE`의 폴더가 컨테이너 안에서도 **같은 경로로** 보이도록 마운트되어 있어야 합니다.
+env 파일에서 `HAWKI_GW_TEST_CMD`, `HAWKI_GW_RELOAD_CMD`, `HAWKI_GW_STATUS_CMD`를 `docker exec <컨테이너>` 형태로 바꿉니다(예시는 env 파일에 있음). 값은 JSON 목록이고, systemd가 큰따옴표를 지우므로 **값 전체를 작은따옴표로** 감쌉니다. 이때 `HAWKI_GW_RULES_FILE`의 폴더가 컨테이너 안에서도 **같은 경로로** 보이도록 마운트되어 있어야 합니다.
 
 ## 시험
 

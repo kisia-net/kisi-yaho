@@ -20,6 +20,8 @@ TOKEN = "t" * 32
 PY = sys.executable
 OK = json.dumps([PY, "-c", "import sys; sys.exit(0)"])
 FAIL = json.dumps([PY, "-c", "import sys; sys.exit(1)"])
+# suricatasc answering NOK still exits 0.
+NOK = json.dumps([PY, "-c", 'print(\'{"message": "Reload already in progress", "return": "NOK"}\')'])
 # suricata -T stand-in: rejects any rule file containing BADRULE.
 TEST = json.dumps([PY, "-c", "import sys; sys.exit(1 if 'BADRULE' in open(sys.argv[1]).read() else 0)", "{rules}"])
 
@@ -123,6 +125,26 @@ class GatewayTests(GatewayBase):
             g.apply(action(id="ACT-20261017-EEEEEE", payload={"rule": newer, "revision": 3}))
         self.assertEqual(caught.exception.code, "reload_failed")
         self.assertEqual(self.rules_text(), before)
+
+    def test_nok_answer_from_suricatasc_counts_as_failure(self):
+        self.gateway().apply(action())
+        before = self.rules_text()
+        newer = RULE.replace("rev:2", "rev:3")
+        with self.assertRaises(gw.GatewayError) as caught:
+            self.gateway(HAWKI_GW_RELOAD_CMD=NOK).apply(action(id="ACT-20261017-FFFFFF", payload={"rule": newer, "revision": 3}))
+        self.assertEqual(caught.exception.code, "reload_failed")
+        self.assertEqual(self.rules_text(), before)
+
+    def test_change_waits_for_the_previous_reload(self):
+        self.gateway().apply(action())
+        old_reload = json.dumps([PY, "-c", 'print(\'{"message": [{"id": 0, "last_reload": "2000-01-01T00:00:00.000000+0000"}], "return": "OK"}\')'])
+        newer = RULE.replace("rev:2", "rev:3")
+        with self.assertRaises(gw.GatewayError) as caught:
+            self.gateway(HAWKI_GW_RELOAD_TIME_CMD=old_reload).apply(action(id="ACT-20261017-GGGGGG", payload={"rule": newer, "revision": 3}))
+        self.assertEqual(caught.exception.code, "reload_in_progress")
+        fresh_reload = json.dumps([PY, "-c", 'print(\'{"message": [{"id": 0, "last_reload": "2999-01-01T00:00:00.000000+0000"}], "return": "OK"}\')'])
+        result = self.gateway(HAWKI_GW_RELOAD_TIME_CMD=fresh_reload).apply(action(id="ACT-20261017-GGGGGG", payload={"rule": newer, "revision": 3}))
+        self.assertEqual(result["status"], "applied")
 
     def test_short_token_refuses_to_start(self):
         with self.assertRaises(SystemExit):

@@ -8264,6 +8264,183 @@ def api_verify_suricata_rule(rule_id: str):
     ), 200 if status == "passed" else 409
 
 
+# --- Editor rules through the verifier -------------------------------------
+# A rule written in the editor can be staged once the deterministic verifier
+# has compiled and replayed it. The verifier speaks DetectionSpec/v1 (HTTP
+# URI substring detection), so only rules of that shape are converted; the
+# rest get the reasons back instead of a silent fallback.
+
+EDITOR_SPEC_OPTIONS = {"msg", "flow", "http.uri", "content", "nocase", "sid", "rev"}
+
+
+def _split_rule_options(body: str) -> list[tuple[str, str]]:
+    options: list[tuple[str, str]] = []
+    current, quoted, escaped = "", False, False
+    for char in body:
+        if escaped:
+            current += char
+            escaped = False
+            continue
+        if char == "\\":
+            current += char
+            escaped = True
+            continue
+        if char == '"':
+            quoted = not quoted
+        if char == ";" and not quoted:
+            if current.strip():
+                key, _, value = current.strip().partition(":")
+                options.append((key.strip().lower(), value.strip()))
+            current = ""
+            continue
+        current += char
+    if current.strip():
+        key, _, value = current.strip().partition(":")
+        options.append((key.strip().lower(), value.strip()))
+    return options
+
+
+def detection_spec_from_rule_text(rule: str) -> tuple[dict[str, Any] | None, list[str], list[str]]:
+    """Return (spec, unsupported reason codes, change codes) for an editor rule."""
+    text = str(rule or "").strip()
+    match = re.match(r"^(alert|drop|reject|pass)\s+(\S+)\s+(.+?)\s*\((.*)\)\s*$", text, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None, ["unparseable"], []
+    action, protocol, header, body = match.groups()
+    action = action.lower()
+    unsupported: list[str] = []
+    changes: list[str] = []
+    if protocol.lower() != "http":
+        unsupported.append("protocol_not_http")
+
+    options = _split_rule_options(body)
+    keys = [key for key, _ in options]
+    extra = sorted({key for key in keys if key not in EDITOR_SPEC_OPTIONS})
+    if extra:
+        unsupported.append("unsupported_options:" + ",".join(extra))
+
+    contents = [index for index, key in enumerate(keys) if key == "content"]
+    uri_index = keys.index("http.uri") if "http.uri" in keys else -1
+    uri = ""
+    if len(contents) != 1:
+        unsupported.append("needs_one_content")
+    elif uri_index < 0 or contents[0] < uri_index:
+        unsupported.append("content_not_in_http_uri")
+    else:
+        raw = options[contents[0]][1]
+        if not (raw.startswith('"') and raw.endswith('"')) or len(raw) < 3:
+            unsupported.append("content_not_plain")
+        else:
+            uri = raw[1:-1]
+            if any(mark in uri for mark in ('|', '\\', '"', ';')):
+                unsupported.append("content_not_plain")
+
+    values = {key: value for key, value in options}
+    message = values.get("msg", "").strip()
+    if not (message.startswith('"') and message.endswith('"')) or len(message) < 3:
+        unsupported.append("needs_msg")
+    message = message[1:-1].strip()
+    try:
+        sid = int(values.get("sid", ""))
+        revision = int(values.get("rev", "1") or 1)
+    except ValueError:
+        sid, revision = 0, 1
+    if not 1_000_000 <= sid <= 4_294_967_295:
+        unsupported.append("needs_local_sid")
+
+    flow = {part.strip().lower() for part in values.get("flow", "").split(",") if part.strip()}
+    if flow - {"to_server", "established", "from_client"}:
+        unsupported.append("flow_not_to_server")
+
+    if unsupported:
+        return None, unsupported, []
+
+    if re.sub(r"\s+", " ", header.strip()) != "any any -> $HOME_NET $HTTP_PORTS":
+        changes.append("header_normalized")
+    if flow != {"to_server", "established"}:
+        changes.append("flow_normalized")
+    if "nocase" in keys:
+        changes.append("nocase_dropped")
+
+    spec = {
+        "schema": "hawki.detection-spec/v1",
+        "target_engine": "suricata",
+        "target_version": "6.0.4",
+        "sid": sid,
+        "rev": revision,
+        "message": message,
+        "requested_action": action,
+        "protocol": "http",
+        "source_address": "any",
+        "source_port": "any",
+        "direction": "->",
+        "destination_address": "$HOME_NET",
+        "destination_port": "$HTTP_PORTS",
+        "flow": ["to_server", "established"],
+        "uri_contains": uri,
+    }
+    return spec, [], changes
+
+
+@app.post("/api/rules/<rule_id>/verify-text")
+@role_required("analyst")
+def api_verify_editor_rule(rule_id: str):
+    db = get_db()
+    current = db.execute("SELECT * FROM suricata_rules WHERE id = ?", (rule_id,)).fetchone()
+    if current is None:
+        abort(404)
+
+    spec, unsupported, changes = detection_spec_from_rule_text(current["rule_text"])
+    if spec is None:
+        return jsonify({
+            "error": "This rule is outside what the verifier can test (HTTP URI content rules only).",
+            "code": "suricata_rule_not_verifiable",
+            "unsupported": unsupported,
+        }), 422
+
+    try:
+        compiled_rule, _verification, _compiled_hash = verified_suricata_material(spec)
+    except (requests.RequestException, ValueError) as exc:
+        append_audit("suricata_rule_verification_failed", {"rule_id": rule_id, "error": str(exc)[:1000]})
+        return jsonify({"error": "The verifier did not pass this rule.", "detail": str(exc)[:1000]}), 409
+
+    original = current["rule_text"]
+    db.execute(
+        """
+        UPDATE suricata_rules
+        SET rule_text = ?, action = ?, protocol = 'http', sid = ?, revision = ?,
+            updated_at = ?, updated_by = ?
+        WHERE id = ?
+        """,
+        (compiled_rule, spec["requested_action"], spec["sid"], spec["rev"],
+         utc_now_iso(), g.user["id"], rule_id),
+    )
+    db.commit()
+
+    try:
+        row, result, integration_errors = verify_and_persist_suricata_rule(rule_id, spec, actor_id=g.user["id"])
+    except (requests.RequestException, ValueError) as exc:
+        append_audit("suricata_rule_verification_failed", {"rule_id": rule_id, "error": str(exc)[:1000]})
+        return jsonify({"error": "The verifier did not pass this rule.", "detail": str(exc)[:1000]}), 409
+
+    append_audit("suricata_rule_verified", {
+        "rule_id": rule_id,
+        "sid": row["sid"],
+        "verification_status": row["verification_status"],
+        "integration_errors": integration_errors,
+        "source": "editor",
+        "changes": changes,
+    })
+    return jsonify({
+        "rule": suricata_rule_row(row),
+        "verification": result,
+        "integration_errors": integration_errors,
+        "changes": changes,
+        "original_rule": original,
+        "rule_changed": canonical_suricata_rule_sha256(original) != canonical_suricata_rule_sha256(compiled_rule),
+    }), 200 if row["verification_status"] == "passed" else 409
+
+
 def suricata_staging_verification_errors(
     rule: sqlite3.Row,
 ) -> list[str]:

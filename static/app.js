@@ -4683,15 +4683,38 @@ const RULE_CHECK_KO = {
     "The rule has no content or PCRE condition and may be overly broad.": "content나 pcre 조건이 없어 너무 넓게 잡힐 수 있습니다.",
 };
 
-const ruleEditorState = {validated: false, saved: false, staged: ""};
+const ruleEditorState = {validated: false, saved: false, verified: false, staged: ""};
+
+const RULE_VERIFY_REASONS = {
+    unparseable: "룰 형식을 읽을 수 없습니다",
+    protocol_not_http: "HTTP 룰만 시험할 수 있습니다",
+    needs_one_content: "content 조건이 정확히 하나여야 합니다",
+    content_not_in_http_uri: "content 가 http.uri 뒤에 있어야 합니다",
+    content_not_plain: "content 는 일반 문자열이어야 합니다 (|hex|, 이스케이프 불가)",
+    needs_msg: "msg 가 필요합니다",
+    needs_local_sid: "SID 는 1000000 이상이어야 합니다",
+    flow_not_to_server: "flow 는 to_server 방향만 됩니다",
+};
+const RULE_VERIFY_CHANGES = {
+    header_normalized: "주소·포트가 표준 형태(any any -> $HOME_NET $HTTP_PORTS)로 바뀌었습니다",
+    flow_normalized: "flow 가 to_server,established 로 바뀌었습니다",
+    nocase_dropped: "nocase 가 빠져 대소문자를 구분합니다",
+};
+
+function ruleVerifyReason(code) {
+    const [key, extra] = String(code).split(":");
+    if (key === "unsupported_options") return `시험할 수 없는 옵션: ${extra}`;
+    return RULE_VERIFY_REASONS[key] || code;
+}
 
 function updateRuleSteps() {
-    const {validated, saved, staged} = ruleEditorState;
-    const current = staged ? "" : !validated ? "validate" : !saved ? "save" : "stage";
+    const {validated, saved, verified, staged} = ruleEditorState;
+    const current = staged ? "" : !validated ? "validate" : !saved ? "save" : !verified ? "verify" : "stage";
     const done = {
         write: Boolean(byId("rule-name")?.value.trim() && byId("rule-text")?.value.trim()) || validated,
         validate: validated,
         save: saved,
+        verify: verified,
         stage: Boolean(staged),
     };
     document.querySelectorAll("#rule-steps [data-rule-step]").forEach((item) => {
@@ -4709,6 +4732,7 @@ function updateRuleSteps() {
 function markRuleEditorChanged() {
     ruleEditorState.validated = false;
     ruleEditorState.saved = false;
+    ruleEditorState.verified = false;
     ruleEditorState.staged = "";
     updateRuleSteps();
 }
@@ -4889,6 +4913,9 @@ function ruleDatabaseCard(rule) {
         `${RULE_ACTION_LABELS[action] || rule.action} · ${normalizeApprovalValue(rule.protocol).toUpperCase()}`,
         `SID ${rule.sid} · rev ${rule.revision}`,
         rule.state === "disabled" ? "" : (rule.enabled ? "사용함" : "사용 안 함"),
+        rule.verification_status === "passed" ? "검증 통과"
+            : rule.verification_status === "stale" ? "수정됨 · 다시 검증 필요"
+            : rule.verification_status === "failed" ? "검증 실패" : "검증 전",
     ].filter(Boolean);
 
     return `
@@ -4930,6 +4957,10 @@ function ruleDatabaseCard(rule) {
                     data-id="${escapeHtml(rule.id)}" type="button">
                     ${rule.enabled ? "사용 안 함으로" : "사용함으로"}
                 </button>
+                ${rule.enabled && rule.verification_status !== "passed" ? `
+                    <button class="button secondary small verify-rule-record-card"
+                        data-id="${escapeHtml(rule.id)}" type="button">검증기 검사</button>
+                ` : ""}
                 <button class="button primary small stage-rule-record-card"
                     data-id="${escapeHtml(rule.id)}" type="button">${escapeHtml(stageLabel)}</button>
             </footer>
@@ -4960,6 +4991,9 @@ function renderRuleInventory() {
     });
     container.querySelectorAll(".stage-rule-record-card").forEach((button) => {
         button.addEventListener("click", () => stageRuleRecord(button.dataset.id));
+    });
+    container.querySelectorAll(".verify-rule-record-card").forEach((button) => {
+        button.addEventListener("click", () => verifyRuleRecord(button.dataset.id).catch((error) => toast(error.message)));
     });
     container.querySelectorAll(".delete-rule-record").forEach((button) => {
         button.addEventListener("click", () => deleteRuleRecord(button.dataset.id));
@@ -5006,6 +5040,7 @@ function editRuleRecord(id) {
     // A stored rule passed validation when it was saved.
     ruleEditorState.validated = true;
     ruleEditorState.saved = true;
+    ruleEditorState.verified = rule.verification_status === "passed";
     ruleEditorState.staged = "";
     byId("rule-validation").className = "validation-output empty-state";
     byId("rule-validation").textContent = `${rule.name} 불러옴 · 바꾸면 다시 검증합니다`;
@@ -5045,6 +5080,48 @@ async function saveRuleRecord() {
     return result.rule;
 }
 
+async function verifyRuleRecord(id) {
+    let ruleId = id || byId("rule-record-id").value;
+    if (!ruleId) {
+        const saved = await saveRuleRecord();
+        ruleId = saved?.id || "";
+    }
+    if (!ruleId) return false;
+    const fromEditor = !id || id === byId("rule-record-id").value;
+    const box = byId("rule-validation");
+    if (fromEditor) {
+        box.className = "validation-output";
+        box.textContent = "검증기 시험 중… (탐지·정상 트래픽 재현)";
+    }
+    const response = await fetch(`/api/rules/${encodeURIComponent(ruleId)}/verify-text`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrfToken},
+        body: "{}",
+    });
+    const data = await response.json().catch(() => ({}));
+    await loadRuleInventory();
+    if (!response.ok) {
+        const reasons = (data.unsupported || []).map(ruleVerifyReason);
+        const html = `<div class="validation-block"><strong>${escapeHtml(data.error || "검증기 시험 실패")}</strong>${reasons.length ? `<ul>${reasons.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${data.detail ? `<p class="muted">${escapeHtml(String(data.detail).slice(0, 400))}</p>` : ""}${reasons.length ? `<p class="muted">이런 룰은 AI 분석 작업공간의 Suricata 룰 모드로 만들거나, 조건을 HTTP URI 포함 하나로 줄여 주세요.</p>` : ""}</div>`;
+        if (fromEditor) { box.className = "validation-output rule-check-bad"; box.innerHTML = html; }
+        toast(data.error || "검증기 시험 실패");
+        return false;
+    }
+    const verification = data.verification || {};
+    const changes = (data.changes || []).map((code) => RULE_VERIFY_CHANGES[code] || code);
+    if (fromEditor) {
+        if (data.rule_changed) byId("rule-text").value = data.rule.rule;
+        ruleEditorState.validated = true;
+        ruleEditorState.saved = true;
+        ruleEditorState.verified = true;
+        box.className = "validation-output rule-check-ok";
+        box.innerHTML = `<div class="validation-block"><strong>검증기 통과</strong><p>탐지 재현 ${escapeHtml(verification.positive_alert_count ?? "-")}건 · 정상 트래픽 경보 ${escapeHtml(verification.negative_alert_count ?? "-")}건</p>${changes.length ? `<p class="muted">검증기가 바꾼 점</p><ul>${changes.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</div>`;
+        updateRuleSteps();
+    }
+    toast(`${ruleId} 검증기 통과`);
+    return true;
+}
+
 async function stageRuleRecord(id) {
     let ruleId = id || byId("rule-record-id").value;
     if (!ruleId) {
@@ -5052,6 +5129,11 @@ async function stageRuleRecord(id) {
         ruleId = saved?.id || "";
     }
     if (!ruleId) return;
+    const current = suricataRuleInventoryState.rules.find((item) => item.id === ruleId);
+    // Deployment needs a verified rule; disabling one does not.
+    if (current?.enabled && current.verification_status !== "passed") {
+        if (!(await verifyRuleRecord(ruleId))) return;
+    }
 
     const result = await api(`/api/rules/${encodeURIComponent(ruleId)}/stage`, {
         method: "POST",
@@ -5130,6 +5212,13 @@ function initRules() {
         event.preventDefault();
         try {
             await saveRuleRecord();
+        } catch (error) {
+            toast(error.message);
+        }
+    });
+    byId("verify-rule-record")?.addEventListener("click", async () => {
+        try {
+            await verifyRuleRecord();
         } catch (error) {
             toast(error.message);
         }

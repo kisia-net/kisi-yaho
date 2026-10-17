@@ -21,6 +21,7 @@
                 <li data-rule-step="write">작성</li>
                 <li data-rule-step="validate">검증</li>
                 <li data-rule-step="save">저장</li>
+                <li data-rule-step="verify">검증기</li>
                 <li data-rule-step="stage">승인 요청</li>
             </ol>
 
@@ -78,6 +79,9 @@
                         type="button" data-rule-step-button="validate">문법 검증</button>
                     <button class="button secondary" id="save-rule-record"
                         type="submit" data-rule-step-button="save">저장</button>
+                    <button class="button secondary" id="verify-rule-record"
+                        type="button" data-rule-step-button="verify"
+                        title="검증기가 탐지·정상 트래픽을 재현해 시험합니다 (HTTP URI 포함 조건 룰)">검증기 검사</button>
                     <button class="button secondary" id="stage-rule-record"
                         type="button" data-rule-step-button="stage">승인 요청</button>
                 </div>

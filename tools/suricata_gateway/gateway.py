@@ -65,9 +65,16 @@ class Config:
         self.sensor_host = os.getenv("HAWKI_GW_SENSOR_HOST", "").strip()
         self.sensor_interface = os.getenv("HAWKI_GW_SENSOR_INTERFACE", "").strip()
         # {conf} and {rules} are filled in; no shell is ever used.
-        self.test_cmd = json_list("HAWKI_GW_TEST_CMD", ["suricata", "-T", "-c", "{conf}", "-S", "{rules}"])
+        # unix-command off: a test run must never take over the live daemon's socket.
+        self.test_cmd = json_list(
+            "HAWKI_GW_TEST_CMD",
+            ["suricata", "--set", "unix-command.enabled=no", "-T", "-c", "{conf}", "-S", "{rules}"],
+        )
         self.reload_cmd = json_list("HAWKI_GW_RELOAD_CMD", ["suricatasc", "-c", "ruleset-reload-nonblocking"])
         self.status_cmd = json_list("HAWKI_GW_STATUS_CMD", ["pidof", "suricata"])
+        # Optional. When set, a new change waits until Suricata has finished
+        # reloading the previous one (a full ET reload takes minutes).
+        self.reload_time_cmd = json_list("HAWKI_GW_RELOAD_TIME_CMD", [])
         self.command_timeout = int(os.getenv("HAWKI_GW_COMMAND_TIMEOUT", "60"))
         if not self.token or len(self.token) < 24:
             raise SystemExit("HAWKI_GW_TOKEN is required (24+ characters)")
@@ -121,6 +128,33 @@ def applied_before(conf: Config, action_id: str) -> dict[str, Any] | None:
         if item.get("action_id") == action_id and item.get("status") == "applied":
             return item
     return None
+
+
+def last_applied_at(conf: Config) -> datetime | None:
+    if not conf.state_file.exists():
+        return None
+    latest = None
+    for line in conf.state_file.read_text(encoding="utf-8").splitlines():
+        try:
+            item = json.loads(line)
+            if item.get("status") == "applied":
+                latest = datetime.fromisoformat(item["applied_at"])
+        except (ValueError, KeyError, TypeError):
+            continue
+    return latest
+
+
+def last_reload_at(conf: Config) -> datetime | None:
+    """Suricata's own record of when the last rule reload finished."""
+    if not conf.reload_time_cmd:
+        return None
+    try:
+        result = run(conf.reload_time_cmd, conf)
+        body = json.loads(result.stdout)
+        stamp = body["message"][0]["last_reload"]
+        return datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S.%f%z")
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, IndexError, TypeError):
+        return None
 
 
 def record(conf: Config, entry: dict[str, Any]) -> None:
@@ -191,6 +225,13 @@ class Gateway:
             previous = applied_before(self.conf, action_id)
             if previous:
                 return {**previous, "repeated": True}
+            applied, reloaded = last_applied_at(self.conf), last_reload_at(self.conf)
+            if applied and reloaded and reloaded < applied:
+                raise GatewayError(
+                    409, "reload_in_progress",
+                    "Suricata is still reloading the previous change; try again in a few minutes.",
+                    f"last change {applied.isoformat()}, last finished reload {reloaded.isoformat()}",
+                )
             path = self.conf.rules_file
             rules = read_rules(path)
             operation = "deploy" if action_type == "suricata_rule" else "disable"
@@ -224,7 +265,10 @@ class Gateway:
 
             try:
                 reloaded = run(self.conf.reload_cmd, self.conf)
-                reload_ok, reload_detail = reloaded.returncode == 0, tail(reloaded)
+                reload_detail = tail(reloaded)
+                # suricatasc exits 0 even when Suricata answers NOK (for example
+                # "reload already in progress"), so read the answer as well.
+                reload_ok = reloaded.returncode == 0 and '"NOK"' not in reload_detail and not reload_detail.startswith("Error")
             except (OSError, subprocess.TimeoutExpired) as exc:
                 reload_ok, reload_detail = False, str(exc)
             if not reload_ok:

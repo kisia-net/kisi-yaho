@@ -5794,7 +5794,7 @@ html[data-theme="light"] .src-5 { fill: #e87ba4; background: #e87ba4; }
 
 /* 2026-10-16 Suricata 룰: 순서 표시, 한 줄 통계, 짧은 카드 */
 .rule-steps {
-    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px;
     margin: 0; padding: 12px 14px 0; list-style: none; counter-reset: rule-step;
 }
 .rule-steps li {
@@ -5868,3 +5868,4 @@ html[data-theme] .rule-database-actions .button.rule-delete-button:hover { borde
 .cti-match-table .cti-num { text-align: right; font-variant-numeric: tabular-nums; }
 .cti-match-table code { font-size: 12.5px; }
 .cti-more { margin: 6px 0 0; font-size: 12px; }
+.rules-editor-actions { flex-wrap: wrap; }
