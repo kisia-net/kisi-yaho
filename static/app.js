@@ -3926,19 +3926,19 @@ const APPROVAL_VALUE_LABELS = {
 };
 // Reasons the Suricata deployment gateway gives (tools/suricata_gateway).
 const GATEWAY_FAILURES = {
-    reload_in_progress: "센서가 앞 변경을 적용하는 중이에요. 2~3분 뒤 Suricata 룰 화면에서 다시 승인 요청을 올려 주세요.",
-    test_failed: "센서의 suricata -T 검사에서 거절됐어요. 룰을 고쳐 다시 검증해 주세요.",
-    test_unavailable: "센서에서 suricata -T 검사를 실행하지 못했어요. 센서 상태를 확인해 주세요.",
-    reload_failed: "센서가 룰 다시 읽기를 받지 않아 이전 상태로 되돌렸어요. 잠시 뒤 다시 승인 요청을 올려 주세요.",
-    action_not_allowed: "센서는 탐지 전용이라 alert 룰만 적용할 수 있어요.",
-    wrong_host: "이 센서가 아닌 다른 호스트를 대상으로 한 요청이에요.",
-    wrong_interface: "이 센서의 인터페이스와 다른 요청이에요.",
-    sid_mismatch: "룰 안의 sid와 요청의 SID가 달라요.",
-    rev_mismatch: "룰 안의 rev와 요청의 개정 번호가 달라요.",
-    bad_rule: "룰 형식이 센서 기준에 맞지 않아요 (한 줄, 8000자 이하).",
-    unauthorized: "센서 게이트웨이 토큰이 맞지 않아요. 서버 설정을 확인해 주세요.",
-    unreachable: "센서 게이트웨이에 연결하지 못했어요. 게이트웨이 실행과 보안 그룹을 확인해 주세요.",
-    unreachable_timeout: "센서 게이트웨이가 응답하지 않아요. 센서 상태를 확인해 주세요.",
+    reload_in_progress: "센서 룰 적용 중 · 2~3분 뒤 다시 요청",
+    test_failed: "센서 suricata -T 거절",
+    test_unavailable: "센서 suricata -T 실행 실패",
+    reload_failed: "센서 다시 읽기 실패 · 이전 상태로 복구",
+    action_not_allowed: "탐지 전용 센서 · alert만 가능",
+    wrong_host: "다른 센서 대상",
+    wrong_interface: "다른 인터페이스 대상",
+    sid_mismatch: "룰 sid와 SID 불일치",
+    rev_mismatch: "룰 rev와 개정 번호 불일치",
+    bad_rule: "룰 형식 오류 (한 줄, 8000자 이하)",
+    unauthorized: "게이트웨이 토큰 불일치",
+    unreachable: "게이트웨이 연결 실패",
+    unreachable_timeout: "게이트웨이 응답 없음",
 };
 
 function gatewayFailureText(result) {
@@ -4420,7 +4420,7 @@ function finishedApprovalCard(action) {
             <summary class="approval-done-row">
                 <span class="approval-status-chip status-${escapeHtml(status)}"><span></span>${escapeHtml(approvalStatusLabel(status))}</span>
                 <strong title="${escapeHtml(action.title || "")}">${escapeHtml(approvalTitle(action))}</strong>
-                <span class="approval-target">${escapeHtml(gatewayFailureText(action.dispatch_result) ? "센서 적용 안 됨 · 펼쳐서 이유 보기" : target)}</span>
+                <span class="approval-target">${escapeHtml(gatewayFailureText(action.dispatch_result) ? `센서 적용 안 됨 · ${gatewayFailureText(action.dispatch_result)}` : target)}</span>
                 <span class="approval-done-time">${escapeHtml(approvalDateLabel(when))}</span>
             </summary>
             <div class="approval-done-body">
@@ -4724,24 +4724,24 @@ const RULE_CHECK_KO = {
 const ruleEditorState = {validated: false, saved: false, verified: false, staged: ""};
 
 const RULE_VERIFY_REASONS = {
-    unparseable: "룰 형식을 읽을 수 없습니다",
-    protocol_not_http: "HTTP 룰만 시험할 수 있습니다",
-    needs_one_content: "content 조건이 정확히 하나여야 합니다",
-    content_not_in_http_uri: "content 가 http.uri 뒤에 있어야 합니다",
-    content_not_plain: "content 는 일반 문자열이어야 합니다 (|hex|, 이스케이프 불가)",
-    needs_msg: "msg 가 필요합니다",
-    needs_local_sid: "SID 는 1000000 이상이어야 합니다",
-    flow_not_to_server: "flow 는 to_server 방향만 됩니다",
+    unparseable: "룰 형식 오류",
+    protocol_not_http: "HTTP 아님",
+    needs_one_content: "content 1개 필요",
+    content_not_in_http_uri: "content가 http.uri에 없음",
+    content_not_plain: "content에 hex·이스케이프 불가",
+    needs_msg: "msg 없음",
+    needs_local_sid: "SID 1000000 이상 필요",
+    flow_not_to_server: "flow는 to_server만",
 };
 const RULE_VERIFY_CHANGES = {
-    header_normalized: "주소·포트가 표준 형태(any any -> $HOME_NET $HTTP_PORTS)로 바뀌었습니다",
-    flow_normalized: "flow 가 to_server,established 로 바뀌었습니다",
-    nocase_dropped: "nocase 가 빠져 대소문자를 구분합니다",
+    header_normalized: "주소·포트 → any any -> $HOME_NET $HTTP_PORTS",
+    flow_normalized: "flow → to_server,established",
+    nocase_dropped: "nocase 제외 (대소문자 구분)",
 };
 
 function ruleVerifyReason(code) {
     const [key, extra] = String(code).split(":");
-    if (key === "unsupported_options") return `시험할 수 없는 옵션: ${extra}`;
+    if (key === "unsupported_options") return `지원 안 되는 옵션: ${extra}`;
     return RULE_VERIFY_REASONS[key] || code;
 }
 
@@ -5129,7 +5129,7 @@ async function verifyRuleRecord(id) {
     const box = byId("rule-validation");
     if (fromEditor) {
         box.className = "validation-output";
-        box.textContent = "검증기 시험 중… (탐지·정상 트래픽 재현)";
+        box.textContent = "검증기 시험 중…";
     }
     const response = await fetch(`/api/rules/${encodeURIComponent(ruleId)}/verify-text`, {
         method: "POST",
@@ -5140,7 +5140,7 @@ async function verifyRuleRecord(id) {
     await loadRuleInventory();
     if (!response.ok) {
         const reasons = (data.unsupported || []).map(ruleVerifyReason);
-        const html = `<div class="validation-block"><strong>${escapeHtml(data.error || "검증기 시험 실패")}</strong>${reasons.length ? `<ul>${reasons.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${data.detail ? `<p class="muted">${escapeHtml(String(data.detail).slice(0, 400))}</p>` : ""}${reasons.length ? `<p class="muted">이런 룰은 AI 분석 작업공간의 Suricata 룰 모드로 만들거나, 조건을 HTTP URI 포함 하나로 줄여 주세요.</p>` : ""}</div>`;
+        const html = `<div class="validation-block"><strong>${escapeHtml(data.error || "검증기 시험 실패")}</strong>${reasons.length ? `<ul>${reasons.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${data.detail ? `<p class="muted">${escapeHtml(String(data.detail).slice(0, 400))}</p>` : ""}</div>`;
         if (fromEditor) { box.className = "validation-output rule-check-bad"; box.innerHTML = html; }
         toast(data.error || "검증기 시험 실패");
         return false;
@@ -5153,7 +5153,7 @@ async function verifyRuleRecord(id) {
         ruleEditorState.saved = true;
         ruleEditorState.verified = true;
         box.className = "validation-output rule-check-ok";
-        box.innerHTML = `<div class="validation-block"><strong>검증기 통과</strong><p>탐지 재현 ${escapeHtml(verification.positive_alert_count ?? "-")}건 · 정상 트래픽 경보 ${escapeHtml(verification.negative_alert_count ?? "-")}건</p>${changes.length ? `<p class="muted">검증기가 바꾼 점</p><ul>${changes.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</div>`;
+        box.innerHTML = `<div class="validation-block"><strong>검증기 통과</strong><p>탐지 재현 ${escapeHtml(verification.positive_alert_count ?? "-")}건 · 정상 트래픽 경보 ${escapeHtml(verification.negative_alert_count ?? "-")}건</p>${changes.length ? `<p class="muted">바뀐 점</p><ul>${changes.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</div>`;
         updateRuleSteps();
     }
     toast(`${ruleId} 검증기 통과`);
