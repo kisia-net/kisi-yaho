@@ -5859,3 +5859,12 @@ html[data-theme] .metric-card strong .metric-recent { color: var(--text); }
 html[data-theme] .rule-database-actions .button.rule-delete-button { border-color: transparent; background: transparent; color: var(--danger); }
 html[data-theme] .rule-database-actions .button.rule-delete-button:hover { border-color: var(--danger); }
 #dashboard-cti { align-self: start; }
+/* 대시보드 CTI: 실제로 들어온 등재 주소 표 */
+.cti-match-head { margin: 4px 0 8px; }
+.cti-match-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cti-match-table th { padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-weight: 600; text-align: left; }
+.cti-match-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); }
+.cti-match-table tr:last-child td { border-bottom: 0; }
+.cti-match-table .cti-num { text-align: right; font-variant-numeric: tabular-nums; }
+.cti-match-table code { font-size: 12.5px; }
+.cti-more { margin: 6px 0 0; font-size: 12px; }
