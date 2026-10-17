@@ -149,7 +149,7 @@ REVIEW_NOTE_CODES: dict[str, str] = {
     "No evidence entry cited an event id.": "no_citations",
 }
 REVIEW_NOTES_KO: dict[str, str] = {
-    "no_contradictory_evidence": "반대 증거가 보고되지 않았습니다. 모델이 반대 증거를 찾지 않은 것인지, 실제로 없는 것인지 확인해 주세요.",
+    "no_contradictory_evidence": "반대 증거 없음 · 모델이 찾지 않았을 수도 있습니다.",
     "no_citations": "어떤 증거 항목도 이벤트 ID를 인용하지 않았습니다.",
 }
 

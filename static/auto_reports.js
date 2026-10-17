@@ -46,6 +46,12 @@
         priority_P4: "우선순위 P4",
         threat_intel_match: "위협 인텔리전스 일치",
     };
+    const FACTOR_VALUE_LABELS = {
+        critical: "치명", high: "높음", medium: "중간", low: "낮음",
+        internet_facing: "인터넷 노출", dmz: "DMZ", partner_facing: "협력사 노출", internal: "내부망", isolated: "격리망",
+        restricted: "제한", confidential: "기밀", secret: "비밀", public: "공개",
+        malicious: "악성", suspicious: "의심", benign: "정상", unknown: "알 수 없음",
+    };
     const FACTOR_LABELS = {
         wazuh_rule_level: "Wazuh 룰 레벨",
         source_severity: "원본 심각도",
@@ -164,12 +170,15 @@
             state.dataset.state = !settings.enabled ? "off" : (worker.running ? "on" : "stale");
 
             const bands = (settings.bands || []).join("·") || "P1·P2";
-            root.querySelector("[data-policy]").textContent =
-                `선정 기준: Wazuh 레벨 ${settings.min_level ?? 8} 이상 AND (우선순위 ${bands} 또는 위협 인텔리전스 일치) · `
-                + `같은 룰·출발지·호스트는 ${Math.round((settings.group_seconds || 600) / 60)}분 안에 한 보고서로 묶음 · `
-                + `AI 분석 시간당 최대 ${settings.max_ai_per_hour ?? 20}건 · `
-                + ((settings.exclude_groups || []).includes("vulnerability-detector") ? "CVE 취약점 경보는 제외(호스트 화면에서 확인) · " : "")
-                + `제안 조치는 자동 실행·자동 대기열 등록 없음 · 레드팀 전송 ${settings.forward_redteam ? "켜짐" : "꺼짐"}`;
+            root.querySelector("[data-policy-short]").textContent =
+                `선정 기준: 레벨 ${settings.min_level ?? 8} 이상 + (${bands} 또는 위협 인텔리전스 일치)`;
+            root.querySelector("[data-policy]").innerHTML = [
+                `같은 룰·출발지·호스트는 ${Math.round((settings.group_seconds || 600) / 60)}분 안에 한 보고서로 묶음`,
+                `AI 분석 시간당 최대 ${settings.max_ai_per_hour ?? 20}건`,
+                (settings.exclude_groups || []).includes("vulnerability-detector") ? "CVE 취약점 경보 제외 (호스트 화면에서 확인)" : "",
+                "제안 조치는 자동 실행하지 않음",
+                `레드팀 전송 ${settings.forward_redteam ? "켜짐" : "꺼짐"}`,
+            ].filter(Boolean).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
             const runNow = root.querySelector("[data-run-now]");
             if (runNow) runNow.hidden = !(isAdmin && settings.enabled);
         }
@@ -254,13 +263,13 @@
 
             const factorRows = (priority.factors || []).map((f) => [
                 escapeHtml(FACTOR_LABELS[f.factor] || f.factor),
-                escapeHtml(Array.isArray(f.value) ? f.value.join(", ") : (f.value ?? "—")),
+                escapeHtml((Array.isArray(f.value) ? f.value : [f.value ?? "—"]).map((item) => FACTOR_VALUE_LABELS[String(item).toLowerCase()] || item).join(", ")),
                 `<strong>${Number(f.points) < 0 ? "" : "+"}${escapeHtml(f.points ?? 0)}</strong>`,
             ]);
             const assetRows = (report.assets || []).map((a) => [
                 escapeHtml(a.hostname || a.id || "—"),
-                escapeHtml(a.criticality || "—"),
-                escapeHtml(a.exposure || "—"),
+                escapeHtml(FACTOR_VALUE_LABELS[String(a.criticality || "").toLowerCase()] || a.criticality || "—"),
+                escapeHtml(FACTOR_VALUE_LABELS[String(a.exposure || "").toLowerCase()] || a.exposure || "—"),
                 escapeHtml(a.business_service || "—"),
             ]);
             const intelRows = (report.threat_intelligence || []).map((row) => [

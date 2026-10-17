@@ -5723,3 +5723,144 @@ html[data-theme="light"] .src-5 { fill: #e87ba4; background: #e87ba4; }
 .alert-legend { margin: 0; padding: 10px 16px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--line); line-height: 2; }
 .alert-legend .prio-chip, .alert-legend .sev-chip { margin: 0 2px; }
 .alert-legend-sep { margin: 0 8px; }
+
+/* 2026-10-16 승인 대기열: 상태별 보기, 처리 끝난 요청은 한 줄로 */
+.approval-view-tabs { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.approval-view-tabs .approval-summary-item {
+    width: 100%; border: 0; border-right: 1px solid var(--line); border-radius: 0;
+    background: transparent; font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+    box-shadow: inset 0 -2px 0 transparent;
+}
+.approval-view-tabs .approval-summary-item:last-child { border-right: 0; }
+.approval-view-tabs .approval-summary-item:hover { background: var(--panel); }
+.approval-view-tabs .approval-summary-item.is-active {
+    background: var(--panel); color: var(--text); font-weight: 650; box-shadow: inset 0 -2px 0 var(--accent);
+}
+.approval-view-tabs .approval-summary-item strong { font-size: 15px; }
+.approval-summary-dot.status-superseded { background: var(--subtle); }
+.approval-summary-dot.status-all { background: transparent; border: 1.5px solid var(--subtle); }
+.approval-filterbar.approval-filterbar-compact {
+    grid-template-columns: minmax(220px, 420px) minmax(0, 1fr); align-items: start;
+}
+.filter-more { align-self: end; min-width: 0; }
+.filter-more > summary {
+    display: inline-flex; align-items: center; height: 34px; cursor: pointer;
+    color: var(--muted); font-size: 13px; list-style-position: inside;
+}
+.filter-more[open] > summary { color: var(--text); }
+.filter-more-grid {
+    display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)) auto;
+    gap: 9px; align-items: end; margin-top: 6px;
+}
+.filter-more-grid label { display: grid; gap: 5px; min-width: 0; }
+.filter-more-grid label > span { color: var(--muted); font-size: 12px; }
+.filter-more-grid select { min-width: 0; height: 34px; padding: 6px 8px; font-size: 13px; }
+.approval-list { grid-template-columns: minmax(0, 1fr); }
+.approval-card-pending { border-left: 3px solid #e4cf64; }
+.approval-card-pending h3 { margin: 0; }
+.approval-target { margin: 2px 0 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.approval-chip-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.approval-card-pending .approval-decision-panel { margin-top: 10px; }
+.approval-more { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.approval-more > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.approval-more[open] > summary { margin-bottom: 8px; color: var(--text); }
+.approval-more .approval-tag-list { margin-bottom: 8px; }
+.approval-more .approval-time-list { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--subtle); font-size: 12px; }
+.approval-card.approval-card-done {
+    margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+}
+.approval-done-row {
+    display: grid; grid-template-columns: auto minmax(0, 1.4fr) minmax(0, 1fr) auto;
+    gap: 12px; align-items: center; padding: 9px 13px; cursor: pointer; list-style: none; font-size: 13.5px;
+}
+.approval-done-row::-webkit-details-marker { display: none; }
+.approval-done-row::after { content: "▸"; color: var(--subtle); grid-column: 5; }
+.approval-card-done[open] > .approval-done-row::after { content: "▾"; }
+.approval-done-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.approval-done-row .approval-target { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.approval-done-time { color: var(--subtle); font-size: 12.5px; white-space: nowrap; }
+.approval-card-done[open] > .approval-done-row { border-bottom: 1px solid var(--line); }
+.approval-done-body { padding: 10px 13px 13px; display: grid; gap: 8px; }
+.approval-done-body .approval-summary-text { margin: 0; }
+.approval-status-chip.status-superseded > span { background: var(--subtle); }
+.approval-list-divider {
+    margin: 10px 0 0; padding-top: 8px; border-top: 1px dashed var(--line);
+    color: var(--muted); font-size: 13px; font-weight: 600;
+}
+.approval-list .empty-state .button { margin-left: 8px; }
+@media (max-width: 1100px) {
+    .approval-view-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .approval-filterbar.approval-filterbar-compact, .filter-more-grid { grid-template-columns: 1fr; }
+    .approval-done-row { grid-template-columns: auto minmax(0, 1fr); }
+    .approval-done-row .approval-target, .approval-done-time { grid-column: 2; }
+}
+.approval-done-row { grid-template-columns: 150px minmax(0, 1.4fr) minmax(0, 1fr) auto; }
+.approval-done-row .approval-status-chip { justify-self: start; }
+.approval-rule-display .approval-rule-editor { grid-template-columns: 180px 130px auto; justify-content: start; }
+
+/* 2026-10-16 Suricata 룰: 순서 표시, 한 줄 통계, 짧은 카드 */
+.rule-steps {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;
+    margin: 0; padding: 12px 14px 0; list-style: none; counter-reset: rule-step;
+}
+.rule-steps li {
+    counter-increment: rule-step; display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; border-radius: 6px; background: var(--panel-2);
+    color: var(--subtle); font-size: 12.5px; white-space: nowrap;
+}
+.rule-steps li::before {
+    content: counter(rule-step); display: inline-grid; place-items: center;
+    width: 18px; height: 18px; border-radius: 50%; border: 1px solid currentColor; font-size: 11px;
+}
+.rule-steps li.is-done { color: var(--success, #15803d); }
+.rule-steps li.is-done::before { content: "✓"; background: currentColor; color: #fff; border-color: transparent; }
+.rule-steps li.is-current { color: var(--accent); background: var(--accent-soft, rgba(37,99,235,.08)); font-weight: 650; }
+.rules-editor-actions { align-items: center; }
+.rules-editor-spacer { flex: 1 1 auto; }
+.rules-editor-form .validation-output { margin: 0; min-height: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.rules-editor-form .validation-output.empty-state { color: var(--subtle); text-align: left; }
+.rules-editor-form .validation-output ul { margin: 4px 0; padding-left: 18px; }
+.rules-editor-form .validation-output p { margin: 4px 0 0; }
+.rule-check-ok { border-left: 3px solid var(--success, #15803d) !important; }
+.rule-check-bad { border-left: 3px solid var(--danger) !important; }
+.rule-enabled-control small { font-weight: 400; }
+.rule-inventory-stats {
+    display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 14px;
+    border-bottom: 1px solid var(--line); background: var(--panel-2); font-size: 13px; color: var(--muted);
+}
+.rule-stat { display: inline-flex; align-items: center; gap: 6px; }
+.rule-stat strong { color: var(--text); }
+.rule-inventory-filterbar.rule-inventory-filterbar-compact {
+    grid-template-columns: minmax(200px, 1.6fr) minmax(110px, .7fr) minmax(110px, .7fr) auto; align-items: end;
+}
+.rule-inventory-filterbar-compact .filter-more { grid-column: 1 / -1; align-self: start; }
+.rule-inventory-filterbar-compact .filter-more:not([open]) { grid-column: auto; align-self: end; }
+.rule-database-list { grid-template-columns: minmax(0, 1fr); }
+.rule-database-meta-line { display: flex; flex-wrap: wrap; gap: 2px 0; margin: 3px 0 0; color: var(--muted); font-size: 12.5px; }
+.rule-database-meta-line span + span::before { content: "·"; margin: 0 7px; color: var(--subtle); }
+.rule-database-foot { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0 13px 4px; color: var(--subtle); font-size: 12px; }
+.rule-database-id { margin-left: auto; }
+.rule-database-actions { display: flex; align-items: center; gap: 6px; }
+.button.rule-delete-button { color: var(--danger); border-color: transparent; }
+.button.rule-delete-button:hover { border-color: var(--danger); }
+@media (max-width: 900px) {
+    .rule-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .rule-inventory-filterbar.rule-inventory-filterbar-compact { grid-template-columns: 1fr; }
+}
+.rule-database-actions .button.rule-delete-button { border-color: transparent; background: transparent; color: var(--danger); }
+.rule-database-actions .button.rule-delete-button:hover { border-color: var(--danger); }
+.rule-steps li.is-done::before { background: var(--success, #15803d); color: #fff; }
+/* KPI: 전체는 작게 위에, 최근 24시간은 크게 */
+.metric-card .metric-total { display: block; margin-bottom: 2px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.metric-card .metric-recent { display: block; }
+.metric-card .metric-recent small { margin-left: 6px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.investigation-more > summary { cursor: pointer; padding: 8px 12px; color: var(--accent); font-size: 13px; }
+.audit-quiet-toggle { display: inline-flex !important; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; color: var(--muted); font-size: 13px; }
+.auto-report-policy > summary { cursor: pointer; } .auto-report-policy ul { margin: 6px 0 0; padding-left: 18px; }
+.metric-card strong .metric-recent { display: block; font-size: 28px; font-weight: 700; line-height: 1.2; color: var(--text); }
+.metric-card strong .metric-recent small { display: inline; margin-left: 6px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.metric-card strong .metric-total { display: block; font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.table-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+html[data-theme] .metric-card strong .metric-recent { color: var(--text); }
+html[data-theme] .rule-database-actions .button.rule-delete-button { border-color: transparent; background: transparent; color: var(--danger); }
+html[data-theme] .rule-database-actions .button.rule-delete-button:hover { border-color: var(--danger); }

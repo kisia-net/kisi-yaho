@@ -702,7 +702,7 @@
             return;
         }
 
-        target.innerHTML = events.map((event) => {
+        const renderEvent = (event) => {
             const data = event.data || {};
             const rule = event.rule || {};
 
@@ -756,7 +756,14 @@
                         : ""}
                 </div>
             `;
-        }).join("");
+        };
+
+        // First five in view; the rest one click away.
+        const shown = events.slice(0, 5).map(renderEvent).join("");
+        const rest = events.slice(5);
+        target.innerHTML = shown + (rest.length
+            ? `<details class="investigation-more"><summary>나머지 ${rest.length}건 더 보기</summary>${rest.map(renderEvent).join("")}</details>`
+            : "");
     }
 
     const REVIEW_LABELS = { unreviewed: "검토 전", investigating: "추가 조사", confirmed: "확인됨", false_positive: "오탐" };

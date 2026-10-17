@@ -30,8 +30,15 @@
         model_higher: ["모델이 우선순위보다 높게 판단", "xai-warn"],
         unknown: ["비교할 값 없음", "xai-muted"],
     };
-    const SEVERITY = { info: "정보", low: "낮음", medium: "보통", high: "높음", critical: "치명" };
-    const CONFIDENCE = { low: "낮음", medium: "보통", high: "높음" };
+    const SEVERITY = { info: "정보", low: "낮음", medium: "중간", high: "높음", critical: "치명" };
+    const CONFIDENCE = { low: "낮음", medium: "중간", high: "높음" };
+    const FACTOR_VALUE = {
+        critical: "치명", high: "높음", medium: "중간", low: "낮음",
+        internet_facing: "인터넷 노출", dmz: "DMZ", partner_facing: "협력사 노출", internal: "내부망", isolated: "격리망",
+        restricted: "제한", confidential: "기밀", secret: "비밀", public: "공개",
+        malicious: "악성", suspicious: "의심", benign: "정상", unknown: "알 수 없음",
+    };
+    const factorValue = (value) => (Array.isArray(value) ? value : [value ?? "—"]).map((item) => FACTOR_VALUE[String(item).toLowerCase()] || item).join(", ");
     const VERDICT = { confirmed: "확인됨", false_positive: "오탐", investigating: "추가 조사" };
     const MATCH = { same_rule: "같은 룰", same_host: "같은 호스트", same_source_ip: "같은 출발지" };
     const FACTOR = {
@@ -199,7 +206,7 @@
         const maxPoints = Math.max(1, ...factors.map((f) => Number(f.points) || 0));
         const factorRows = factors.map((factor) => {
             const points = Number(factor.points) || 0;
-            const value = Array.isArray(factor.value) ? factor.value.join(", ") : (factor.value ?? "—");
+            const value = factorValue(factor.value);
             return `<li><span class="xai-factor-name">${escapeHtml(FACTOR[factor.factor] || factor.factor)}</span>
                 <span class="xai-factor-bar"><i data-width="${Math.round((Math.max(0, points) / maxPoints) * 100)}"></i></span>
                 <span class="xai-factor-points">${points < 0 ? "" : "+"}${escapeHtml(points)}</span>
