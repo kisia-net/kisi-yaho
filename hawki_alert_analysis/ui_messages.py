@@ -60,6 +60,8 @@ ERROR_MESSAGES_KO: dict[str, str] = {
     "Rule SID or identifier already exists.": "같은 SID 또는 식별자의 룰이 이미 있습니다.",
     "Rule identifier or SID conflicted during inventory persistence.": "룰 목록에 저장하는 중 식별자 또는 SID가 충돌했습니다.",
     "Rule must pass current deterministic verification before it can be staged.": "승인 요청 전에 현재 기준의 룰 검증을 통과해야 합니다.",
+    "This rule is outside what the verifier can test (HTTP URI content rules only).": "검증기로 시험할 수 없는 룰입니다 (HTTP URI 포함 조건만 지원).",
+    "The verifier did not pass this rule.": "검증기 시험을 통과하지 못했습니다.",
     "SID and revision can only be changed for Suricata rule actions.": "SID와 rev는 Suricata 룰 조치에서만 바꿀 수 있습니다.",
     "Suricata action failed the inventory verification boundary.": "Suricata 조치가 룰 목록 검증 단계를 통과하지 못했습니다.",
     "Suricata action failed the verified inventory boundary.": "Suricata 조치가 검증된 룰 목록 기준을 통과하지 못했습니다.",
