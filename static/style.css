@@ -4733,13 +4733,7 @@ html[data-theme="light"] .feature-card > span { color: var(--accent); }
 .sev-low      { --sev-fg: var(--sev-low);      --sev-bg: var(--sev-low-bg); }
 .sev-info     { --sev-fg: var(--sev-info);     --sev-bg: var(--sev-info-bg); }
 
-/* A coloured left edge lets the eye find the red rows before reading. */
-.alert-row.sev-row,
-.dashboard-alert-row.sev-row { box-shadow: inset 3px 0 0 var(--sev-fg, transparent); }
-.alert-row.sev-row.sev-low,
-.alert-row.sev-row.sev-info,
-.dashboard-alert-row.sev-row.sev-low,
-.dashboard-alert-row.sev-row.sev-info { box-shadow: none; }
+/* No coloured left edge: the P and severity chips already carry it. */
 
 /* --- Alert queue ---------------------------------------------------------- */
 .alert-row.alert-row-head {
@@ -5864,3 +5858,4 @@ html[data-theme="light"] .src-5 { fill: #e87ba4; background: #e87ba4; }
 html[data-theme] .metric-card strong .metric-recent { color: var(--text); }
 html[data-theme] .rule-database-actions .button.rule-delete-button { border-color: transparent; background: transparent; color: var(--danger); }
 html[data-theme] .rule-database-actions .button.rule-delete-button:hover { border-color: var(--danger); }
+#dashboard-cti { align-self: start; }

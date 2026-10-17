@@ -1118,7 +1118,6 @@ async function initDashboard() {
     loadWazuhVisuals();
     loadDashboardFlow();
     loadDashboardCti();
-    loadDashboardRedteam();
 }
 
 // 처리 흐름 (10주차 멘토링 1번): one card per stage, from collection to the
@@ -1469,46 +1468,6 @@ async function loadDashboardCti() {
             `<a href="/alerts?range=24h&amp;category=all&amp;q=${encodeURIComponent(item.ip)}">${escapeHtml(item.ip)}</a> ${escapeHtml(item.verdict === "malicious" ? "악성" : "의심")} · 경보 ${escapeHtml(formatNumber(item.alerts))}`).join(" / ");
         target.innerHTML = `최근 24시간 <strong>경보 ${escapeHtml(formatNumber(matches.alerts))}건</strong>이 CTI 등재 주소 ${escapeHtml(matches.addresses)}곳에서 옴 · ${top}`;
     }
-}
-
-const RT_DECISION_SHORT = {
-    send: "전송", queued: "전송", disabled: "꺼짐", not_sent: "보내지 않음", skipped_no_token: "토큰 없음",
-    skipped_not_live: "실데이터 아님", skipped_demo_result: "데모", skipped_no_runner_url: "주소 없음",
-    skipped_recursive_request: "심층 점검 중 분석", skipped_no_tools: "도구 미지정",
-};
-
-// 대시보드 레드팀 목록: the latest analyses and where their evaluation stands.
-async function loadDashboardRedteam() {
-    const root = byId("dashboard-redteam");
-    if (!root) return;
-    let data;
-    try {
-        data = await api("/api/redteam/recent");
-    } catch (error) {
-        root.querySelector("[data-rt-summary]").textContent = `확인 실패 · ${error.message}`;
-        return;
-    }
-    const setup = !data.enabled ? "자동평가 꺼짐" : (!data.token_configured ? "토큰 없음" : "자동평가 켜짐");
-    root.querySelector("[data-rt-summary]").textContent = setup;
-    const items = data.items || [];
-    root.querySelector("[data-rt-recent]").innerHTML = items.slice(0, 5).map((item) => {
-        const dispatch = item.dispatch;
-        let outcome;
-        const VERDICT = { passed: ["통과", "cti-ok"], failed: ["실패", "cti-bad"], error: ["오류", "cti-bad"] };
-        if (dispatch?.dispatched && VERDICT[item.verdict]) outcome = `<span class="cti-state ${VERDICT[item.verdict][1]}">${VERDICT[item.verdict][0]}</span>`;
-        else if (dispatch?.dispatched) outcome = `<span class="cti-state cti-muted">검증 중</span>`;
-        else if (dispatch) outcome = `<span class="cti-state cti-bad">거부 ${escapeHtml(dispatch.status_code || dispatch.error || "")}</span>`;
-        else if (String(item.redteam || "").startsWith("error")) outcome = `<span class="cti-state cti-bad" title="${escapeHtml(item.redteam)}">전송 오류</span>`;
-        else outcome = `<span class="cti-state cti-muted"${item.redteam === "not_sent" ? ' title="자동 보고서 레드팀 전송이 꺼져 있던 때의 분석"' : ""}>${escapeHtml(RT_DECISION_SHORT[item.redteam] || item.redteam || "—")}</span>`;
-        const expandable = item.analysis_id && (item.redteam === "send" || item.redteam === "queued");
-        return `<li class="rt-recent-item">
-            <div class="rt-recent-row">
-                <a href="/alerts/${encodeURIComponent(item.alert_id || "")}">${escapeHtml(shortTime(item.timestamp))} · 경보 ${escapeHtml(String(item.alert_id || "").slice(0, 12))}</a>
-                <span>${outcome}${expandable ? ` <button type="button" class="rt-expand" aria-expanded="false" data-rt-analysis="${escapeHtml(item.analysis_id)}" data-rt-decision="${escapeHtml(item.redteam)}">결과 보기</button>` : ""}</span>
-            </div>
-            ${expandable ? `<div class="rt-recent-detail" hidden></div>` : ""}
-        </li>`;
-    }).join("") || `<li class="muted">아직 LLM 분석 기록 없음</li>`;
 }
 
 // One handler for every row: opens the evaluation under the row and asks
