@@ -1,0 +1,18 @@
+[Unit]
+Description=HAW-KI Suricata rule deployment gateway
+After=network-online.target suricata.service
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/hawki/suricata-gateway.env
+ExecStart=/usr/bin/python3 /opt/hawki-gateway/gateway.py
+Restart=on-failure
+RestartSec=5
+# suricata -T and suricatasc need root on a packaged install.
+User=root
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
