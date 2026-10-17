@@ -11,9 +11,14 @@
                     </svg>
                     <span>Suricata 룰 편집기</span>
                 </h2>
-                <button id="new-rule-record" class="button secondary small"
-                    type="button" title="편집기 비우고 새로 작성">새 룰</button>
+                <div class="rule-edit-tools" id="rule-edit-tools" hidden>
+                    <button id="copy-rule-record" class="button secondary small"
+                        type="button" title="같은 내용, 새 SID로 새 룰">복사본</button>
+                    <button id="new-rule-record" class="button secondary small"
+                        type="button" title="수정 그만두고 새 룰">새 룰</button>
+                </div>
             </div>
+            <p class="rule-edit-mode" id="rule-edit-mode">새 룰 작성</p>
 
             <ol class="rule-steps" id="rule-steps" aria-label="룰 등록 순서">
                 <li data-rule-step="write">작성</li>

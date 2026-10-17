@@ -5060,7 +5060,49 @@ function clearRuleEditor() {
     byId("rule-validation").className = "validation-output empty-state";
     byId("rule-validation").textContent = "문법 검증 전";
     byId("save-rule-record").textContent = "저장";
+    // Back to the page's example rule, so the editor visibly starts over.
+    byId("rule-text").value = byId("rule-text").defaultValue;
     markRuleEditorChanged();
+    byId("rule-form").scrollIntoView({behavior: "smooth", block: "start"});
+    byId("rule-name").focus({preventScroll: true});
+    setRuleEditMode(null);
+}
+
+// The editor is either writing a new rule or changing a stored one; say which,
+// because 저장 overwrites the stored rule in the second case.
+function setRuleEditMode(rule) {
+    const tools = byId("rule-edit-tools");
+    const label = byId("rule-edit-mode");
+    if (tools) tools.hidden = !rule;
+    if (!label) return;
+    label.classList.toggle("is-editing", Boolean(rule));
+    label.textContent = rule ? `수정 중 · ${rule.name} (SID ${rule.sid})` : "새 룰 작성";
+}
+
+function nextLocalSid() {
+    const used = new Set(suricataRuleInventoryState.rules.map((item) => Number(item.sid)));
+    let sid = Math.max(9900000, ...used) + 1;
+    while (used.has(sid)) sid += 1;
+    return sid;
+}
+
+function copyRuleRecord() {
+    const id = byId("rule-record-id").value;
+    const rule = suricataRuleInventoryState.rules.find((item) => item.id === id);
+    if (!rule) return;
+    const sid = nextLocalSid();
+    byId("rule-record-id").value = "";
+    byId("rule-name").value = `${rule.name} 복사본`;
+    byId("rule-text").value = byId("rule-text").value
+        .replace(/\bsid\s*:\s*\d+\s*;/i, `sid:${sid};`)
+        .replace(/\brev\s*:\s*\d+\s*;/i, "rev:1;");
+    byId("save-rule-record").textContent = "저장";
+    markRuleEditorChanged();
+    setRuleEditMode(null);
+    byId("rule-edit-mode").textContent = `새 룰 작성 · ${rule.name} 복사 (SID ${sid})`;
+    byId("rule-validation").className = "validation-output empty-state";
+    byId("rule-validation").textContent = "문법 검증 전";
+    byId("rule-name").focus();
 }
 
 function editRuleRecord(id) {
@@ -5075,6 +5117,7 @@ function editRuleRecord(id) {
     byId("rule-text").value = rule.rule;
     byId("rule-enabled").checked = Boolean(rule.enabled);
     byId("save-rule-record").textContent = "수정 저장";
+    setRuleEditMode(rule);
     // A stored rule passed validation when it was saved.
     ruleEditorState.validated = true;
     ruleEditorState.saved = true;
@@ -5236,6 +5279,7 @@ function initRules() {
     });
     byId("refresh-rule-inventory")?.addEventListener("click", loadRuleInventory);
     byId("new-rule-record")?.addEventListener("click", clearRuleEditor);
+    byId("copy-rule-record")?.addEventListener("click", copyRuleRecord);
     byId("rule-form").addEventListener("input", markRuleEditorChanged);
     byId("validate-rule").addEventListener("click", () => validateRule().catch((error) => toast(error.message)));
     updateRuleSteps();
