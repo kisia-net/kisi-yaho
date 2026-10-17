@@ -228,7 +228,10 @@ class Gateway:
 
             try:
                 reloaded = run(self.conf.reload_cmd, self.conf)
-                reload_ok, reload_detail = reloaded.returncode == 0, tail(reloaded)
+                reload_detail = tail(reloaded)
+                # suricatasc exits 0 even when Suricata answers NOK (for example
+                # "reload already in progress"), so read the answer as well.
+                reload_ok = reloaded.returncode == 0 and '"NOK"' not in reload_detail and not reload_detail.startswith("Error")
             except (OSError, subprocess.TimeoutExpired) as exc:
                 reload_ok, reload_detail = False, str(exc)
             if not reload_ok:
