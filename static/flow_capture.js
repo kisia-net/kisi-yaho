@@ -3,6 +3,9 @@
 // are set through el.style, never inline style attributes, which the page's
 // Content-Security-Policy blocks.
 (() => {
+    const LEVEL_KO = { info: "정보", low: "낮음", medium: "중간", high: "높음", critical: "치명" };
+    const levelKo = (value) => LEVEL_KO[String(value || "").toLowerCase()] || value || "—";
+
     const root = document.getElementById("flow-capture-root");
     if (!root) return;
     const alertId = root.dataset.alertId;
@@ -178,7 +181,7 @@
             ["확인된 사실", list(assessment.confirmed_observations)],
             ["해석", escapeHtml(assessment.interpretation || "—")],
             ["공격 가설", escapeHtml(assessment.attack_hypothesis || "—")],
-            ["확신도 · 심각도", escapeHtml(`${(assessment.confidence || {}).level || "—"} · ${(assessment.severity || {}).level || "—"}`)],
+            ["확신도 · 심각도", escapeHtml(`${levelKo((assessment.confidence || {}).level)} · ${levelKo((assessment.severity || {}).level)}`)],
             ["빠진 증거", list(assessment.evidence_gaps)],
             ["추천 조치", list(assessment.recommended_response)],
             ["검증", escapeHtml(JSON.stringify(data.review || {}))],
