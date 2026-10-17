@@ -352,25 +352,39 @@ $("vr-new").addEventListener("click",()=>openComposer());
 $("vr-client-search").addEventListener("submit",e=>{e.preventDefault();loadClients().catch(x=>error(x.message));});
 $("vr-clients-more").addEventListener("click",()=>loadClients(true).catch(x=>error(x.message)));
 $("vr-refresh").addEventListener("click",async()=>{try{await loadCatalog();await loadClients();await loadTab();}catch(e){error(e.message);}});
+// Header: same controls and wording as the pages that load app.js.
+const THEME_KEY="hawki-theme-v2";
+function themeLabel(){const next=document.documentElement.dataset.theme==="dark"?"밝은":"어두운";const t=$("theme-toggle");if(!t)return;t.setAttribute("aria-label",`${next} 화면으로 전환`);t.title=`${next} 화면으로 전환`;}
 $("theme-toggle")?.addEventListener("click",()=>{
   const theme=document.documentElement.dataset.theme==="light"?"dark":"light";
-  document.documentElement.dataset.theme=theme;localStorage.setItem("hawki-theme",theme);
+  document.documentElement.dataset.theme=theme;document.documentElement.style.colorScheme=theme;
+  try{localStorage.setItem(THEME_KEY,theme);}catch{/* cookie fallback in base.html */}
+  themeLabel();
 });
+themeLabel();
 async function serviceHealth() {
   try {
     const data=await request("/api/status");
     let good=0,total=0;
     for(const [name,s] of Object.entries(data.services || {})){
-      if(s.configured){total++;if(s.ok)good++;}
-      document.querySelectorAll(`[data-service-dot="${CSS.escape(name)}"]`).forEach(el=>{el.className="status-dot "+(s.ok?"online":s.configured?"offline":"unknown");});
+      const configured=s.configured!==false;
+      if(configured){total++;if(s.ok)good++;}
+      document.querySelectorAll(`[data-service-dot="${CSS.escape(name)}"]`).forEach(el=>{el.className="status-dot "+(!configured?"unconfigured":s.ok?"online":"offline");});
     }
-    if($("global-health-text"))$("global-health-text").textContent=`서비스 ${good}/${total} 연결`;
-  }catch{if($("global-health-text"))$("global-health-text").textContent="서비스 상태 조회 실패";}
+    if($("global-health-text"))$("global-health-text").textContent=`설정된 서비스 ${total}개 중 ${good}개 연결됨`;
+  }catch{if($("global-health-text"))$("global-health-text").textContent="상태 확인 실패";}
 }
 $("refresh-services")?.addEventListener("click",serviceHealth);
-const account=document.createElement("button");account.className="vr-button";account.type="button";account.textContent="로그아웃";
-account.addEventListener("click",async()=>{try{await post("/api/auth/logout");location.href="/login";}catch(e){error(e.message);}});
-document.querySelector(".topbar-actions")?.append(account);
+const svg=paths=>`<svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+const account=document.createElement("div");account.id="account-controls";account.className="account-controls";
+account.innerHTML=`<a class="topbar-icon-button" href="/account" aria-label="계정" title="계정">${svg('<circle cx="12" cy="8" r="4"></circle><path d="M4.5 21a7.5 7.5 0 0 1 15 0"></path>')}</a><button id="logout-button" class="topbar-icon-button" type="button" aria-label="로그아웃" title="로그아웃">${svg('<path d="M10 5H5v14h5"></path><path d="M14 8l4 4-4 4"></path><path d="M18 12H9"></path>')}</button>`;
+document.querySelector(".topbar-actions")?.prepend(account);
+$("logout-button").addEventListener("click",async()=>{try{await post("/api/auth/logout");}finally{location.href="/login";}});
+request("/api/auth/me").catch(()=>null).then(me=>{
+  const user=me?.user;if(!user)return;
+  const link=account.querySelector('a[href="/account"]');link.title=`계정: ${user.username} · ${user.role}`;link.setAttribute("aria-label",link.title);
+  if(user.role==="admin")link.insertAdjacentHTML("afterend",`<a class="topbar-icon-button" href="/admin/users" aria-label="사용자 관리" title="사용자 관리">${svg('<circle cx="9" cy="8" r="3"></circle><path d="M3.5 19a5.5 5.5 0 0 1 11 0"></path><path d="M17 8v6M14 11h6"></path>')}</a>`);
+});
 renderTabs();
 await serviceHealth();
 try {await loadCatalog();await loadClients();if(!state.client)await loadTab();}catch(e){error(e.message);$("vr-content").innerHTML=empty("연결을 확인한 뒤 새로고침하세요.");}
