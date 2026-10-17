@@ -28,6 +28,15 @@ resource "aws_security_group" "llm" {
     description = "vLLM OpenAI API, called by the frontend app inside the VPC"
   }
 
+  # 프론트엔드(HAW-KI) → LLM 서버 8767. 콘솔에서 직접 추가돼 코드에 없던 규칙을 2026-10-17 코드로 옮김.
+  # description 이 없는 상태라 일부러 비워둡니다. 용도: 확인 필요 (권민석).
+  ingress {
+    from_port       = 8767
+    to_port         = 8767
+    protocol        = "tcp"
+    security_groups = [aws_security_group.frontend.id]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
