@@ -148,12 +148,22 @@ resource "aws_security_group" "vm" {
 
   # 프론트엔드 → 센서 VM 8787. 콘솔에서 직접 추가돼 코드에 없던 규칙을 2026-09-21 코드로 옮김.
   # description 이 없는 상태로 AWS 에 존재하므로 일부러 비워둡니다(값을 넣으면 규칙이 재생성됨).
-  # 용도: 확인 필요 (Suricata 룰 적재·검증 게이트웨이로 추정) — 확인되면 이 주석을 갱신하세요.
+  # 용도: HAW-KI Suricata 룰 검증기(hawki-suricata-verifier, 2026-10-17 센서에서 확인).
   ingress {
     from_port       = 8787
     to_port         = 8787
     protocol        = "tcp"
     security_groups = [aws_security_group.frontend.id]
+  }
+
+  # 프론트엔드(HAW-KI) → 센서 VM 8095. 승인한 Suricata 룰을 센서에 적용하는
+  # 배포 게이트웨이(tools/suricata_gateway). HAW-KI 서버 보안 그룹에서만 받습니다.
+  ingress {
+    from_port       = 8095
+    to_port         = 8095
+    protocol        = "tcp"
+    security_groups = [aws_security_group.frontend.id]
+    description     = "HAW-KI rule deployment gateway"
   }
 
   egress {
