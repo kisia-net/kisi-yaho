@@ -69,6 +69,16 @@ resource "aws_security_group" "siem" {
     description = "Wazuh Indexer, queried by the frontend app"
   }
 
+  # 프론트엔드(HAW-KI) → SIEM 서버 8889. 콘솔에서 직접 추가돼 코드에 없던 규칙을 2026-10-17 코드로 옮김.
+  # AWS 에 description 이 없는 상태라 일부러 비워둡니다(값을 넣으면 규칙이 다시 만들어짐).
+  # 용도: 확인 필요 (권민석 · HAW-KI 연동 서비스로 추정) — 확인되면 이 주석을 갱신하세요.
+  ingress {
+    from_port       = 8889
+    to_port         = 8889
+    protocol        = "tcp"
+    security_groups = [aws_security_group.frontend.id]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -177,6 +187,12 @@ resource "aws_security_group" "vm" {
   tags = { Name = "${var.project_prefix}-sg-vm" }
 }
 
+# LLM 보안 그룹을 이름으로 찾습니다. 프론트엔드 ↔ LLM 규칙이 서로를 참조하는 순환을 끊기 위한 것입니다.
+data "aws_security_group" "llm_by_name" {
+  name   = "${var.project_prefix}-sg-llm"
+  vpc_id = aws_vpc.main.id
+}
+
 # --- 프론트엔드 ---------------------------------------------------------------
 # 인터넷 인바운드 0개. 브라우저는 SSM 포트 포워딩으로 붙습니다.
 # 5000 은 VPC 안에서만 열어, SIEM 서버가 API 로 호출할 수 있게 합니다.
@@ -192,6 +208,17 @@ resource "aws_security_group" "frontend" {
     protocol    = "tcp"
     cidr_blocks = [aws_vpc.main.cidr_block]
     description = "Web app, from inside the VPC only"
+  }
+
+  # LLM 서버 → 프론트엔드(HAW-KI) 8766. 콘솔에서 직접 추가돼 코드에 없던 규칙을 2026-10-17 코드로 옮김.
+  # description 이 없는 상태라 일부러 비워둡니다. 용도: 확인 필요 (권민석).
+  # LLM 보안 그룹도 프론트엔드를 참조하므로(8767) 서로 참조하면 순환이 됩니다.
+  # 그래서 이쪽은 이름으로 찾은 ID(data.aws_security_group.llm_by_name)를 씁니다.
+  ingress {
+    from_port       = 8766
+    to_port         = 8766
+    protocol        = "tcp"
+    security_groups = [data.aws_security_group.llm_by_name.id]
   }
 
   egress {
