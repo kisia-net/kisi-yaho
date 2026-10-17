@@ -408,8 +408,7 @@
                     dot.classList.add(value.configured === false ? "unconfigured" : value.ok ? "online" : "offline");
                 });
             }
-            $("global-health-text").textContent = `설정된 서비스 ${configured}개 중 ${online}개 연결됨`;
-        } catch (_) { $("global-health-text").textContent = "상태 확인 실패"; }
+        } catch (_) { /* sidebar dots keep their last state */ }
     }
     function chrome(user) {
         const host = document.querySelector(".topbar-actions");

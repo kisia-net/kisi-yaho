@@ -329,6 +329,13 @@ CONFIG = {
     "wazuh_search_enabled": env_bool("ENABLE_WAZUH_SEARCH", True),
     "wazuh_verify": _wazuh_verify,
     "response_actions_enabled": env_bool("ENABLE_RESPONSE_ACTIONS", False),
+    # Two-person rule: whoever requested an action cannot approve it.
+    "require_separate_approver": env_bool("REQUIRE_SEPARATE_APPROVER", False),
+    # Retry a Suricata action the gateway refused because the sensor was
+    # still reloading the previous change (409 reload_in_progress).
+    "suricata_reload_retry_enabled": env_bool("SURICATA_RELOAD_RETRY_ENABLED", False),
+    "suricata_reload_retry_seconds": max(30, min(int(os.getenv("SURICATA_RELOAD_RETRY_SECONDS", "180") or 180), 1800)),
+    "suricata_reload_retry_attempts": max(1, min(int(os.getenv("SURICATA_RELOAD_RETRY_ATTEMPTS", "3") or 3), 10)),
     "demo_mode": env_bool("DEMO_MODE", True),
     "suricata_repair_enabled": env_bool("SURICATA_REPAIR_ENABLED", True),
     "assessment_repair_enabled": env_bool("ASSESSMENT_REPAIR_ENABLED", True),
@@ -6778,6 +6785,13 @@ def update_suricata_action_identifiers(
     record["updated_at"] = utc_now_iso()
 
 
+def action_requester() -> dict[str, Any]:
+    user = getattr(g, "user", None)
+    if not user:
+        return {}
+    return {"id": user["id"], "username": user["username"]}
+
+
 def clone_action_for_resend(
     source: dict[str, Any],
 ) -> dict[str, Any]:
@@ -6802,6 +6816,7 @@ def clone_action_for_resend(
         "source": str(source.get("source", "agent"))[:40],
         "execution_enabled": CONFIG["response_actions_enabled"],
         "resubmitted_from": str(source.get("id", ""))[:80],
+        "requested_by": action_requester(),
     }
     if isinstance(source.get("tags"), list):
         record["tags"] = [
@@ -6856,6 +6871,7 @@ def api_queue_action():
         "created_at": utc_now_iso(),
         "source": str(payload.get("source", "agent"))[:40],
         "execution_enabled": CONFIG["response_actions_enabled"],
+        "requested_by": action_requester(),
     }
     if str(payload.get("alert_id") or "").strip():
         record["alert_id"] = str(payload["alert_id"]).strip()[:128]
@@ -6998,6 +7014,21 @@ def api_action_decision(action_id: str):
     if target.get("status") != "pending_approval":
         return jsonify({"error": "Only pending actions can be decided."}), 409
 
+    requester = target.get("requested_by") or {}
+    if (
+        decision == "approve"
+        and CONFIG["require_separate_approver"]
+        and requester.get("id") is not None
+        and requester.get("id") == g.user["id"]
+    ):
+        append_audit("action_self_approval_blocked", {"action_id": action_id})
+        return jsonify(
+            {
+                "error": "The person who requested this action cannot approve it.",
+                "code": "self_approval_blocked",
+            }
+        ), 403
+
     if (
         decision == "approve"
         and str(target.get("type", "")).startswith("suricata_")
@@ -7032,6 +7063,8 @@ def api_action_decision(action_id: str):
     else:
         target["status"], dispatch_result = dispatch_action(target)
         target["dispatch_result"] = dispatch_result
+        schedule_reload_retry(target)
+    target["decided_by"] = action_requester()
 
     write_jsonl(ACTION_QUEUE_PATH, records)
     update_rule_inventory_from_action(target)
@@ -7674,6 +7707,23 @@ def api_list_rules():
         "SELECT * FROM suricata_rules ORDER BY updated_at DESC"
     ).fetchall()
     rules = [suricata_rule_row(row) for row in rows]
+    wanted = {rule.get("last_action_id") for rule in rules if rule.get("last_action_id")}
+    if wanted:
+        actions = {
+            record.get("id"): record
+            for record in read_jsonl(ACTION_QUEUE_PATH)
+            if record.get("id") in wanted
+        }
+        for rule in rules:
+            record = actions.get(rule.get("last_action_id"))
+            if record is None:
+                continue
+            result = record.get("dispatch_result") or {}
+            rule["last_action"] = {
+                "status": record.get("status"),
+                "gateway_error": result.get("gateway_error") if isinstance(result, dict) else None,
+                "retry_at": record.get("retry_at"),
+            }
     return jsonify(
         {
             "rules": rules,
@@ -8042,7 +8092,7 @@ def supersede_pending_suricata_actions(
     now = utc_now_iso()
 
     for record in records:
-        if record.get("status") != "pending_approval":
+        if record.get("status") not in {"pending_approval", "retry_waiting"}:
             continue
 
         if not str(
@@ -8131,7 +8181,11 @@ def api_update_rule(rule_id: str):
     last_staged_at = current["last_staged_at"]
     last_action_id = current["last_action_id"]
 
-    if staging_sensitive_changed:
+    # Flipping only the on/off target does not change what the sensor runs,
+    # so an active/disabled/error rule keeps that state until a request lands.
+    if staging_sensitive_changed and (
+        verification_sensitive_changed or lifecycle_state in {"draft", "staged"}
+    ):
         lifecycle_state = "draft"
         last_staged_at = None
         last_action_id = None
@@ -8551,6 +8605,17 @@ def suricata_staging_verification_errors(
 @role_required("analyst")
 def api_stage_rule(rule_id: str):
     current = get_suricata_rule_or_404(rule_id)
+    previous_enabled = bool(current["enabled"])
+    body = request.get_json(silent=True) or {}
+    # The card buttons say what they want ("사용 중지 요청" on an active rule);
+    # set it here so the request and the inventory never disagree.
+    if isinstance(body.get("enabled"), bool) and body["enabled"] != previous_enabled:
+        get_db().execute(
+            "UPDATE suricata_rules SET enabled = ?, updated_at = ?, updated_by = ? WHERE id = ?",
+            (1 if body["enabled"] else 0, utc_now_iso(), g.user["id"], rule_id),
+        )
+        get_db().commit()
+        current = get_suricata_rule_or_404(rule_id)
     desired_enabled = bool(current["enabled"])
 
     verification_errors = (
@@ -8651,10 +8716,12 @@ def api_stage_rule(rule_id: str):
             "sid": current["sid"],
             "revision": current["revision"],
             "previous_state": current["state"],
+            "previous_enabled": previous_enabled,
         },
         "status": "pending_approval",
         "created_at": utc_now_iso(),
         "source": "rule_inventory",
+        "requested_by": action_requester(),
         "execution_enabled": CONFIG["response_actions_enabled"],
         "tags": [
             "Suricata Rule",
@@ -8716,7 +8783,7 @@ def update_rule_inventory_from_action(action: dict[str, Any]) -> None:
     if status == "submitted":
         state = "active" if desired_enabled else "disabled"
         enabled = 1 if desired_enabled else 0
-    elif status == "approved_staged":
+    elif status in {"approved_staged", "retry_waiting"}:
         state = "staged"
         enabled = 1 if desired_enabled else 0
     elif status == "dispatch_failed":
@@ -8728,6 +8795,9 @@ def update_rule_inventory_from_action(action: dict[str, Any]) -> None:
             if previous_state in SURICATA_RULE_STATES
             else ("draft" if desired_enabled else "disabled")
         )
+        previous_enabled = payload.get("previous_enabled")
+        if isinstance(previous_enabled, bool):
+            desired_enabled = previous_enabled
         enabled = 1 if desired_enabled else 0
     else:
         return
@@ -8738,9 +8808,88 @@ def update_rule_inventory_from_action(action: dict[str, Any]) -> None:
         SET state = ?, enabled = ?, updated_at = ?, updated_by = ?
         WHERE id = ?
         """,
-        (state, enabled, utc_now_iso(), g.user["id"], rule_id),
+        (state, enabled, utc_now_iso(), (getattr(g, "user", None) or {"id": None})["id"], rule_id),
     )
     get_db().commit()
+
+
+def schedule_reload_retry(target: dict[str, Any]) -> None:
+    """Turn a 409 reload_in_progress refusal into a timed retry."""
+    result = target.get("dispatch_result") or {}
+    if (
+        not CONFIG["suricata_reload_retry_enabled"]
+        or target.get("status") != "dispatch_failed"
+        or not str(target.get("type", "")).startswith("suricata_")
+        or result.get("gateway_error") != "reload_in_progress"
+    ):
+        return
+    attempts = int(target.get("retry_count") or 0)
+    if attempts >= CONFIG["suricata_reload_retry_attempts"]:
+        return
+    target["status"] = "retry_waiting"
+    target["retry_at"] = (
+        datetime.now(timezone.utc)
+        + timedelta(seconds=CONFIG["suricata_reload_retry_seconds"])
+    ).isoformat()
+
+
+def _retry_due(record: dict[str, Any], now: datetime) -> bool:
+    if record.get("status") != "retry_waiting":
+        return False
+    try:
+        due = datetime.fromisoformat(str(record.get("retry_at") or ""))
+    except ValueError:
+        return True
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    return due <= now
+
+
+def process_reload_retries(now: datetime | None = None) -> list[str]:
+    """Send again the retry_waiting actions whose time has come."""
+    now = now or datetime.now(timezone.utc)
+    due = [record for record in read_jsonl(ACTION_QUEUE_PATH) if _retry_due(record, now)]
+    done: dict[str, dict[str, Any]] = {}
+    for target in due:
+        target["retry_count"] = int(target.get("retry_count") or 0) + 1
+        target["retried_at"] = utc_now_iso()
+        target["status"], target["dispatch_result"] = dispatch_action(target)
+        target.pop("retry_at", None)
+        schedule_reload_retry(target)
+        done[str(target.get("id"))] = target
+    if not done:
+        return []
+    # Re-read so a decision made meanwhile is not overwritten.
+    records = read_jsonl(ACTION_QUEUE_PATH)
+    written: list[str] = []
+    for index, record in enumerate(records):
+        action_id = str(record.get("id"))
+        if action_id in done and record.get("status") == "retry_waiting":
+            records[index] = done[action_id]
+            written.append(action_id)
+    write_jsonl(ACTION_QUEUE_PATH, records)
+    for action_id in written:
+        target = done[action_id]
+        update_rule_inventory_from_action(target)
+        append_audit(
+            "action_retried",
+            {
+                "action_id": action_id,
+                "status": target["status"],
+                "retry_count": target["retry_count"],
+            },
+        )
+    return written
+
+
+def reload_retry_loop(interval: int = 30) -> None:
+    while True:
+        try:
+            with app.app_context():
+                process_reload_retries()
+        except Exception as exc:  # noqa: BLE001 - keep the loop alive
+            print(json.dumps({"reload_retry_error": str(exc)[:300]}), flush=True)
+        time.sleep(interval)
 
 
 @app.post("/api/rules/validate")
@@ -8973,6 +9122,8 @@ def auto_report_command(once: bool, lookback_hours: float | None) -> None:
     reporter = build_auto_reporter()
     lookback = int(max(0.0, min(lookback_hours, 24 * 365.0)) * 3600) if lookback_hours else None
     click.echo(json.dumps({"auto_report": "worker started", **AUTO_REPORT_SETTINGS.public()}, ensure_ascii=False))
+    if CONFIG["suricata_reload_retry_enabled"] and not once:
+        threading.Thread(target=reload_retry_loop, name="hawki-reload-retry", daemon=True).start()
     while True:
         try:
             summary = reporter.run_cycle(lookback_seconds=lookback)

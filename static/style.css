@@ -5877,3 +5877,15 @@ html[data-theme] .rule-database-actions .button.rule-delete-button:hover { borde
 .rule-edit-tools[hidden] { display: none; }
 .rule-edit-mode { margin: 0; padding: 8px 14px 0; color: var(--muted); font-size: 12.5px; }
 .rule-edit-mode.is-editing { color: var(--warning, #b45309); font-weight: 600; }
+
+/* Rule card chip follows the sensor state. */
+.approval-status-chip.state-active { border-color: rgba(22, 163, 74, .35); color: #16a34a; }
+.approval-status-chip.state-active > span { background: #16a34a; }
+.approval-status-chip.state-staged,
+.approval-status-chip.status-retry_waiting { border-color: rgba(37, 99, 235, .35); color: #2563eb; }
+.approval-status-chip.state-staged > span,
+.approval-status-chip.status-retry_waiting > span { background: #2563eb; }
+.approval-status-chip.state-error { border-color: rgba(220, 38, 38, .35); color: #dc2626; }
+.approval-status-chip.state-error > span { background: #dc2626; }
+.approval-summary-dot.state-draft { background: #b38cff; }
+.rule-db-dot.state-error, .approval-summary-dot.state-error { background: transparent; border: 1.5px solid #ff7084; }

@@ -710,12 +710,9 @@ async function loadServices() {
         const data = await api("/api/status");
         const services = data.services || {};
         Object.entries(services).forEach(([name, details]) => setService(name, details));
-        const configured = Object.values(services).filter((x) => x.configured !== false);
-        const online = configured.filter((x) => x.ok).length;
-        if (byId("global-health-text")) byId("global-health-text").textContent = `설정된 서비스 ${configured.length}개 중 ${online}개 연결됨`;
         if (byId("status-checked-at")) byId("status-checked-at").textContent = new Date(data.checked_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
     } catch (error) {
-        if (byId("global-health-text")) byId("global-health-text").textContent = "상태 확인 실패";
+        // Sidebar rows keep their last state.
     }
 }
 async function loadConfig() {
@@ -3947,6 +3944,17 @@ function gatewayFailureText(result) {
     return GATEWAY_FAILURES[code] || "";
 }
 
+function clockLabel(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleTimeString("ko-KR", {hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Seoul"});
+}
+
+function retryWaitingText(retryAt) {
+    const at = clockLabel(retryAt);
+    return at ? `센서 룰 적용 중 · ${at} 자동 재시도` : "센서 룰 적용 중 · 자동 재시도";
+}
+
 const DISPATCH_MESSAGES = {
     "Execution is disabled by server policy.": "승인되었지만 아직 실행되지 않았습니다.",
     "No trusted action gateway is configured.": "조치 게이트웨이(Velociraptor 연동)가 설정되지 않아 승인만 기록했습니다.",
@@ -4001,6 +4009,7 @@ function approvalStatusLabel(status) {
         submitted: "제출됨",
         rejected: "반려됨",
         dispatch_failed: "전송 실패",
+        retry_waiting: "재시도 대기",
         approved: "승인됨",
         superseded: "대체됨",
         verification_blocked: "검증 차단",
@@ -4128,7 +4137,7 @@ function approvalTitle(action) {
 
 const APPROVAL_VIEW_STATUSES = {
     pending: ["pending_approval"],
-    approved: ["approved_staged", "submitted", "approved"],
+    approved: ["approved_staged", "submitted", "approved", "retry_waiting"],
     rejected: ["rejected", "dispatch_failed", "verification_blocked", "failed"],
     superseded: ["superseded"],
 };
@@ -4295,6 +4304,13 @@ function renderApprovalOutcome(action) {
                 <span>${escapeHtml(DISPATCH_MESSAGES[normalizeApprovalValue(action.dispatch_result.message)])}</span>
             </div>
         `);
+    } else if (normalizeApprovalValue(action.status) === "retry_waiting") {
+        parts.push(`
+            <div class="approval-outcome-row approval-outcome-note">
+                <strong>재시도 대기</strong>
+                <span>${escapeHtml(retryWaitingText(action.retry_at))}</span>
+            </div>
+        `);
     } else if (gatewayFailureText(action.dispatch_result)) {
         parts.push(`
             <div class="approval-outcome-row approval-outcome-bad">
@@ -4420,7 +4436,8 @@ function finishedApprovalCard(action) {
             <summary class="approval-done-row">
                 <span class="approval-status-chip status-${escapeHtml(status)}"><span></span>${escapeHtml(approvalStatusLabel(status))}</span>
                 <strong title="${escapeHtml(action.title || "")}">${escapeHtml(approvalTitle(action))}</strong>
-                <span class="approval-target">${escapeHtml(gatewayFailureText(action.dispatch_result) ? `센서 적용 안 됨 · ${gatewayFailureText(action.dispatch_result)}` : target)}</span>
+                <span class="approval-target">${escapeHtml(status === "retry_waiting" ? retryWaitingText(action.retry_at)
+                    : gatewayFailureText(action.dispatch_result) ? `센서 적용 안 됨 · ${gatewayFailureText(action.dispatch_result)}` : target)}</span>
                 <span class="approval-done-time">${escapeHtml(approvalDateLabel(when))}</span>
             </summary>
             <div class="approval-done-body">
@@ -4812,11 +4829,13 @@ function ruleSourceLabel(value) {
 
 // Display-only Korean labels for rule state values; the raw state is kept for filtering.
 const RULE_STATE_LABELS = {
-    draft: "초안",
-    staged: "준비됨",
+    draft: "미적용",
+    staged: "대기",
     active: "적용 중",
     enabled: "활성화됨",
-    disabled: "비활성화됨",
+    disabled: "사용 중지",
+    error: "적용 실패",
+    retry_waiting: "재시도 대기",
     pending: "검토 대기",
     pending_approval: "검토 대기",
     approved: "승인됨",
@@ -4888,7 +4907,6 @@ function filteredRuleInventory() {
     const iface = normalizeApprovalValue(byId("rule-db-interface")?.value);
     const state = normalizeApprovalValue(byId("rule-db-state")?.value);
     const tag = normalizeApprovalValue(byId("rule-db-tag")?.value).toLowerCase();
-    const enabled = normalizeApprovalValue(byId("rule-db-enabled")?.value);
     const sort = normalizeApprovalValue(byId("rule-db-sort")?.value || "updated_desc");
 
     const rules = suricataRuleInventoryState.rules.filter((rule) => {
@@ -4897,8 +4915,6 @@ function filteredRuleInventory() {
         if (iface && rule.interface !== iface) return false;
         if (state && rule.state !== state) return false;
         if (tag && !(rule.tags || []).some((value) => value.toLowerCase() === tag)) return false;
-        if (enabled === "true" && !rule.enabled) return false;
-        if (enabled === "false" && rule.enabled) return false;
         return true;
     });
 
@@ -4927,15 +4943,40 @@ function filteredRuleInventory() {
 }
 
 function ruleInventorySummary() {
-    const counts = suricataRuleInventoryState.facets?.counts || {};
+    const rules = suricataRuleInventoryState.rules || [];
+    const count = (state) => rules.filter((rule) => rule.state === state).length;
     return [
-        ["사용함", counts.enabled || 0, "state-active"],
-        ["사용 안 함", counts.disabled || 0, "state-disabled"],
-        ["적용 중", counts.active || 0, "state-active"],
-        ["준비됨", counts.staged || 0, "state-staged"],
-    ].map(([label, value, className]) => `
+        ["적용 중", count("active"), "state-active"],
+        ["대기", count("staged"), "state-staged"],
+        ["미적용", count("draft"), "state-draft"],
+        ["적용 실패", count("error"), "state-error"],
+        ["사용 중지", count("disabled"), "state-disabled"],
+    ].filter(([, value], index) => value || index === 0).map(([label, value, className]) => `
         <span class="rule-stat"><span class="rule-db-dot ${className}"></span>${escapeHtml(label)} <strong>${escapeHtml(value)}</strong></span>
     `).join("");
+}
+
+// One request button per card, named for what the sensor will do.
+function ruleStageButton(rule) {
+    const waiting = ["pending_approval", "retry_waiting"].includes(normalizeApprovalValue(rule.last_action?.status));
+    if (rule.state === "staged" && waiting) return null;
+    if (rule.state === "active") return {enabled: false, label: "사용 중지 요청"};
+    if (rule.state === "disabled") return {enabled: true, label: "다시 배포 요청"};
+    return rule.enabled
+        ? {enabled: true, label: rule.state === "error" ? "배포 다시 요청" : "배포 승인 요청"}
+        : {enabled: false, label: rule.state === "error" ? "사용 중지 다시 요청" : "사용 중지 요청"};
+}
+
+function ruleStateDetail(rule) {
+    const last = rule.last_action || {};
+    const status = normalizeApprovalValue(last.status);
+    if (rule.state === "staged") {
+        if (status === "pending_approval") return rule.enabled ? "배포 승인 대기" : "사용 중지 승인 대기";
+        if (status === "retry_waiting") return retryWaitingText(last.retry_at);
+        if (status === "approved_staged") return "승인됨 · 실행 꺼짐";
+    }
+    if (rule.state === "error") return gatewayFailureText(last) || "센서 적용 안 됨";
+    return "";
 }
 
 function ruleDatabaseCard(rule) {
@@ -4944,13 +4985,13 @@ function ruleDatabaseCard(rule) {
         .join("");
     const updated = approvalDateLabel(rule.updated_at);
     const stateClass = ruleInventoryStateClass(rule.state);
-    const stageLabel = rule.enabled ? "배포 승인 요청" : "사용 중지 승인 요청";
+    const stage = ruleStageButton(rule);
     const action = normalizeApprovalValue(rule.action).toLowerCase();
     const meta = [
         `${rule.host} · ${rule.interface}`,
         `${RULE_ACTION_LABELS[action] || rule.action} · ${normalizeApprovalValue(rule.protocol).toUpperCase()}`,
         `SID ${rule.sid} · rev ${rule.revision}`,
-        rule.state === "disabled" ? "" : (rule.enabled ? "사용함" : "사용 안 함"),
+        ruleStateDetail(rule),
         rule.verification_status === "passed" ? "검증 통과"
             : rule.verification_status === "stale" ? "수정됨 · 다시 검증 필요"
             : rule.verification_status === "failed" ? "검증 실패" : "검증 전",
@@ -4991,16 +5032,14 @@ function ruleDatabaseCard(rule) {
                 <span class="rules-editor-spacer"></span>
                 <button class="button secondary small edit-rule-record"
                     data-id="${escapeHtml(rule.id)}" type="button">수정</button>
-                <button class="button secondary small toggle-rule-record"
-                    data-id="${escapeHtml(rule.id)}" type="button">
-                    ${rule.enabled ? "사용 안 함으로" : "사용함으로"}
-                </button>
-                ${rule.enabled && rule.verification_status !== "passed" ? `
+                ${stage && stage.enabled && rule.verification_status !== "passed" ? `
                     <button class="button secondary small verify-rule-record-card"
                         data-id="${escapeHtml(rule.id)}" type="button">검증기 검사</button>
                 ` : ""}
-                <button class="button primary small stage-rule-record-card"
-                    data-id="${escapeHtml(rule.id)}" type="button">${escapeHtml(stageLabel)}</button>
+                ${stage ? `
+                    <button class="button ${stage.enabled ? "primary" : "secondary"} small stage-rule-record-card"
+                        data-id="${escapeHtml(rule.id)}" data-enabled="${stage.enabled}" type="button">${escapeHtml(stage.label)}</button>
+                ` : `<a class="button secondary small" href="/actions">승인 대기열</a>`}
             </footer>
         </article>
     `;
@@ -5024,11 +5063,9 @@ function renderRuleInventory() {
     container.querySelectorAll(".edit-rule-record").forEach((button) => {
         button.addEventListener("click", () => editRuleRecord(button.dataset.id));
     });
-    container.querySelectorAll(".toggle-rule-record").forEach((button) => {
-        button.addEventListener("click", () => toggleRuleRecord(button.dataset.id));
-    });
     container.querySelectorAll(".stage-rule-record-card").forEach((button) => {
-        button.addEventListener("click", () => stageRuleRecord(button.dataset.id));
+        button.addEventListener("click", () => stageRuleRecord(button.dataset.id, button.dataset.enabled === "true")
+            .catch((error) => toast(error.message)));
     });
     container.querySelectorAll(".verify-rule-record-card").forEach((button) => {
         button.addEventListener("click", () => verifyRuleRecord(button.dataset.id).catch((error) => toast(error.message)));
@@ -5203,7 +5240,7 @@ async function verifyRuleRecord(id) {
     return true;
 }
 
-async function stageRuleRecord(id) {
+async function stageRuleRecord(id, targetEnabled) {
     let ruleId = id || byId("rule-record-id").value;
     if (!ruleId) {
         const saved = await saveRuleRecord();
@@ -5211,15 +5248,16 @@ async function stageRuleRecord(id) {
     }
     if (!ruleId) return;
     const current = suricataRuleInventoryState.rules.find((item) => item.id === ruleId);
+    const enabled = typeof targetEnabled === "boolean" ? targetEnabled : Boolean(current?.enabled);
     // Deployment needs a verified rule; disabling one does not.
-    if (current?.enabled && current.verification_status !== "passed") {
+    if (enabled && current?.verification_status !== "passed") {
         if (!(await verifyRuleRecord(ruleId))) return;
     }
 
     const result = await api(`/api/rules/${encodeURIComponent(ruleId)}/stage`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: "{}",
+        body: JSON.stringify(typeof targetEnabled === "boolean" ? {enabled: targetEnabled} : {}),
     });
     toast(`${result.action.id} 승인 요청을 올렸습니다.`);
     await loadRuleInventory();
@@ -5230,21 +5268,6 @@ async function stageRuleRecord(id) {
         box.innerHTML = `<div class="validation-block"><strong>승인 요청을 올렸습니다 (${escapeHtml(result.action.id)})</strong><p><a href="/actions">승인 대기열에서 보기 →</a></p></div>`;
         updateRuleSteps();
     }
-}
-
-async function toggleRuleRecord(id) {
-    const rule = suricataRuleInventoryState.rules.find((item) => item.id === id);
-    if (!rule) return;
-    await api(`/api/rules/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            enabled: !rule.enabled,
-            state: !rule.enabled ? "draft" : "disabled",
-        }),
-    });
-    toast(`${id} 목표 상태를 변경했습니다.`);
-    await loadRuleInventory();
 }
 
 async function deleteRuleRecord(id) {
@@ -5264,7 +5287,6 @@ function initRules() {
         "rule-db-interface",
         "rule-db-state",
         "rule-db-tag",
-        "rule-db-enabled",
         "rule-db-sort",
     ].forEach((id) => {
         byId(id)?.addEventListener(
