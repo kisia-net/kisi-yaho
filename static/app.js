@@ -1464,9 +1464,25 @@ async function loadDashboardCti() {
     } else if (!matches.alerts) {
         target.textContent = "최근 24시간 CTI 일치 출발지 없음";
     } else {
-        const top = (matches.top || []).slice(0, 3).map((item) =>
-            `<a href="/alerts?range=24h&amp;category=all&amp;q=${encodeURIComponent(item.ip)}">${escapeHtml(item.ip)}</a> ${escapeHtml(item.verdict === "malicious" ? "악성" : "의심")} · 경보 ${escapeHtml(formatNumber(item.alerts))}`).join(" / ");
-        target.innerHTML = `최근 24시간 <strong>경보 ${escapeHtml(formatNumber(matches.alerts))}건</strong>이 CTI 등재 주소 ${escapeHtml(matches.addresses)}곳에서 옴 · ${top}`;
+        // Which listed addresses actually reached us, one row each.
+        const rows = (matches.top || []).map((item) => {
+            const malicious = item.verdict === "malicious";
+            const link = `/alerts?range=24h&category=all&q=${encodeURIComponent(item.ip)}`;
+            return `<tr>
+                <td><a href="${escapeHtml(link)}"><code>${escapeHtml(item.ip)}</code></a></td>
+                <td><span class="cti-state ${malicious ? "cti-bad" : "cti-warn"}">${malicious ? "악성" : "의심"}</span></td>
+                <td class="muted">${escapeHtml((item.feeds || []).join(", ") || "—")}</td>
+                <td class="cti-num">${escapeHtml(formatNumber(item.alerts))}</td>
+            </tr>`;
+        }).join("");
+        const more = matches.addresses > (matches.top || []).length
+            ? `<p class="muted cti-more">상위 ${escapeHtml((matches.top || []).length)}곳만 표시 · 전체 ${escapeHtml(formatNumber(matches.addresses))}곳</p>`
+            : "";
+        target.innerHTML = `<p class="cti-match-head">최근 24시간 CTI 등재 주소 <strong>${escapeHtml(formatNumber(matches.addresses))}곳</strong>에서 경보 <strong>${escapeHtml(formatNumber(matches.alerts))}건</strong></p>
+            <table class="cti-match-table">
+                <thead><tr><th>출발지 IP</th><th>판정</th><th>피드</th><th class="cti-num">경보</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>${more}`;
     }
 }
 
