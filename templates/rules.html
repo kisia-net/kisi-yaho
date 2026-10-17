@@ -11,11 +11,14 @@
                     </svg>
                     <span>Suricata 룰 편집기</span>
                 </h2>
-                <button id="new-rule-record" class="new-chat-button"
-                    type="button" aria-label="새 룰" title="새 룰">
-                    <span aria-hidden="true">+</span>
-                </button>
+                <div class="rule-edit-tools" id="rule-edit-tools" hidden>
+                    <button id="copy-rule-record" class="button secondary small"
+                        type="button" title="같은 내용, 새 SID로 새 룰">복사본</button>
+                    <button id="new-rule-record" class="button secondary small"
+                        type="button" title="수정 그만두고 새 룰">새 룰</button>
+                </div>
             </div>
+            <p class="rule-edit-mode" id="rule-edit-mode">새 룰 작성</p>
 
             <ol class="rule-steps" id="rule-steps" aria-label="룰 등록 순서">
                 <li data-rule-step="write">작성</li>
@@ -54,18 +57,18 @@
                 <label>
                     <span>설명</span>
                     <textarea id="rule-intent" rows="2"
-                        placeholder="무엇을 잡는 룰인지 한 줄로"></textarea>
+                        placeholder="예: wp-login 접근 탐지"></textarea>
                 </label>
 
                 <label>
                     <span>룰 본문</span>
                     <textarea id="rule-text" class="code-input" rows="10">alert http any any -> $HOME_NET $HTTP_PORTS (msg:"HAW-KI example URI detection"; flow:established,to_server; http.uri; content:"/example-path"; sid:9900100; rev:1;)</textarea>
-                    <small class="muted rule-verify-scope">검증기는 <code>http.uri; content:"/경로"</code> 조건 하나짜리 HTTP 룰만 시험해요. 도메인·헤더·pcre 같은 조건은 아직 배포할 수 없어요.</small>
+                    <small class="muted rule-verify-scope">검증기 지원: <code>http.uri</code> content 1개</small>
                 </label>
 
                 <label class="rule-enabled-control">
                     <input id="rule-enabled" type="checkbox" checked>
-                    <span>승인되면 사용 <small class="muted">· 끄면 사용 중지 요청이 올라갑니다</small></span>
+                    <span>사용 <small class="muted">(끄면 사용 중지 요청)</small></span>
                 </label>
 
                 <div id="rule-validation" class="validation-output empty-state">
@@ -82,7 +85,7 @@
                         type="submit" data-rule-step-button="save">저장</button>
                     <button class="button secondary" id="verify-rule-record"
                         type="button" data-rule-step-button="verify"
-                        title="검증기가 탐지·정상 트래픽을 재현해 시험합니다 (HTTP URI 포함 조건 룰)">검증기 검사</button>
+                        title="탐지·정상 트래픽 재현 시험">검증기 검사</button>
                     <button class="button secondary" id="stage-rule-record"
                         type="button" data-rule-step-button="stage">승인 요청</button>
                 </div>
