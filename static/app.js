@@ -4782,7 +4782,7 @@ async function validateRule() {
     const warnings = data.warnings.map((x) => `<li>${escapeHtml(ko(x))}</li>`).join("");
     const box = byId("rule-validation");
     box.className = `validation-output ${data.valid ? "rule-check-ok" : "rule-check-bad"}`;
-    box.innerHTML = `<div class="validation-block"><strong>${data.valid ? "문법 통과" : "문법 오류"}</strong>${errors ? `<ul>${errors}</ul>` : ""}${warnings ? `<p class="muted">참고</p><ul>${warnings}</ul>` : ""}<p class="muted">형식만 확인합니다. 실제 센서 적용 전 suricata -T 확인이 필요합니다.</p></div>`;
+    box.innerHTML = `<div class="validation-block"><strong>${data.valid ? "문법 통과" : "문법 오류"}</strong>${errors ? `<ul>${errors}</ul>` : ""}${warnings ? `<p class="muted">참고</p><ul>${warnings}</ul>` : ""}<p class="muted">형식 검사만</p></div>`;
     ruleEditorState.validated = Boolean(data.valid);
     if (!data.valid) ruleEditorState.saved = false;
     updateRuleSteps();
@@ -5081,7 +5081,7 @@ function editRuleRecord(id) {
     ruleEditorState.verified = rule.verification_status === "passed";
     ruleEditorState.staged = "";
     byId("rule-validation").className = "validation-output empty-state";
-    byId("rule-validation").textContent = `${rule.name} 불러옴 · 바꾸면 다시 검증합니다`;
+    byId("rule-validation").textContent = `${rule.name} 불러옴`;
     updateRuleSteps();
     byId("rule-form").scrollIntoView({behavior: "smooth", block: "start"});
 }
