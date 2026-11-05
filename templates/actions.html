@@ -11,7 +11,8 @@
             <span>조치 승인</span>
         </h2>
         <div class="approvals-header-tools">
-            <span id="approval-total-label" class="approval-total-label">0건</span>
+            <!-- HAWKI VR APPROVAL LINK -->
+            <a class="button secondary small" href="/response?tab=jobs">Velociraptor 수집 요청 →</a>
             <button id="refresh-approvals" class="approval-refresh-button" type="button"
                 aria-label="승인 목록 새로고침" title="승인 목록 새로고침">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -22,68 +23,76 @@
         </div>
     </div>
 
-    <div class="approval-summary" aria-label="승인 대기열 요약">
-        <div class="approval-summary-item">
+    <div class="approval-summary approval-view-tabs" role="tablist" aria-label="승인 상태별 보기">
+        <button type="button" class="approval-summary-item" data-approval-view="pending" role="tab">
             <span class="approval-summary-dot status-pending"></span>
-            <span>대기 중</span>
+            <span>처리할 것</span>
             <strong id="approval-count-pending">0</strong>
-        </div>
-        <div class="approval-summary-item">
+        </button>
+        <button type="button" class="approval-summary-item" data-approval-view="approved" role="tab">
             <span class="approval-summary-dot status-approved"></span>
             <span>승인됨</span>
             <strong id="approval-count-approved">0</strong>
-        </div>
-        <div class="approval-summary-item">
+        </button>
+        <button type="button" class="approval-summary-item" data-approval-view="rejected" role="tab">
             <span class="approval-summary-dot status-rejected"></span>
-            <span>반려 / 실패</span>
+            <span>반려 · 실패</span>
             <strong id="approval-count-rejected">0</strong>
-        </div>
+        </button>
+        <button type="button" class="approval-summary-item" data-approval-view="superseded" role="tab">
+            <span class="approval-summary-dot status-superseded"></span>
+            <span>대체됨</span>
+            <strong id="approval-count-superseded">0</strong>
+        </button>
+        <button type="button" class="approval-summary-item" data-approval-view="all" role="tab">
+            <span class="approval-summary-dot status-all"></span>
+            <span>전체</span>
+            <strong id="approval-count-all">0</strong>
+        </button>
     </div>
 
-    <form id="approval-filters" class="approval-filterbar">
+    <form id="approval-filters" class="approval-filterbar approval-filterbar-compact">
         <label class="approval-search-field">
             <span>검색</span>
-            <input id="approval-search" type="search" placeholder="ID, 제목, 요약, 룰, 호스트…">
+            <input id="approval-search" type="search" placeholder="제목, 호스트, SID, 조치 ID">
         </label>
-        <label>
-            <span>태그</span>
-            <select id="approval-tag-filter">
-                <option value="">태그 전체</option>
-            </select>
-        </label>
-        <label>
-            <span>위험도</span>
-            <select id="approval-risk-filter">
-                <option value="">위험도 전체</option>
-            </select>
-        </label>
-        <label>
-            <span>상태</span>
-            <select id="approval-status-filter">
-                <option value="">상태 전체</option>
-            </select>
-        </label>
-        <label>
-            <span>기간</span>
-            <select id="approval-time-filter">
-                <option value="">전체 기간</option>
-                <option value="24h">최근 24시간</option>
-                <option value="7d">최근 7일</option>
-                <option value="30d">최근 30일</option>
-            </select>
-        </label>
-        <label>
-            <span>정렬</span>
-            <select id="approval-sort">
-                <option value="newest">최신순</option>
-                <option value="oldest">오래된순</option>
-                <option value="risk_desc">위험도 높은순</option>
-                <option value="risk_asc">위험도 낮은순</option>
-                <option value="status">상태순</option>
-                <option value="type">조치 유형순</option>
-            </select>
-        </label>
-        <button id="clear-approval-filters" class="button secondary small" type="button">초기화</button>
+        <details class="filter-more">
+            <summary>필터 더 보기</summary>
+            <div class="filter-more-grid">
+                <label>
+                    <span>태그</span>
+                    <select id="approval-tag-filter">
+                        <option value="">태그 전체</option>
+                    </select>
+                </label>
+                <label>
+                    <span>위험도</span>
+                    <select id="approval-risk-filter">
+                        <option value="">위험도 전체</option>
+                    </select>
+                </label>
+                <label>
+                    <span>기간</span>
+                    <select id="approval-time-filter">
+                        <option value="">전체 기간</option>
+                        <option value="24h">최근 24시간</option>
+                        <option value="7d">최근 7일</option>
+                        <option value="30d">최근 30일</option>
+                    </select>
+                </label>
+                <label>
+                    <span>정렬</span>
+                    <select id="approval-sort">
+                        <option value="newest">최신순</option>
+                        <option value="oldest">오래된순</option>
+                        <option value="risk_desc">위험도 높은순</option>
+                        <option value="risk_asc">위험도 낮은순</option>
+                        <option value="type">조치 유형순</option>
+                    </select>
+                </label>
+                <button id="clear-approval-filters" class="button secondary small" type="button">초기화</button>
+            </div>
+        </details>
     </form>
 
     <div class="approval-results-bar">

@@ -25,3 +25,4 @@
 *.zip  binary
 *.pcap binary
 *.pcapng binary
+*.woff2 binary

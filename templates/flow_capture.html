@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block subtitle %}
+<p class="page-description">
+    경보 하나가 서버별 원본 로그 → 이벤트 → 경보 → 증거 패키지 → AI 증거 수집 → AI 판단 → 조치로 지나며
+    어떤 모양이 되는지 단계별로 봅니다. 단계마다 한 칸씩이라 칸 단위로 캡처할 수 있습니다.
+</p>
+{% endblock %}
+
+{% block content %}
+<div id="flow-capture-root" data-alert-id="{{ alert_id }}">
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">데이터 흐름 캡처</p>
+                <h2 data-flow-title>경보 {{ alert_id }}</h2>
+                <p class="muted" data-flow-meta>불러오는 중…</p>
+            </div>
+            <div class="button-row">
+                <label class="flow-capture-select">
+                    <span class="muted">캡처</span>
+                    <select data-flow-capture aria-label="캡처 선택"></select>
+                </label>
+                <a class="button secondary" data-flow-markdown href="#">결과 자료 (Markdown)</a>
+                <a class="button secondary" data-flow-package href="#" title="모델에 보낸 그대로의 증거 패키지">증거 패키지 원본 (JSON)</a>
+                <a class="button secondary" href="{{ url_for('alert_detail_page', alert_id=alert_id) }}">경보로 돌아가기</a>
+            </div>
+        </div>
+        <p class="flow-verify" data-flow-verify></p>
+        <div class="flow-size-chart" data-flow-sizes></div>
+    </section>
+
+    {% for key, label in [('raw', '① 서버별 원본 로그'), ('event', '② 이벤트 (디코딩)'), ('alert', '③ 경보'), ('evidence', '④ 증거 패키지'), ('ai_retrieval', '⑤ AI 증거 수집'), ('ai_judgment', '⑥ AI 판단'), ('response', '⑦ 조치 제안 · 승인 상태')] %}
+    <section class="panel flow-capture-stage" id="stage-{{ key }}" data-flow-stage="{{ key }}">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker" data-stage-where></p>
+                <h2>{{ label }}</h2>
+            </div>
+            <span class="muted" data-stage-size></span>
+        </div>
+        <div class="flow-stage-body" data-stage-body><p class="muted">불러오는 중…</p></div>
+    </section>
+    {% endfor %}
+</div>
+<script src="{{ url_for('static', filename='flow_capture.js', v=asset_version) }}"></script>
+{% endblock %}

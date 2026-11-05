@@ -1,8 +1,32 @@
+# Development override. Use with the base file, not instead of it:
+#
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d
+#
+# The base image bakes the source in (Dockerfile: COPY app.py, COPY
+# hawki_alert_analysis, ...), so editing a file on the host changes nothing
+# until the image is rebuilt. These mounts shadow the baked copies, which is
+# what makes an edit visible without `docker compose build`.
+#
+# hawki_alert_analysis was missing here while app.py, templates and static were
+# mounted, so a change to the adapters, the Wazuh repository or the evidence
+# bundle still needed a full rebuild while a change to app.py did not. That
+# asymmetry is easy to lose an hour to.
 services:
   hawki-web:
     volumes:
       - ./app.py:/app/app.py:ro
+      - ./hawki_alert_analysis:/app/hawki_alert_analysis:ro
       - ./templates:/app/templates:ro
       - ./static:/app/static:ro
+
+      # Runtime state moves to the working tree in development, shadowing the
+      # hawki-data volume the base file mounts. Accounts created here do not
+      # exist in normal mode and vice versa. *.sqlite3 and the queue/audit
+      # JSONL files are gitignored, so nothing here reaches the repository.
       - ./data:/app/data
+
+    # Flask's reloader picks the mounted edits up; --debug also serves a
+    # traceback page that prints source and local variables to whoever asks.
+    # Never leave a deployed host in this mode — return to `docker compose
+    # up -d` before a demo or any session someone else can reach.
     command: ["flask", "--app", "app", "run", "--host", "0.0.0.0", "--port", "5000", "--debug"]

@@ -1,18 +1,129 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">정밀 분석은 Kibana에서 하는 것을 기본으로 하고, 이 화면은 안전한 바로가기와 읽기 전용 검색만 제공합니다.</p>{% endblock %}
+{% block subtitle %}
+<p class="page-description">
+    읽기 전용 쿼리로 Wazuh Indexer의 보안 데이터를 검색합니다.
+</p>
+{% endblock %}
+
 {% block content %}
 <section class="panel">
+    <div class="log-builder" id="log-builder" aria-label="검색 도우미">
+        <div class="log-builder-head">
+            <strong>검색 도우미</strong>
+            <span class="muted">빈 칸은 조건에서 제외</span>
+        </div>
+        <div class="log-builder-fields">
+            <label>출발지 IP<input data-builder="src_ip" placeholder="예: 207.175.220.59" autocomplete="off"></label>
+            <label>목적지 IP<input data-builder="dst_ip" placeholder="예: 10.0.10.20" autocomplete="off"></label>
+            <label>호스트(에이전트)
+                <select data-host-select aria-describedby="log-host-note">
+                    <option value="">전체</option>
+                    <option value="" disabled data-host-loading>목록을 불러오는 중…</option>
+                    <option value="__custom">직접 입력…</option>
+                </select>
+                <input data-builder="host" data-host-custom placeholder="예: web-01" autocomplete="off" hidden>
+                <span class="log-field-note" id="log-host-note" data-host-note></span>
+            </label>
+            <label>룰 ID<input data-builder="rule_id" placeholder="예: 31101, 31333" autocomplete="off"></label>
+            <label>최소 레벨
+                <select data-builder="min_level">
+                    <option value="">전체</option>
+                    <option value="3">3 이상</option>
+                    <option value="5">5 이상</option>
+                    <option value="8">8 이상</option>
+                    <option value="10">10 이상</option>
+                    <option value="12">12 이상</option>
+                </select>
+            </label>
+            <label>로그 내용 포함<input data-builder="keyword" placeholder="예: /.git/HEAD" autocomplete="off"></label>
+            <button class="button secondary" type="button" data-builder-clear>비우기</button>
+        </div>
+        <p class="log-builder-error" data-builder-error hidden></p>
+    </div>
+
     <form id="log-search-form" class="log-form">
-        <label>인덱스 패턴<input id="log-index" value="logs-*"></label>
-        <label>질의 방식<select id="log-language"><option value="kql">KQL · Kibana 링크</option><option value="query_string">Elasticsearch 질의문</option></select></label>
-        <label class="span-two">질의 (Query)<input id="log-query" value="event.category:authentication and event.outcome:failure"></label>
-        <label>시작<input id="log-start" value="now-24h"></label>
-        <label>끝<input id="log-end" value="now"></label>
-        <label>최대 건수<input id="log-size" type="number" min="1" max="200" value="50"></label>
-        <button class="button primary" type="submit">검색 실행</button>
+        <label>
+            검색 대상
+            <select id="log-target" aria-describedby="log-target-note">
+                <option value="{{ log_alert_index }}" data-note="룰에 걸린 이벤트만 (기본)">보안 경보</option>
+                <option value="{{ log_archive_index }}" data-note="룰에 안 걸린 이벤트까지 전부 · 공격 전후 맥락 확인용">전체 원시 로그</option>
+                <option value="__custom" data-target-custom hidden>고급 설정의 인덱스</option>
+            </select>
+            <span class="log-field-note" id="log-target-note" data-target-note></span>
+        </label>
+
+        <input id="log-language" type="hidden" value="query_string">
+
+        <label class="span-two">
+            쿼리
+            <input id="log-query" value="*">
+        </label>
+
+        <label>
+            최대 결과 수
+            <input id="log-size" type="number" min="1" max="200" value="50">
+        </label>
+
+        <button class="button primary" type="submit">
+            검색
+        </button>
+
+        <div class="log-range" role="group" aria-labelledby="log-range-label">
+            <span class="log-range-label" id="log-range-label">기간</span>
+            <div class="log-range-presets">
+                <button type="button" class="range-chip" data-range="now-15m">최근 15분</button>
+                <button type="button" class="range-chip" data-range="now-1h">1시간</button>
+                <button type="button" class="range-chip" data-range="now-24h">24시간</button>
+                <button type="button" class="range-chip" data-range="now-7d">7일</button>
+                <button type="button" class="range-chip" data-range="now-30d">30일</button>
+                <button type="button" class="range-chip" data-range="custom">직접 지정</button>
+            </div>
+            <div class="log-range-custom" data-range-custom hidden>
+                <label>시작<input type="datetime-local" id="log-start-local" step="60"></label>
+                <span aria-hidden="true">~</span>
+                <label>끝<input type="datetime-local" id="log-end-local" step="60"></label>
+            </div>
+            <p class="log-range-summary" id="log-range-summary" aria-live="polite"></p>
+            <input id="log-start" type="hidden" value="now-24h">
+            <input id="log-end" type="hidden" value="now">
+        </div>
+
+        <details class="log-advanced" id="log-advanced">
+            <summary>고급 설정</summary>
+            <label>
+                인덱스 패턴
+                <input id="log-index" value="{{ log_alert_index }}" autocomplete="off" spellcheck="false">
+            </label>
+            <p class="log-field-note">경보 <code>{{ log_alert_index }}</code> · 원시 로그 <code>{{ log_archive_index }}</code></p>
+        </details>
     </form>
-    <div class="policy-note" id="log-policy-note">Elasticsearch 검색 정책을 확인하는 중…</div>
-    <div class="table-header"><span id="log-count">아직 검색하지 않음</span><div><button class="button ghost" id="copy-log-query" type="button">질의 복사</button><a class="button secondary" id="open-kibana-link" href="{{ kibana_url }}/app/discover" target="_blank" rel="noopener noreferrer">Kibana 열기 ↗</a></div></div>
-    <div class="log-results" id="log-results"><div class="empty-state">검색 결과가 여기에 표시됩니다.</div></div>
+
+    <div class="policy-note" id="log-policy-note">
+        Wazuh Indexer 검색 정책을 확인하는 중…
+    </div>
+
+    <div class="table-header">
+        <span id="log-count">아직 검색하지 않았습니다</span>
+
+        <div>
+            <button class="button ghost" id="copy-log-query" type="button">
+                쿼리 복사
+            </button>
+
+            <a class="button secondary"
+               id="open-wazuh-link"
+               href="{{ wazuh_dashboard_url }}"
+               target="_blank"
+               rel="noopener noreferrer">
+                Wazuh Dashboard 열기 ↗
+            </a>
+        </div>
+    </div>
+
+    <div class="log-results" id="log-results">
+        <div class="empty-state">
+            검색 결과가 여기에 표시됩니다.
+        </div>
+    </div>
 </section>
 {% endblock %}

@@ -1,15 +1,92 @@
 {% extends "base.html" %}
-{% block subtitle %}<p class="page-description">실제 형식의 경보 데이터와 상관분석된 증거, 여러 장비를 종합한 LLM 분석을 확인합니다. 같은 화면을 나중에 실시간 Elasticsearch 경보로 그대로 바꿔 붙일 수 있습니다.</p>
+{% block subtitle %}
+<p class="page-description">
+    Wazuh 보안 경보와 연관 증거, 조사 맥락을 확인합니다.
+</p>
 {% endblock %}
+
 {% block content %}
 <section class="panel">
-    <form id="alert-filter-form" class="toolbar-form">
-        <label>검색<input id="alert-query" placeholder="호스트, 공격기법, 경보 제목"></label>
-        <label>심각도<select id="alert-severity"><option value="all">전체</option><option value="critical">심각 (Critical)</option><option value="high">높음 (High)</option><option value="medium">보통 (Medium)</option></select></label>
-        <label>상태<select id="alert-status"><option value="all">전체</option><option value="unassigned">미배정</option><option value="new">신규</option><option value="investigating">분석 중</option><option value="monitoring">관찰 중</option></select></label>
-        <button class="button primary" type="submit">필터 적용</button>
+    <div class="alert-tabs" role="tablist" aria-label="경보 구분">
+        <button type="button" class="alert-tab" role="tab" data-category="attack" aria-selected="true">공격 경보</button>
+        <button type="button" class="alert-tab" role="tab" data-category="vulnerability" aria-selected="false">취약점 (CVE)</button>
+        <button type="button" class="alert-tab" role="tab" data-category="all" aria-selected="false">전체</button>
+        <span class="alert-tab-note muted" data-category-note></span>
+    </div>
+    <form id="alert-filter-form" class="toolbar-form alert-filter-form">
+        <label>
+            검색
+            <input id="alert-query" placeholder="에이전트, IP, 룰, 그룹, MITRE, 탐지명">
+        </label>
+
+        <label>
+            최소 Wazuh 레벨
+            <select id="alert-min-level">
+                <option value="0">전체 레벨</option>
+                <option value="3">레벨 3 이상</option>
+                <option value="5">레벨 5 이상</option>
+                <option value="8">레벨 8 이상</option>
+                <option value="10">레벨 10 이상</option>
+                <option value="12">레벨 12 이상</option>
+            </select>
+        </label>
+
+        <label>
+            기간
+            <select id="alert-range">
+                <option value="1h">최근 1시간</option>
+                <option value="24h" selected>최근 24시간</option>
+                <option value="7d">최근 7일</option>
+                <option value="30d">최근 30일</option>
+                <option value="">기간 제한 없음</option>
+            </select>
+        </label>
+
+        <label>
+            정렬
+            <select id="alert-sort">
+                <option value="priority">우선순위순</option>
+                <option value="time">최신순</option>
+            </select>
+        </label>
+
+        <label>
+            처리 상태
+            <select id="alert-status">
+                <option value="open" selected>미처리</option>
+                <option value="handled">처리됨</option>
+                <option value="all">전체</option>
+            </select>
+        </label>
+
+        <label>
+            한 페이지
+            <select id="alert-page-size">
+                <option value="25">25줄</option>
+                <option value="50" selected>50줄</option>
+                <option value="100">100줄</option>
+            </select>
+        </label>
+
+        <label class="alert-group-toggle">
+            <input type="checkbox" id="alert-group" checked>
+            같은 룰·출발지 묶기
+        </label>
+
+        <button class="button primary" type="submit">
+            필터 적용
+        </button>
     </form>
-    <div class="table-header"><span id="alert-count">경보를 불러오는 중</span><a class="button secondary" href="/agent?mode=alert_summary">에이전트 열기</a></div>
+
+    <div class="table-header">
+        <span id="alert-count">경보를 불러오는 중…</span>
+        <a class="button secondary" href="/agent?mode=alert_summary">
+            AI 분석 열기
+        </a>
+    </div>
+
+    <p class="alert-legend"><span class="prio-chip prio-p1">P1</span> HAW-KI 우선순위 (P1 가장 급함) <span class="alert-legend-sep">·</span> <span class="sev-chip sev-medium">중간 <small>L7</small></span> Wazuh 심각도·레벨</p>
     <div class="data-table" id="alerts-table"></div>
+    <nav class="alert-pager" id="alert-pager" aria-label="경보 페이지" hidden></nav>
 </section>
 {% endblock %}

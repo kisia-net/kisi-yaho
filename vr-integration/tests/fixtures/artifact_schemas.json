@@ -1,0 +1,2121 @@
+[
+  {
+    "name": "Generic.Client.CleanupTemp",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "TempGlob",
+        "default": "%TEMP%/**",
+        "description": "Glob to find all the files in the temp folder.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "AgeSeconds",
+        "default": "600",
+        "description": "Any files older than this many seconds will be removed.",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ReadllyDoIt",
+        "default": "",
+        "description": "",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [
+      "FILESYSTEM_WRITE"
+    ],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Client.DiskSpace",
+    "type": "client",
+    "parameters": [],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Client.DiskUsage",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "TopLevelDirectory",
+        "default": "C:/Program Files",
+        "description": "The top level directory to start calculating disk usage.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "FilenameGlob",
+        "default": "*",
+        "description": "A Glob expression for considering files",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "DirectoryGlob",
+        "default": "*",
+        "description": "A Glob expression for considering directories to recurse into.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Client.Info",
+    "type": "client",
+    "parameters": [],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      "BasicInformation",
+      "DetailedInfo",
+      "LinuxInfo",
+      "WindowsInfo",
+      "Users"
+    ]
+  },
+  {
+    "name": "Generic.Client.LocalLogs",
+    "type": "client_event",
+    "parameters": [
+      {
+        "name": "LocalFilename",
+        "default": "%TEMP%/locallogs.log",
+        "description": "The local filename that will be written (Env variables will be expanded).",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "MaxRows",
+        "default": "100",
+        "description": "Flush the file when we cache this many rows.",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "MaxWait",
+        "default": "60",
+        "description": "Flush the file at least every this many seconds.",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "MaxSize",
+        "default": "100000000",
+        "description": "Truncate the file once it reaches this length.",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "AlsoForward",
+        "default": "",
+        "description": "By default we do not forward any of the logs to the server but\nthis allows logs to be forwarded as well as written locally.\n",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Component",
+        "default": "generic",
+        "description": "The log component to forward (default \"generic\")",
+        "type": "choices",
+        "choices": [
+          "generic",
+          "client",
+          "frontend",
+          "gui",
+          "api"
+        ],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Client.LocalLogsRetrieve",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "LocalFilename",
+        "default": "%TEMP%/locallogs.log",
+        "description": "The local filename that will be retrieved (Env variables will be expanded).",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Client.Profile",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "Allocs",
+        "default": "Y",
+        "description": "A sampling of all past memory allocations",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Block",
+        "default": "",
+        "description": "Stack traces that led to blocking on synchronization primitives",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Goroutine",
+        "default": "Y",
+        "description": "Stack traces of all current goroutines",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Heap",
+        "default": "",
+        "description": "A sampling of memory allocations of live objects",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Mutex",
+        "default": "",
+        "description": "Stack traces of holders of contended mutexes",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Profile",
+        "default": "",
+        "description": "CPU profile",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Trace",
+        "default": "",
+        "description": "CPU trace",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Logs",
+        "default": "",
+        "description": "Get logs",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "QueryLogs",
+        "default": "",
+        "description": "Get recent queries logs",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Metrics",
+        "default": "",
+        "description": "Get client metrics",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Verbose",
+        "default": "",
+        "description": "Print more detail",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Duration",
+        "default": "30",
+        "description": "Duration of sampling for Profile and Trace.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      "",
+      "Goroutines",
+      "Memory",
+      "Logs",
+      "RunningQueries",
+      "AllQueries",
+      "Metrics",
+      "Everything"
+    ]
+  },
+  {
+    "name": "Generic.Client.Rekey",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "Wait",
+        "default": "10",
+        "description": "Wait this long before restarting the client.",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [
+      "EXECVE"
+    ],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Client.Stats",
+    "type": "client_event",
+    "parameters": [
+      {
+        "name": "Frequency",
+        "default": "10",
+        "description": "Return stats every this many seconds.",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      "",
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Client.Trace",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "FrequencySec",
+        "default": "10",
+        "description": "",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Client.VQL",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "Command",
+        "default": "SELECT * FROM info()",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [
+      "IMPERSONATION"
+    ],
+    "precondition": "",
+    "result_sources": [
+      "",
+      "Overview"
+    ]
+  },
+  {
+    "name": "Generic.Collectors.File",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "collectionSpec",
+        "default": "Glob\nUsers\\*\\NTUser.dat\n",
+        "description": "A CSV file with a Glob column with all the globs to collect.\nNOTE: Globs must not have a leading device.\n",
+        "type": "csv",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Root",
+        "default": "C:",
+        "description": "On Windows, this is the device to apply all the glob on\n(e.g. `C:`). On *NIX, this should be a path to a subdirectory or\n/.\n",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Accessor",
+        "default": "auto",
+        "description": "On Windows, this can be changed to `ntfs`.\n",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "NTFS_CACHE_TIME",
+        "default": "1000000",
+        "description": "How often to flush the NTFS cache. (Default is never).",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "UPLOAD_IS_RESUMABLE",
+        "default": "N",
+        "description": "If set the uploads can be resumed if the flow times out or errors.\n",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "MaxFileSize",
+        "default": "18446744073709551615",
+        "description": "The max size in bytes of the individual files to collect.\nSet to 0 to disable it.\n",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      "All Matches Metadata",
+      "Uploads"
+    ]
+  },
+  {
+    "name": "Generic.Detection.HashHunter",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "TargetGlob",
+        "default": "C:/Users/**/*",
+        "description": "Glob to target.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Accessor",
+        "default": "auto",
+        "description": "Velociraptor accessor to use. Changing to ntfs will increase scan time.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "DateAfter",
+        "default": "",
+        "description": "Search for binaries with timestamps after this date. YYYY-MM-DDTmm:hh:ssZ",
+        "type": "timestamp",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "DateBefore",
+        "default": "",
+        "description": "Search for binaries with timestamps before this date. YYYY-MM-DDTmm:hh:ssZ",
+        "type": "timestamp",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SizeMax",
+        "default": "4294967296",
+        "description": "Return binaries only under this size in bytes.",
+        "type": "int64",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SizeMin",
+        "default": "0",
+        "description": "Return binaries only over this size in bytes.",
+        "type": "int64",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "MD5List",
+        "default": "",
+        "description": "MD5 hash list to hunt for. New MD5 hash on each line",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SHA1List",
+        "default": "",
+        "description": "SHA1 hash list to hunt for. New SHA1 hash on each line",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SHA256List",
+        "default": "",
+        "description": "SHA256 hash list to hunt for. New SHA256 hash on each line",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Detection.Logs",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "TargetGlob",
+        "default": "/{/var/log/**,*:/inetpub/logs/**/,{/var/log/httpd,/var/log/apache2,/var/log/nginx,C:/Apache/logs}/{access.log,access_log}*}",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SearchRegex",
+        "default": "PUT ",
+        "description": "Regex of strings to search in line.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "WhitelistRegex",
+        "default": "",
+        "description": "Regex of strings to leave out of output.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Detection.Yara.Glob",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "PathGlob",
+        "default": "/usr/bin/ls",
+        "description": "Only file names that match this glob will be scanned.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SizeMax",
+        "default": "",
+        "description": "maximum size of target file.",
+        "type": "int64",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SizeMin",
+        "default": "",
+        "description": "minimum size of target file.",
+        "type": "int64",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "UploadHits",
+        "default": "",
+        "description": "",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "DateAfter",
+        "default": "",
+        "description": "search for events after this date. YYYY-MM-DDTmm:hh:ssZ",
+        "type": "timestamp",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "DateBefore",
+        "default": "",
+        "description": "search for events before this date. YYYY-MM-DDTmm:hh:ssZ",
+        "type": "timestamp",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "YaraUrl",
+        "default": "",
+        "description": "If configured will attempt to download Yara rules form Url",
+        "type": "upload",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "YaraRule",
+        "default": "rule IsELF:TestRule {\n   meta:\n      author = \"the internet\"\n      date = \"2021-05-03\"\n      description = \"A simple ELF rule to test yara features\"\n  condition:\n     uint32(0) == 0x464c457f\n}\n",
+        "description": "Final Yara option and the default if no other options provided.",
+        "type": "yara",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "NumberOfHits",
+        "default": "1",
+        "description": "This artifact will stop by default at one hit. This setting allows additional hits",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ContextBytes",
+        "default": "0",
+        "description": "Include this amount of bytes around hit as context.",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Generic.Detection.Yara.Zip",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "TargetGlob",
+        "default": "**/*.{zip,jar,war,ear}",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ZipFilenameRegex",
+        "default": ".(zip|jar|war|ear)$",
+        "description": "Regex of FileName inside container files we would like to recursively scan.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "MaxRecursions",
+        "default": "10",
+        "description": "Number of recursions to allow checking inside archives. Default is 10 layers.",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "UploadHits",
+        "default": "",
+        "description": "Select to upload hits to server.",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "YaraRule",
+        "default": "rule IsPE:TestRule {\n   meta:\n      author = \"the internet\"\n      date = \"2021-03-04\"\n      description = \"A simple PE rule to test yara features\"\n  condition:\n     uint16(0) == 0x5A4D and\n     uint32(uint32(0x3C)) == 0x00004550\n}\n",
+        "description": "Final Yara option and the default if no other options provided.",
+        "type": "yara",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "NumberOfHits",
+        "default": "1",
+        "description": "THis artifact will stop by default at one hit. This setting allows additional hits",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ContextBytes",
+        "default": "0",
+        "description": "Include this amount of bytes around hit as context.",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Network.Netstat",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "StateRegex",
+        "default": "LISTEN|ESTAB",
+        "description": "Only show these states",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "\nSELECT OS From info() where OS = 'linux'\n",
+    "result_sources": [
+      "TCP4",
+      "TCP6"
+    ]
+  },
+  {
+    "name": "Linux.Network.NetstatEnriched",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "IPRegex",
+        "default": ".",
+        "description": "regex search over IP address fields.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "PortRegex",
+        "default": ".",
+        "description": "regex search over port fields.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ProcessNameRegex",
+        "default": ".",
+        "description": "regex search over source process name",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "UsernameRegex",
+        "default": ".",
+        "description": "regex search over source process user context",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ConnectionStatusRegex",
+        "default": "LISTEN|ESTAB",
+        "description": "regex search over connection status",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ProcessPathRegex",
+        "default": ".",
+        "description": "regex search over source process path",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "CommandLineRegex",
+        "default": ".",
+        "description": "regex search over source process commandline",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "CallChainRegex",
+        "default": ".",
+        "description": "regex search over the process callchain",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "\nSELECT OS From info() where OS = 'linux'\n",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Network.PacketCapture",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "Duration",
+        "default": "10",
+        "description": "Duration (in seconds) of PCAP to be recorded.",
+        "type": "integer",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Interface",
+        "default": "any",
+        "description": "",
+        "type": "string",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "BPF",
+        "default": "",
+        "description": "",
+        "type": "string",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [
+      "EXECVE"
+    ],
+    "precondition": "\nSELECT * FROM info() where OS = 'linux'\n",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Remediation.Quarantine",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "pathToNFT",
+        "default": "/usr/sbin/nft",
+        "description": "We depend on `nft` to manage the tables, chains, and rules.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "TableName",
+        "default": "vrr_quarantine_table",
+        "description": "Name of the quarantine table",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ForbiddenTestURL",
+        "default": "https://www.google.com",
+        "description": "URL for forbidden connection check",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "MessageBox",
+        "default": "",
+        "description": "Optional message box notification to send to logged in users. 256\ncharacter limit.\n",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "RemovePolicy",
+        "default": "",
+        "description": "Tickbox to remove policy.",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [
+      "EXECVE",
+      "NETWORK"
+    ],
+    "precondition": "SELECT OS From info() where OS = 'linux'",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Search.FileFinder",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "SearchFilesGlob",
+        "default": "/home/*",
+        "description": "Use a glob to define the files that will be searched.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SearchFilesGlobTable",
+        "default": "Glob\n/home/someuser/*\n",
+        "description": "Alternative specify multiple globs in a table",
+        "type": "csv",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "YaraRule",
+        "default": "",
+        "description": "A yara rule to search for matching files.",
+        "type": "yara",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Upload_File",
+        "default": "N",
+        "description": "",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Calculate_Hash",
+        "default": "N",
+        "description": "",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "MoreRecentThan",
+        "default": "",
+        "description": "",
+        "type": "timestamp",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ModifiedBefore",
+        "default": "",
+        "description": "",
+        "type": "timestamp",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ExcludePathRegex",
+        "default": "^/(proc|sys|run|snap)",
+        "description": "If this regex matches the path of any directory we do not even descend inside of it.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "LocalFilesystemOnly",
+        "default": "Y",
+        "description": "When set we stay on local attached filesystems including loop, attached disk, cdrom, device mapper, and excluding proc, nfs etc.",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "OneFilesystem",
+        "default": "N",
+        "description": "When set we do not follow a link to go on to a different filesystem.",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "DoNotFollowSymlinks",
+        "default": "N",
+        "description": "If specified we are allowed to follow symlinks while globbing",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ROOT",
+        "default": "",
+        "description": "The root from which to start searching.",
+        "type": "hidden",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ACCESSOR",
+        "default": "file",
+        "description": "",
+        "type": "hidden",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "UPLOAD_IS_RESUMABLE",
+        "default": "N",
+        "description": "If set the uploads can be resumed if the flow times out or errors.\n",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "\nSELECT * FROM info() where OS = 'linux'\n",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Ssh.AuthorizedKeys",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "sshKeyFilesGlob",
+        "default": "/home/*/.ssh/authorized_keys*",
+        "description": "Glob of authorized_keys files.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "keyTypes",
+        "default": "sk-ecdsa-sha2-nistp256|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519|ssh-ed25519|ssh-dss|ssh-rsa",
+        "description": "A regex to identify supported key types",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "AlsoUpload",
+        "default": "",
+        "description": "Also upload the raw files for closer inspection.",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Ssh.KnownHosts",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "sshKnownHostsFiles",
+        "default": ".ssh/known_hosts*",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "SELECT OS From info() where OS = 'linux'",
+    "result_sources": [
+      "",
+      "HostPublicKeys"
+    ]
+  },
+  {
+    "name": "Linux.Ssh.PrivateKeys",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "KeyGlobs",
+        "default": "/home/*/.ssh/{*.pem,id_rsa,id_dsa}",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ExcludePathRegex",
+        "default": "^/(proc|sys|run|snap)",
+        "description": "If this regex matches the path of any directory we do not even descend inside of it.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "LocalFilesystemOnly",
+        "default": "Y",
+        "description": "When set, we stay on local attached filesystems including loop, attached\ndisk, cdrom, device mapper, and excluding proc, nfs etc. When set, it can\npotentially miss keys in some Linux distros. If not sure, or if being run\nacross multiple distros, then we recommend that you not set it.\n",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "SELECT OS From info() where OS = 'linux'",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.ACPITables",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "kLinuxACPIPath",
+        "default": "/sys/firmware/acpi/tables",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.BashHistory",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "TargetGlob",
+        "default": "/{root,home/*}/.*_history",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SearchRegex",
+        "default": ".",
+        "description": "Regex of strings to search in line.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "WhitelistRegex",
+        "default": "",
+        "description": "Regex of strings to leave out of output.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.BashShell",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "Command",
+        "default": "ls -l /",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "CommandId",
+        "default": "0",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Stateful",
+        "default": "Y",
+        "description": "",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Timeout",
+        "default": "3500",
+        "description": "How long to leave the session running for.",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [
+      "EXECVE"
+    ],
+    "precondition": "",
+    "result_sources": [
+      "",
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.CPUTime",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "procStat",
+        "default": "/proc/stat",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.Crontab",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "cronTabGlob",
+        "default": "/etc/crontab,/etc/cron.d/**,/var/at/tabs/**,/var/spool/cron/**,/var/spool/cron/crontabs/**",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "cronTabScripts",
+        "default": "/etc/cron.daily/*,/etc/cron.hourly/*,/etc/cron.monthly/*,/etc/cron.weekly/*",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Length",
+        "default": "10000",
+        "description": "",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "SELECT OS From info() where OS = 'linux'",
+    "result_sources": [
+      "CronTabs",
+      "CronScripts",
+      "Uploaded"
+    ]
+  },
+  {
+    "name": "Linux.Sys.Groups",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "GroupFile",
+        "default": "/etc/group",
+        "description": "The location of the group file",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.LastUserLogin",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "wtmpGlobs",
+        "default": "/var/log/wtmp*",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "MaxCount",
+        "default": "10000",
+        "description": "",
+        "type": "int64",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "LoginType",
+        "default": "Interactive Sessions",
+        "description": "Per default, we are only interested in interactive sessions, if\nyou want to see more, choose the second option\n",
+        "type": "choices",
+        "choices": [
+          "Interactive Sessions",
+          "All Sessions"
+        ],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "recent_x_days",
+        "default": "100000",
+        "description": "show all logs within the last X days (default 14 days)\n",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "excluded_users",
+        "default": "ansible|LOGIN",
+        "description": "List of Users (regex), you are not interested in\n",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.LogGrep",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "TargetGlob",
+        "default": "/var/log/**",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "GrepRegex",
+        "default": "malware\\.php",
+        "description": "Regex of strings to search in line.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "WhitelistRegex",
+        "default": "",
+        "description": "Regex of strings to leave out of output.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.LogHunter",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "TargetFiles",
+        "default": "/var/log/**",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SearchRegex",
+        "default": " POST ",
+        "description": "Regex pattern to match in log lines.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "FilterRegex",
+        "default": "",
+        "description": "Regex pattern to exclude matched lines from output.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ExcludeDirectoryRegex",
+        "default": "^/(shared|proc|snap)",
+        "description": "Do not descend into directories that match this regex pattern.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ExcludePathRegex",
+        "default": "\\.journal$",
+        "description": "Regex pattern describing paths to exclude from scanning.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.Maps",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "processRegex",
+        "default": ".",
+        "description": "A regex applied to process names.",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "SELECT OS From info() where OS = 'linux'",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.Pslist",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "processRegex",
+        "default": ".",
+        "description": "",
+        "type": "regex",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "SELECT OS From info() where OS =~ 'linux|darwin'\n",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.SUID",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "GlobExpression",
+        "default": "/usr/**",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.Services",
+    "type": "client",
+    "parameters": [],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Sys.Users",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "PasswordFile",
+        "default": "/etc/passwd",
+        "description": "The location of the password file.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "Linux.Syslog.SSHLogin",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "syslogAuthLogPath",
+        "default": "/var/log/{auth.log,secure}*",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "SSHGrok",
+        "default": "%{SYSLOGTIMESTAMP:Timestamp} (?:%{SYSLOGFACILITY} )?%{SYSLOGHOST:logsource} %{SYSLOGPROG}: %{DATA:event} %{DATA:method} for (invalid user )?%{DATA:user} from %{IPORHOST:ip} port %{NUMBER:port} ssh2(: %{GREEDYDATA:system.auth.ssh.signature})?",
+        "description": "A Grok expression for parsing SSH auth lines.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "System.VFS.DownloadFile",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "Path",
+        "default": "/",
+        "description": "The path of the file to download.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Components",
+        "default": "",
+        "description": "Alternatively, this is an explicit list of components.",
+        "type": "json_array",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Accessor",
+        "default": "file",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Recursively",
+        "default": "",
+        "description": "If specified, Path is interpreted as a directory and\nwe download all files below it.\n",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "UPLOAD_IS_RESUMABLE",
+        "default": "N",
+        "description": "If set the uploads can be resumed if the flow times out or errors.",
+        "type": "bool",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "System.VFS.Export",
+    "type": "server",
+    "parameters": [
+      {
+        "name": "Path",
+        "default": "",
+        "description": "A vfs path under which to search for file (NOTE: VFS paths start\nwith the accessor name).\n",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Components",
+        "default": "[]",
+        "description": "The top level to recurse from. NOTE: The first element in the\nlist must be the accessor name.\n",
+        "type": "json_array",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "ClientId",
+        "default": "",
+        "description": "The client id to apply the artifact on",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "FileGlob",
+        "default": "**",
+        "description": "Only match the following files (default all of them) under the\nPath\n",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      ""
+    ]
+  },
+  {
+    "name": "System.VFS.ListDirectory",
+    "type": "client",
+    "parameters": [
+      {
+        "name": "Path",
+        "default": "/",
+        "description": "The path of the file to download.",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Components",
+        "default": "",
+        "description": "Alternatively, this is an explicit list of components.",
+        "type": "json_array",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Accessor",
+        "default": "file",
+        "description": "",
+        "type": "",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      },
+      {
+        "name": "Depth",
+        "default": "0",
+        "description": "",
+        "type": "int",
+        "choices": [],
+        "friendly_name": "",
+        "validating_regex": "",
+        "artifact_type": "",
+        "sources": false
+      }
+    ],
+    "required_permissions": [],
+    "precondition": "",
+    "result_sources": [
+      "Listing",
+      "Stats",
+      ""
+    ]
+  }
+]

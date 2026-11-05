@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<section id="vr-workspace" class="vr" data-mode="{{ vr_mode }}" data-csrf="{{ csrf_token() }}" data-gui="{{ velociraptor_url }}">
+  <div class="vr-topline">
+    <div><span class="vr-eyebrow">엔드포인트 조사</span><p id="vr-connection" class="vr-muted" role="status">연결 확인 중…</p></div>
+    <div class="vr-buttons"><button type="button" id="vr-refresh" class="vr-button">새로고침</button><a class="vr-button" href="{{ velociraptor_url }}" target="_blank" rel="noopener noreferrer">Velociraptor ↗</a><button type="button" id="vr-new" class="vr-button vr-primary">{{ '새 파일 검색' if vr_mode == 'files' else '초동 조사 수집' }}</button></div>
+  </div>
+  <div id="vr-error" class="vr-alert" role="alert" hidden></div>
+  <div class="vr-layout">
+    <aside class="vr-endpoints" aria-label="대상 호스트">
+      <div class="vr-pane-heading"><h2>호스트</h2><span id="vr-client-count" class="vr-muted"></span></div>
+      <form id="vr-client-search" class="vr-search"><label class="vr-sr" for="vr-search-input">호스트 검색</label><input id="vr-search-input" type="search" autocomplete="off" placeholder="호스트 · 클라이언트 ID · label:"><button type="submit" class="vr-button" aria-label="호스트 검색">검색</button></form>
+      <div id="vr-client-list" class="vr-client-list" aria-live="polite"></div>
+      <button type="button" id="vr-clients-more" class="vr-button vr-wide" hidden>더 보기</button>
+    </aside>
+    <div class="vr-investigation">
+      <header class="vr-host-header"><div><h2 id="vr-host-name">호스트를 선택하세요</h2><code id="vr-host-id"></code></div><div id="vr-host-facts" class="vr-host-facts"></div></header>
+      <nav id="vr-tabs" class="vr-tabs" aria-label="조사 항목"></nav>
+      <section id="vr-content" class="vr-content" aria-live="polite"></section>
+    </div>
+  </div>
+  <dialog id="vr-compose" class="vr-dialog" aria-labelledby="vr-compose-title">
+    <form id="vr-compose-form">
+      <div class="vr-pane-heading"><h2 id="vr-compose-title">새 수집</h2><button type="button" class="vr-icon" data-close="vr-compose" aria-label="닫기">×</button></div>
+      <label>수집 항목<select id="vr-operation"></select></label>
+      <fieldset class="vr-targets"><legend>대상 호스트</legend><div id="vr-targets"></div><span id="vr-targets-note" class="vr-muted"></span></fieldset>
+      <div id="vr-fields" class="vr-fields"></div>
+      <label>사건 번호<input id="vr-incident" maxlength="160" autocomplete="off"></label>
+      <p id="vr-compose-error" class="vr-error-text" role="alert"></p>
+      <div class="vr-buttons vr-end"><button type="button" class="vr-button" data-close="vr-compose">닫기</button><button type="submit" class="vr-button vr-primary">수집 검토</button></div>
+    </form>
+  </dialog>
+  <dialog id="vr-review" class="vr-dialog" aria-labelledby="vr-review-title"><div class="vr-pane-heading"><h2 id="vr-review-title">수집 검토</h2><button type="button" class="vr-icon" data-close="vr-review" aria-label="닫기">×</button></div><div id="vr-review-content"></div><p id="vr-review-error" class="vr-error-text" role="alert"></p><div class="vr-buttons vr-end"><button type="button" class="vr-button" data-close="vr-review">닫기</button><button type="button" id="vr-submit" class="vr-button vr-primary">수집 시작</button></div></dialog>
+  <dialog id="vr-detail" class="vr-dialog vr-detail" aria-labelledby="vr-detail-title"><div class="vr-pane-heading"><h2 id="vr-detail-title">상세</h2><button type="button" class="vr-icon" data-close="vr-detail" aria-label="닫기">×</button></div><div id="vr-detail-content"></div></dialog>
+</section>
+{% endblock %}

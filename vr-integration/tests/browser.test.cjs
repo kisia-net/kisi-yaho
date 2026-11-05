@@ -1,0 +1,38 @@
+// Run against tests/browser_server.py, never against production.
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({headless:true,...(process.env.VR_CHROMIUM_EXECUTABLE?{executablePath:process.env.VR_CHROMIUM_EXECUTABLE,args:['--no-sandbox','--disable-dev-shm-usage','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']}: {})});
+ const page=await browser.newPage({viewport:{width:1500,height:1100}});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://127.0.0.1:18765/hunts');
+ await page.waitForSelector('#vr-result-table .vr-table');
+ assert.equal(await page.locator('#vr-result-table img').count(),0);
+ assert.equal(await page.evaluate(()=>window.injection),undefined);
+ assert.ok(await page.locator('#vr-result-table').innerText().then(t=>t.includes('메타데이터 변경')));
+ await page.screenshot({path:process.env.VR_SCREENSHOT || '/tmp/hawki-vr-desktop.png',fullPage:true});
+ await page.locator('[data-action="row"]').first().click();
+ await page.waitForSelector('#vr-detail[open]');
+ assert.ok((await page.locator('#vr-detail-content').innerText()).includes('F.BROWSER'));
+ await page.locator('#vr-detail [data-close]').click();
+ await page.locator('#vr-new').click();
+ await page.locator('#vr-field-path').fill('/tmp/*');
+ await page.locator('#vr-compose-form button[type="submit"]').click();
+ await page.waitForSelector('#vr-review[open]');
+ await page.locator('#vr-submit').click();
+ await page.waitForSelector('#vr-detail[open]');
+ assert.ok((await page.locator('#vr-detail-content').innerText()).includes('대기'));
+ await page.locator('#vr-detail [data-close]').click();
+ await page.goto('http://127.0.0.1:18765/response');
+ await page.waitForSelector('.vr-cards');
+ await page.locator('[data-tab="processes"]').click();
+ await page.waitForSelector('#vr-content .vr-empty');
+ assert.ok((await page.locator('#vr-content').innerText()).includes('기존 수집이 없습니다'));
+ await page.setViewportSize({width:390,height:844});
+ await page.goto('http://127.0.0.1:18765/hunts');
+ await page.waitForSelector('#vr-result-table .vr-table');
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false);
+ assert.deepEqual(errors,[]);
+ console.log('Browser checks passed: escaped results, evidence details, reviewed submission, host tabs, mobile layout.');
+ await browser.close();
+})().catch(e=>{console.error(e);process.exit(1);});

@@ -5,6 +5,15 @@
     const summary = () => document.getElementById("agent-alert-summary");
     const analyzeButton = () => document.getElementById("agent-analyze-attached");
 
+    // Display-only labels; alert.severity itself is left untouched.
+    const SEVERITY_LABELS = {
+        critical: "치명",
+        high: "높음",
+        medium: "중간",
+        low: "낮음",
+        info: "정보",
+    };
+
     function escapeHtml(value) {
         return String(value ?? "")
             .replaceAll("&", "&amp;")
@@ -65,7 +74,8 @@
             const alerts = Array.isArray(body.alerts) ? body.alerts : [];
             element.innerHTML = alerts.map((alert) => {
                 const title = alert.title || alert.summary || alert.id;
-                const severity = String(alert.severity || "").toUpperCase();
+                const severityKey = String(alert.severity || "").toLowerCase();
+                const severity = SEVERITY_LABELS[severityKey] || String(alert.severity || "").toUpperCase();
                 const host = alert.host ? ` · ${alert.host}` : "";
                 const isSelected = desired.has(alert.id) ? " selected" : "";
                 return `<option value="${escapeHtml(alert.id)}" data-title="${escapeHtml(title)}" data-host="${escapeHtml(alert.host || "")}"${isSelected}>${escapeHtml(severity)} · ${escapeHtml(title)}${escapeHtml(host)}</option>`;
@@ -115,7 +125,7 @@
             mode?.click();
             const input = document.getElementById("agent-input");
             if (!input) return;
-            input.value = "첨부한 경보 케이스를 분석해 주세요. 여러 장비의 증거를 상관분석하고, 확인된 관찰과 추론을 구분하고, 신뢰도와 심각도를 평가하고, 다음에 확인할 것을 알려 주세요.";
+            input.value = "첨부한 경보를 분석해 줘. 확인된 사실과 추론을 나누고, 심각도와 다음 확인 사항을 알려 줘.";
             document.getElementById("agent-form")?.requestSubmit();
         });
 

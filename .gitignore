@@ -88,6 +88,15 @@ db.sqlite3-journal
 *.sqlite3-journal
 data/action_queue.jsonl
 data/audit_log.jsonl
+# Automatic analysis reports and worker state (hawki_alert_analysis/auto_report.py).
+data/auto_reports/
+data/analyst_feedback.jsonl
+data/analyst_feedback.lock
+data/redteam_jobs.jsonl
+data/redteam_jobs.lock
+# 데이터 흐름 캡처와 그 내보내기 (flow_capture.py, tools/capture_flow.py): real evidence.
+data/flow_captures/
+data/flow_exports/
 
 # Flask stuff:
 instance/
@@ -224,3 +233,13 @@ pip-selfcheck.json
 docs/submissions/
 
 Claude outputs/
+
+# Frontend server leftovers (2026-10). secrets/ holds the Velociraptor
+# execution and transfer credentials mounted into vr-dispatcher; the
+# terminal transcripts can contain pasted commands and output; READY and
+# the pre-phase copies are the installer's and deployer's working files.
+secrets/
+vr-integration/terminal-*.txt
+READY
+*.pre-phase*
+hawki-pre-*.db

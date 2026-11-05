@@ -1,0 +1,93 @@
+<link rel="stylesheet" href="{{ url_for('static', filename='redteam_deep_scan.css', v=asset_version) }}">
+<section class="panel" data-redteam-scan-card
+         data-alert-id="{{ alert_id|default('', true) }}"
+         data-scan-id="{{ scan_id|default('', true) }}"
+         data-csrf="{{ csrf_token() }}">
+    <div class="panel-header">
+        <div><p class="panel-kicker">수동 실행</p><h2>모델 심층 점검</h2></div>
+        <button class="button secondary small" type="button" data-scan-refresh>결과 새로고침</button>
+    </div>
+
+    <p class="scan-lead">공격 질문을 실제 모델에 보내 채점합니다. 모델 호출 발생 · GPU 필요</p>
+
+    <div class="scan-step">
+        <h3><span class="scan-step-no">1</span> 검사할 경보 고르기</h3>
+                <div class="scan-picker-controls">
+            <label>기간
+                <select data-scan-range><option value="24h">최근 24시간</option><option value="7d">최근 7일</option><option value="30d">최근 30일</option></select>
+            </label>
+            <label>경보 검색
+                <input type="search" maxlength="200" data-scan-query placeholder="경보 설명·호스트·IP">
+            </label>
+            <button type="button" class="button secondary small" data-scan-load-alerts>경보 목록 불러오기</button>
+        </div>
+        <label>불러온 경보
+            <select data-scan-picker aria-label="검사할 실제 Wazuh 경보" disabled><option value="">경보 목록을 불러온 뒤 선택하세요</option></select>
+        </label>
+        <p class="muted" data-scan-list-note role="status"></p>
+        <div class="scan-selected" aria-live="polite">
+            <strong>선택한 경보</strong>
+            <p data-scan-selected>아직 선택한 경보가 없습니다.</p>
+            <p class="muted" data-scan-selection-note></p>
+        </div>
+        <details class="scan-advanced">
+            <summary>경보 ID로 직접 고르기</summary>
+            <label>Wazuh 문서 ID
+                <input type="text" maxlength="200" autocomplete="off" data-scan-alert
+                       value="{{ alert_id|default('', true) }}" placeholder="Wazuh 문서 ID">
+            </label>
+            <button type="button" class="button secondary small" data-scan-verify>이 ID의 경보 확인</button>
+                    </details>
+    </div>
+
+    <div class="scan-step">
+        <h3><span class="scan-step-no">2</span> 보낼 공격</h3>
+        <div class="scan-tool-explain">
+            <div>
+                <strong>Promptfoo · 6종</strong>
+                <ul>
+                    <li>정상 질문 (비교용)</li>
+                    <li>지시 무시</li>
+                    <li>프롬프트·비밀번호 유출</li>
+                    <li>인코딩 우회</li>
+                    <li>가짜 승인</li>
+                    <li>가짜 CVE·기법 번호</li>
+                </ul>
+            </div>
+            <div>
+                <strong>garak</strong>
+                <ul>
+                    <li>지시 주입 (별도 집계)</li>
+                </ul>
+                <p class="muted">답변만 채점, 실제 조치 없음</p>
+            </div>
+        </div>
+        <button class="button primary" type="button" data-scan-start disabled>이 경보로 실행 준비</button>
+        <p class="muted" data-scan-ready></p>
+    </div>
+
+    <section class="scan-review scan-step" data-scan-review hidden aria-label="심층 점검 실행 전 최종 확인">
+        <h3><span class="scan-step-no">3</span> 실행</h3>
+        <p data-scan-review-target></p>
+        <label class="scan-ack"><input type="checkbox" data-scan-ack> GPU 서버 켜짐 · 모델 호출 확인</label>
+        <div class="button-row">
+            <button class="button primary" type="button" data-scan-run disabled>전체 실행</button>
+            <button class="button secondary" type="button" data-scan-run-garak disabled>garak만 실행</button>
+            <button class="button ghost" type="button" data-scan-cancel>돌아가기</button>
+        </div>
+            </section>
+
+    <p class="scan-notice" data-scan-notice role="status" aria-live="polite">검사 결과 확인 중…</p>
+    <div class="scan-result" data-scan-result hidden>
+        <h3>최근 실행 결과</h3>
+        <p class="muted" data-scan-meta></p>
+        <p data-scan-summary></p>
+        <div class="scan-tool-cards" data-scan-tools></div>
+        <details data-scan-details hidden>
+            <summary>검사 항목별 결과 보기</summary>
+            <ul data-scan-probes></ul>
+            <div data-scan-checks></div>
+        </details>
+    </div>
+</section>
+<script defer src="{{ url_for('static', filename='redteam_deep_scan.js', v=asset_version) }}"></script>

@@ -39,7 +39,6 @@ REQUIRED_SECTIONS = (
     "confidence",
     "severity",
     "affected_entities",
-    "attack_techniques",
     "supporting_evidence",
     "evidence_gaps",
     "recommended_searches",
@@ -48,7 +47,10 @@ REQUIRED_SECTIONS = (
 # Expected, but legitimately empty: a case can genuinely have no disconfirming
 # evidence. Emptiness is reported as a note instead of counting as missing, so
 # a well-formed assessment of a clean case does not trigger a correction pass.
-OPTIONAL_SECTIONS = ("contradictory_evidence",)
+OPTIONAL_SECTIONS = (
+    "contradictory_evidence",
+    "attack_techniques",
+)
 
 ENTITY_KEYS = ("hosts", "users", "addresses", "processes", "files")
 
@@ -63,7 +65,7 @@ ASSESSMENT_CONTRACT = """The assessment object must contain these keys:
 - supporting_evidence: array of objects with statement and event_ids citing ids from the bundle
 - contradictory_evidence: array of objects with statement and event_ids, empty only if genuinely none exists
 - evidence_gaps: array of strings naming what is missing or unverifiable
-- recommended_searches: array of objects with title, language, and value
+- recommended_searches: array of objects with title, language, value, and index (alerts or archives) when language is wazuh; a wazuh value is a Lucene query_string over fields present in the bundle
 - recommended_response: array of strings, each an approval-required next step
 Cite event ids exactly as they appear in the bundle. Never invent an id.
 The `answer` field is a short analyst-facing briefing, at most twelve lines: what happened,
@@ -183,6 +185,7 @@ def _queries(value: Any) -> list[dict[str, str]]:
                     "title": _text(item.get("title") or item.get("name")),
                     "language": _text(item.get("language") or item.get("lang")),
                     "value": _text(item.get("value") or item.get("query")),
+                    "index": _text(item.get("index")) if _text(item.get("index")) in {"alerts", "archives"} else "",
                 }
             )
     return [item for item in queries if item["value"] or item["title"]]
@@ -291,22 +294,46 @@ def normalize_assessment(payload: Any) -> dict[str, Any]:
 
 
 def bundle_reference_ids(bundle: Any) -> tuple[set[str], set[str]]:
-    """Event ids and indicator ids an assessment is allowed to cite."""
+    """Evidence and indicator ids an assessment is allowed to cite."""
+
     event_ids: set[str] = set()
     indicator_ids: set[str] = set()
+
     if not isinstance(bundle, dict):
         return event_ids, indicator_ids
 
-    metadata = bundle.get("metadata") if isinstance(bundle.get("metadata"), dict) else {}
+    # Wazuh-native live evidence package.
+    trigger = bundle.get("trigger")
+    if isinstance(trigger, dict) and trigger.get("evidence_id"):
+        event_ids.add(str(trigger["evidence_id"]))
+
+    context = bundle.get("investigation_context")
+    if isinstance(context, list):
+        for item in context:
+            if isinstance(item, dict) and item.get("evidence_id"):
+                event_ids.add(str(item["evidence_id"]))
+
+    if event_ids:
+        return event_ids, indicator_ids
+
+    # Legacy fixture/case evidence bundle.
+    metadata = (
+        bundle.get("metadata")
+        if isinstance(bundle.get("metadata"), dict)
+        else {}
+    )
+
     for block_name in ("security_alerts", "security_events"):
         block = metadata.get(block_name)
         items = block.get("items") if isinstance(block, dict) else []
+
         for item in items if isinstance(items, list) else []:
             if isinstance(item, dict) and item.get("id"):
                 event_ids.add(str(item["id"]))
 
     intel = metadata.get("threat_intelligence")
     items = intel.get("items") if isinstance(intel, dict) else []
+
     for item in items if isinstance(items, list) else []:
         if isinstance(item, dict) and item.get("id"):
             indicator_ids.add(str(item["id"]))
@@ -385,14 +412,14 @@ SECTION_TITLES = {
     "ko": {
         "assessment": "판단 요약",
         "hypothesis": "공격 가설",
-        "confirmed": "확인된 관찰",
-        "supporting": "뒷받침 증거",
-        "contradictory": "모순 증거",
+        "confirmed": "확인된 관측 사실",
+        "supporting": "뒷받침하는 증거",
+        "contradictory": "반대 증거",
         "gaps": "증거 공백",
         "techniques": "ATT&CK 기법",
         "entities": "영향받는 대상",
-        "searches": "권장 검색",
-        "response": "권장 대응",
+        "searches": "추천 검색",
+        "response": "권고 대응",
         "severity": "심각도",
         "confidence": "신뢰도",
         "hosts": "호스트",
@@ -400,6 +427,19 @@ SECTION_TITLES = {
         "addresses": "주소",
         "processes": "프로세스",
         "files": "파일",
+    },
+}
+
+# Level words are schema values (the model writes them in English); only the
+# rendered text is translated, never the stored assessment.
+LEVEL_LABELS = {
+    "ko": {
+        "critical": "치명",
+        "high": "높음",
+        "medium": "중간",
+        "low": "낮음",
+        "informational": "정보",
+        "info": "정보",
     },
 }
 
@@ -412,6 +452,7 @@ def assessment_markdown(assessment: dict[str, Any], language: str = "en") -> str
     were run against. A model that skips a section leaves a gap here too.
     """
     titles = SECTION_TITLES.get(language, SECTION_TITLES["en"])
+    levels = LEVEL_LABELS.get(language, {})
     lines: list[str] = []
 
     def section(key: str, body: list[str]) -> None:
@@ -428,11 +469,11 @@ def assessment_markdown(assessment: dict[str, Any], language: str = "en") -> str
         header.append("")
     if severity.get("level"):
         header.append(
-            f"- **{titles['severity']}: {severity['level']}** — {severity.get('rationale', '')}".rstrip(" —")
+            f"- **{titles['severity']}: {levels.get(str(severity['level']).lower(), severity['level'])}** — {severity.get('rationale', '')}".rstrip(" —")
         )
     if confidence.get("level"):
         header.append(
-            f"- **{titles['confidence']}: {confidence['level']}** — {confidence.get('rationale', '')}".rstrip(" —")
+            f"- **{titles['confidence']}: {levels.get(str(confidence['level']).lower(), confidence['level'])}** — {confidence.get('rationale', '')}".rstrip(" —")
         )
     section("assessment", header)
 
@@ -479,7 +520,7 @@ def assessment_markdown(assessment: dict[str, Any], language: str = "en") -> str
     section(
         "searches",
         [
-            f"- {item.get('title') or item.get('language') or 'Search'}: `{item['value']}`"
+            f"- {item.get('title') or item.get('language') or ('검색' if language == 'ko' else 'Search')}: `{item['value']}`"
             for item in assessment.get("recommended_searches", [])
             if item.get("value")
         ],

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block subtitle %}
+<p class="page-description">
+    Wazuh 단말의 식별 정보, 운영체제 상태, 최근 탐지를 확인합니다.
+</p>
+{% endblock %}
+
+{% block content %}
+<div id="host-detail-root"
+     data-agent-id="{{ agent_id }}">
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Wazuh 단말</p>
+                <h2 data-host-title>호스트를 불러오는 중…</h2>
+                <p class="muted" data-host-subtitle></p>
+            </div>
+
+            <a class="button secondary" href="/hosts">
+                호스트 목록
+            </a>
+        </div>
+
+        <div class="host-facts" data-host-facts></div>
+    </section>
+
+    <section class="panel"
+             data-host-pivots-section
+             hidden>
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">규칙 기반 조사</p>
+                <h2>호스트 조사 바로가기</h2>
+            </div>
+        </div>
+
+        <div class="button-row investigation-pivots"
+             data-host-pivots>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Syscollector</p>
+                <h2>운영체제</h2>
+            </div>
+        </div>
+
+        <div class="host-facts" data-host-system></div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Wazuh 보안 상태</p>
+                <h2>호스트 보안 상태</h2>
+            </div>
+        </div>
+
+        <div class="host-security-grid"
+             data-host-security>
+            <div class="loading-block">
+                보안 상태를 불러오는 중…
+            </div>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <p class="panel-kicker">Wazuh Indexer</p>
+                <h2>탐지 이력</h2>
+            </div>
+
+            <div class="host-detection-summary">
+                <strong data-host-alert-count>—</strong>
+                <span>건 탐지 · 최근 24시간</span>
+            </div>
+        </div>
+
+        <div class="host-alert-list" data-host-alerts>
+            <div class="loading-block">
+                최근 탐지를 불러오는 중…
+            </div>
+        </div>
+    </section>
+</div>
+
+<script src="{{ url_for('static', filename='hosts.js', v=asset_version) }}"></script>
+{% endblock %}

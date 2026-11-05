@@ -5,49 +5,69 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
     <title>{{ page_title }} · HAW-KI</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <script src="{{ url_for('static', filename='theme-init.js', v=asset_version) }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='fonts/pretendard-1.3.9/pretendard.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=asset_version) }}">
+{% if workspace_v1|default(false) %}
+<link rel="stylesheet" href="{{ url_for('static', filename='agent-workspace.css', v='evidence-panel-v1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='agent-collection-panel-v2.css', v='frontend-polish-v1') }}">
+{% endif %}
+{% if active_page == 'agent' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='agent-integration-v1.css', v='agent-integration-v1') }}">
+{% endif %}
+<!-- HAWKI VR ASSETS -->
+{% if active_page in ['hunts', 'response'] %}
+<link rel="stylesheet" href="{{ url_for('static', filename='vr-workspace.css', v=asset_version) }}">
+{% endif %}
 </head>
 <body data-page="{{ active_page }}">
 <div class="app-shell">
     <aside class="sidebar">
         <a class="brand" href="/" target="_self">
             <span class="brand-mark">H</span>
-            <span><strong>HAW-KI</strong><small>보안관제 (Security Operations)</small></span>
+            <span><strong>HAW-KI</strong><small>보안 관제</small></span>
         </a>
 
         <nav class="nav-list" aria-label="주 메뉴">
+            <p class="nav-group-label">모니터링</p>
             <a class="nav-item {{ 'active' if active_page == 'dashboard' else '' }}" href="/" target="_self"><span>⌁</span>대시보드</a>
-            <a class="nav-item {{ 'active' if active_page == 'agent' else '' }}" href="/agent" target="_self"><span>⌘</span>에이전트 (Agent)</a>
-            <a class="nav-item {{ 'active' if active_page == 'alerts' else '' }}" href="/alerts" target="_self"><span>⚠</span>보안 경보 (Alerts)</a>
+            <a class="nav-item {{ 'active' if active_page == 'alerts' else '' }}" href="/alerts" target="_self"><span>⚠</span>보안 경보</a>
+            <a class="nav-item {{ 'active' if active_page == 'hosts' else '' }}" href="/hosts" target="_self"><span>▣</span>호스트</a>
             <a class="nav-item {{ 'active' if active_page == 'logs' else '' }}" href="/logs" target="_self"><span>⌕</span>로그 검색</a>
-            <a class="nav-item {{ 'active' if active_page == 'hunts' else '' }}" href="/hunts" target="_self"><span>◎</span>파일 추적 (Hunts)</a>
+            <p class="nav-group-label">분석 · 대응</p>
+            <a class="nav-item {{ 'active' if active_page == 'agent' else '' }}" href="/agent" target="_self"><span>⌘</span>AI 분석 작업공간</a>
+            <a class="nav-item {{ 'active' if active_page == 'auto_reports' else '' }}" href="/auto-reports" target="_self"><span>▤</span>자동 보고서</a>
+            <a class="nav-item {{ 'active' if active_page == 'redteam' else '' }}" href="/redteam" target="_self"><span>⛨</span>레드팀 검증</a>
+            <a class="nav-item {{ 'active' if active_page == 'hunts' else '' }}" href="/hunts" target="_self"><span>◎</span>파일 추적</a>
             <a class="nav-item {{ 'active' if active_page == 'response' else '' }}" href="/response" target="_self"><span>◇</span>호스트 대응</a>
             <a class="nav-item {{ 'active' if active_page == 'rules' else '' }}" href="/rules" target="_self"><span>≡</span>Suricata 룰</a>
-            <a class="nav-item {{ 'active' if active_page == 'actions' else '' }}" href="/actions" target="_self"><span>✓</span>승인 대기</a>
-            <a class="nav-item {{ 'active' if active_page == 'audit' else '' }}" href="/audit" target="_self"><span>↺</span>감사 기록 (Audit)</a>
+            <p class="nav-group-label">승인 · 기록</p>
+            <a class="nav-item {{ 'active' if active_page == 'actions' else '' }}" href="/actions" target="_self"><span>✓</span>승인 대기열</a>
+            <a class="nav-item {{ 'active' if active_page == 'audit' else '' }}" href="/audit" target="_self"><span>↺</span>감사 로그</a>
         </nav>
 
-        <div class="sidebar-section">
-            <p class="sidebar-label">연결된 서비스</p>
-            <a class="service-link" href="{{ kibana_url }}" target="_self">
-                <span class="status-dot unknown" data-service-dot="kibana"></span><span>Kibana</span><small>↗</small>
-            </a>
-            <a class="service-link" href="{{ elasticsearch_url }}" target="_self">
-                <span class="status-dot unknown" data-service-dot="elasticsearch"></span><span>Elasticsearch</span><small>↗</small>
-            </a>
-            <a class="service-link" href="{{ velociraptor_url }}" target="_self">
-                <span class="status-dot unknown" data-service-dot="velociraptor"></span><span>Velociraptor</span><small>↗</small>
-            </a>
-            {% if suricata_ui_url %}
-            <a class="service-link" href="{{ suricata_ui_url }}" target="_self">
-                <span class="status-dot unknown" data-service-dot="suricata"></span><span>Suricata UI</span><small>↗</small>
+        <div class="sidebar-section sidebar-status">
+            <p class="sidebar-label">서비스 연결 상태 <small class="sidebar-checked" id="status-checked-at"></small></p>
+            {% set svc_rows = [
+                ('llm', 'LLM (vLLM)', ''),
+                ('wazuh_indexer', 'Wazuh Indexer', ''),
+                ('wazuh_dashboard', 'Wazuh Dashboard', wazuh_dashboard_url),
+                ('velociraptor', 'Velociraptor', velociraptor_url),
+                ('suricata', 'Suricata', suricata_ui_url),
+                ('redteam_runner', '레드팀 실행기', ''),
+            ] %}
+            {% for key, label, url in svc_rows %}
+            {% if url %}
+            <a class="service-link" href="{{ url }}" {% if key == 'wazuh_dashboard' %}target="_blank" rel="noopener noreferrer"{% else %}target="_self"{% endif %} data-service-row="{{ key }}">
+                <span class="status-dot unknown" data-service-dot="{{ key }}"></span><span>{{ label }} <small aria-hidden="true">↗</small></span><small data-service-short="{{ key }}">확인 중</small>
             </a>
             {% else %}
-            <div class="service-link disabled">
-                <span class="status-dot unknown" data-service-dot="suricata"></span><span>Suricata UI</span><small>미설정</small>
+            <div class="service-link" data-service-row="{{ key }}">
+                <span class="status-dot unknown" data-service-dot="{{ key }}"></span><span>{{ label }}</span><small data-service-short="{{ key }}">확인 중</small>
             </div>
             {% endif %}
+            {% endfor %}
         </div>
 
         <div class="sidebar-footer">
@@ -63,7 +83,7 @@
                 {% block subtitle %}{% endblock %}
             </div>
             <div class="topbar-actions">
-                <button class="theme-toggle topbar-icon-button" id="theme-toggle" type="button" aria-label="화면 테마 전환" title="화면 테마 전환">
+                <button class="theme-toggle topbar-icon-button" id="theme-toggle" type="button" aria-label="테마 전환" title="테마 전환">
                     <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
                         <circle cx="12" cy="12" r="4"></circle>
                         <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>
@@ -71,9 +91,8 @@
                     <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path>
                     </svg>
-                    <span class="sr-only" id="theme-toggle-label">화면 테마 전환</span>
+                    <span class="sr-only" id="theme-toggle-label">테마 전환</span>
                 </button>
-                <span class="global-health"><span class="status-dot unknown" data-service-dot="llm"></span><span id="global-health-text">서비스 확인 중</span></span>
                 <button class="topbar-icon-button" id="refresh-services" type="button"
                     aria-label="서비스 상태 새로고침" title="서비스 상태 새로고침">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -91,12 +110,26 @@
     </main>
 </div>
 <div id="toast-region" class="toast-region" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='sidebar-status.js', v=asset_version) }}" defer></script>
 <!-- Markdown, sanitization, and syntax highlighting, served from this origin.
      Install with: python tools/vendor_assets.py
      Absent, rendering falls back to escaped plain text. -->
+{% if workspace_v1|default(false) %}
+<script src="{{ url_for('static', filename='vendor/agent-integration-v1/marked.umd.js', v='agent-integration-v1') }}"></script>
+<script src="{{ url_for('static', filename='vendor/agent-integration-v1/purify.min.js', v='agent-integration-v1') }}"></script>
+{% else %}
 {% for script in vendor_scripts %}
 <script src="{{ url_for('static', filename='vendor/' + script, v=asset_version) }}"></script>
 {% endfor %}
+{% endif %}
+{% if workspace_v1|default(false) %}
+<script src="{{ url_for('static', filename='agent-collection-panel-v2.js', v='frontend-polish-v1') }}"></script>
+<script src="{{ url_for('static', filename='agent-evidence-panel-v1.js', v='frontend-polish-v1') }}"></script>
+<script src="{{ url_for('static', filename='agent-workspace.js', v='frontend-polish-v1') }}"></script>
+{% elif active_page in ['hunts', 'response'] %}
+<script type="module" src="{{ url_for('static', filename='vr-workspace.js', v='frontend-polish-v1') }}"></script>
+{% else %}
 <script src="{{ url_for('static', filename='app.js', v=asset_version) }}"></script>
+{% endif %}
 </body>
 </html>
