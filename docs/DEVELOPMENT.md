@@ -24,7 +24,7 @@ docker compose up -d
 → <http://127.0.0.1:5000>
 
 **GPU 가 없어도 화면과 증강 결과까지는 전부 볼 수 있습니다.** AI 분석 단계만 GPU 가 필요합니다.
-AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보세요.
+AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](RUNBOOK.md) 를 보세요.
 
 > `.env` 에는 비밀번호와 API 키가 들어 있어 저장소에 올라가지 않습니다. 단톡방으로 공유하지 마세요.
 
@@ -34,15 +34,13 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 
 | 문서 | 내용 |
 | --- | --- |
-| [`docs/STATUS.md`](docs/STATUS.md) | **프로젝트 현황판** — 진행 상황, 한계, 향후 계획, 역할 분담, 시연 대본 |
-| [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | **재시작 런북** — 켜고 끄는 전체 절차, 오류별 대처표 |
-| [`docs/MENTORING_LOG.md`](docs/MENTORING_LOG.md) | **멘토링 기록** — 회차별 지적과 그에 대한 결정 |
-| [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 설계 결정과 근거 |
-| [`docs/AWS_구축_가이드.md`](docs/AWS_구축_가이드.md) | **팀원용** — 담당 서버 접속과 설치 (Terraform 불필요) |
-| [`docs/ROLES.md`](docs/ROLES.md) · [`docs/역할분담_요약.md`](docs/역할분담_요약.md) | 역할 분담 (상세 / 요약) |
-| [`docs/diagrams/`](docs/diagrams/) | 네트워크 구성도 · 계층도 |
-| [`docs/팀장전용_인프라_운영.md`](docs/팀장전용_인프라_운영.md) | 팀장 전용 — Terraform · GPU · 계정/키 · 비용 |
-| [`infra/terraform/README.md`](infra/terraform/README.md) | 인프라 코드 사용법 |
+| [`docs/STATUS.md`](STATUS.md) | **프로젝트 현황판** — 진행 상황, 한계, 향후 계획, 역할 분담, 시연 대본 |
+| [`docs/RUNBOOK.md`](RUNBOOK.md) | **재시작 런북** — 켜고 끄는 전체 절차, 오류별 대처표 |
+| [`docs/MENTORING_LOG.md`](MENTORING_LOG.md) | **멘토링 기록** — 회차별 지적과 그에 대한 결정 |
+| [`docs/PROJECT_NOTES.md`](PROJECT_NOTES.md) | 설계 결정과 근거 |
+| [`docs/ROLES.md`](ROLES.md) · [`docs/역할분담_요약.md`](역할분담_요약.md) | 역할 분담 (상세 / 요약) |
+| [`docs/diagrams/`](diagrams/) | 네트워크 구성도 · 계층도 |
+| [`infra/terraform/README.md`](../infra/terraform/README.md) | 인프라 코드 사용법 |
 
 ---
 
@@ -54,7 +52,7 @@ AWS GPU 를 켜고 끄는 방법은 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) 를 보
 
 - 대시보드에 Wazuh 시각화와 같은 집계를 연결 (`/api/dashboard/wazuh-visuals`): 심각도별 추이, 막힘/통과 판정, MITRE, 상태 코드, 요청 URL
 - 경보마다 서버별 원본 → 이벤트 → 경보 → 증거 패키지 → AI 증거 수집 → AI 판단 → 조치를 보는 캡처 화면 (`/alerts/<id>/flow`) 과 결과 자료 내보내기 (`tools/capture_flow.py`)
-- 설명과 시험 환경 예시: [`docs/flow_capture/README.md`](docs/flow_capture/README.md)
+- 설명과 시험 환경 예시: [`docs/flow_capture/README.md`](flow_capture/README.md)
 - 캡처에 모델에 보낸 증거 패키지 원본과 모델 응답 원문을 저장하고 감사 로그 해시와 대조 · 자동 보고서도 캡처 · 캡처 이전 분석은 마지막 분석 결과로 채움(검증 안 됨 표시) · ⑦ 은 제안·승인 상태만 (실행 결과 미연동)
 
 ### 2026-08-25 — 멘토링 피드백 반영
